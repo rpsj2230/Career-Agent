@@ -33,7 +33,7 @@ discover (Adzuna / JSearch / Remotive / Greenhouse / Lever / manual paste)
 - Daily and weekly caps for automated applications, including a separate LinkedIn cap. When a cap is hit the
   package is prepared for manual submission; nothing is dropped.
 - A LinkedIn security checkpoint switches LinkedIn automation off immediately.
-- The app fails closed: with no `APP_PASSWORD` set, nothing is reachable.
+- Sign-in uses Supabase Auth (email + password). Only emails in `ALLOWED_EMAILS` can reach any page or API; the app fails closed, so with no allowlist nothing is reachable. Creating an account needs both an allowed email and your secret `INVITE_CODE`, so nobody can register your address before you do.
 
 ## Setup (about 30 minutes)
 
@@ -41,12 +41,16 @@ discover (Adzuna / JSearch / Remotive / Greenhouse / Lever / manual paste)
    Copy the project URL and the `service_role` key (Project Settings -> API).
 2. **Vercel**: import this GitHub repo. Add the environment variables from `.env.example`
    (at minimum the Required block plus one model key). Deploy.
+   `SUPABASE_ANON_KEY` is the `anon` key from Project Settings -> API. `ALLOWED_EMAILS` is your email.
+   `INVITE_CODE` is any random string of 16+ characters (for example `openssl rand -base64 24`).
 3. **GitHub** (repo Settings -> Secrets and variables -> Actions) add:
    `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `APP_URL`, `CRON_SECRET`, and optionally
    `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `LINKEDIN_STORAGE_STATE`.
    Create a fine-grained token limited to this repo with "Actions: read and write" and put it in Vercel as
    `GITHUB_DISPATCH_TOKEN`.
-4. Open the app and sign in (any username, your `APP_PASSWORD`). The dashboard shows a three-step checklist:
+4. Open the app. On the sign-in page choose **Create account**, enter your allowed email, a password (10+ characters)
+   and the invite code. You are signed in and your browser or password manager can remember the login from then on.
+   The dashboard shows a three-step checklist:
    import your profile, add a model key, set roles and countries.
 
 ### Free model keys
@@ -79,7 +83,7 @@ npm run typecheck && npx eslint . && npm test
 npm run worker:apply         # needs APPLICATION_ID + Supabase env; normally run by GitHub Actions
 ```
 
-`npm test` runs 67 tests: the verifier, model fallback, importers, job mappers and dedupe, caps, auth gate, the
+`npm test` runs 76 tests: the verifier, model fallback, importers, job mappers and dedupe, caps, access rules and signup guards, the
 SQL migration on an embedded Postgres (PGlite), and the form filler in a real Chromium against a local
 fixture. The browser tests need Chromium (`npx playwright install chromium`, or set `CHROMIUM_PATH`) and are
 skipped when no browser path is configured.
