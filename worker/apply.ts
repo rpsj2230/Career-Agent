@@ -106,6 +106,7 @@ async function processInner(sb: SupabaseClient, appId: string) {
   const ctx = { applicant, answers: (app.answers as Answer[]) ?? [], resumePath, coverPath };
 
   // Everything below is recorded so the application page can show exactly what was sent.
+  let baselineConfirmation = false;
   const startedAt = new Date().toISOString();
   const entered: FieldEntry[] = [];
   let steps = 0;
@@ -171,12 +172,22 @@ async function processInner(sb: SupabaseClient, appId: string) {
       entered.push(...r.entries); steps++;
       await event("form_filled", { filled: r.filled, unanswered: r.unanswered });
       if (r.unanswered.length) { unansweredNow.push(...r.unanswered); throw new Handback("needs_input", `Needs you: ${r.unanswered.join("; ")}`); }
+      // never press a button on a page that has no form: it would be a "job description" page, a login wall or a closed role
+      if (r.entries.length === 0) throw new Handback("needs_input", "No application form was found on this page (it may need a sign-in, or the role may be closed); apply on the employer's site");
       await checkBlock();
+      baselineConfirmation = CONFIRMATION.test(await page.innerText("body").catch(() => ""));
       if (!(await clickSubmit(page))) throw new Handback("needs_input", "Could not find a submit button");
     }
 
-    await page.waitForFunction((src) => new RegExp(src, "i").test(document.body.innerText), CONFIRMATION.source, { timeout: 25_000 })
-      .catch(() => { throw new Handback("needs_input", "Submitted, but no confirmation message was detected; check your email or the employer site before retrying"); });
+    // If the page already contained confirmation-like text before pressing submit (a footer, a "thank you for your interest"),
+    // that text proves nothing: also require the form itself to be gone.
+    await page.waitForFunction(({ src, needFormGone }) => {
+      const text = new RegExp(src, "i").test(document.body.innerText);
+      if (!text) return false;
+      if (!needFormGone) return true;
+      return ![...document.querySelectorAll("form input:not([type=hidden]), form textarea, form select")].some((el) => (el as HTMLElement).offsetParent !== null);
+    }, { src: CONFIRMATION.source, needFormGone: baselineConfirmation }, { timeout: 25_000 })
+      .catch(() => { throw new Handback("needs_input", "Pressed submit, but no confirmation message was detected; check your email or the employer site before retrying"); });
 
     const shot = `screenshots/${appId}/confirmation.png`;
     await sb.storage.from("documents").upload(shot, await page.screenshot({ fullPage: true }), { contentType: "image/png", upsert: true });

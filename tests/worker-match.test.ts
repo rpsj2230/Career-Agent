@@ -14,13 +14,29 @@ describe("matchAnswer", () => {
   it("matches by question family despite different wording", () => {
     expect(matchAnswer("How soon can you join? (notice period)", bank)).toBe("60 days");
     expect(matchAnswer("What is your salary expectation?", bank)).toBe("32 LPA");
-    expect(matchAnswer("Do you require visa sponsorship?", bank)).toBe("Yes, with an Employment Pass");
+  });
+  it("never answers a sponsorship question from a work-authorisation answer (they mean opposite things)", () => {
+    expect(matchAnswer("Do you require visa sponsorship?", bank)).toBeNull();
+    expect(matchAnswer("Will you now or in the future require sponsorship?", bank)).toBeNull();
+    const withSponsor = [...bank, { question: "Will you require visa sponsorship?", answer: "Yes" }];
+    expect(matchAnswer("Do you require sponsorship to work here?", withSponsor)).toBe("Yes");
+  });
+  it("reuses an authorisation answer only for the country it was written for", () => {
+    expect(matchAnswer("Are you legally authorised to work in Singapore?", bank)).toBe("Yes, with an Employment Pass");
+    expect(matchAnswer("Are you authorised to work in India?", bank)).toBeNull();
+    expect(matchAnswer("Do you have the right to work in the United Kingdom?", bank)).toBeNull();
+    expect(matchAnswer("Are you eligible to work in this country?", bank)).toBe("Yes, with an Employment Pass");
   });
   it("matches by word overlap and refuses weak matches", () => {
     expect(matchAnswer("Are you willing to relocate?", bank)).toBe("Yes");
     expect(matchAnswer("Describe your favourite programming language", bank)).toBeNull();
     expect(matchAnswer("Blank", bank)).toBeNull();
   });
+});
+
+describe("CONFIRMATION recognises real confirmation pages", () => {
+  it.each(["Thank you for applying!", "Thanks for applying to Acme", "Your application has been submitted.", "Application submitted!", "We have received your application", "We've received your application and will be in touch", "You've successfully applied", "Application received", "Your application was successfully submitted"])("%s", (t) => expect(CONFIRMATION.test(t)).toBe(true));
+  it.each(["Apply for this job", "Submit your application below", "Please submit the form", "Applications close on Friday"])("not: %s", (t) => expect(CONFIRMATION.test(t)).toBe(false));
 });
 
 describe("standardValue / splitName", () => {

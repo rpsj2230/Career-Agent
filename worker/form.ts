@@ -138,11 +138,15 @@ export async function fillForm(page: Page, ctx: FillContext): Promise<FillResult
   return { filled, unanswered, entries };
 }
 
-/** Click the form's submit control. Returns false when none is found. */
+/**
+ * Click the form's submit control. The form's own submit button comes first, then a button that says submit/send, and only
+ * as a last resort a bare "Apply" (which on many job pages is just a link down to the form). Returns false when none exists.
+ */
 export async function clickSubmit(page: Page): Promise<boolean> {
   const candidates = [
-    page.getByRole("button", { name: /submit application|submit|send application|apply/i }),
-    page.locator('input[type="submit"], button[type="submit"]'),
+    page.locator('form input[type="submit"], form button[type="submit"]'),
+    page.getByRole("button", { name: /submit application|send application|submit|send/i }),
+    page.getByRole("button", { name: /^\s*apply\b/i }),
   ];
   for (const c of candidates) {
     const first = c.first();

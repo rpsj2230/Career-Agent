@@ -1,6 +1,6 @@
 // End-to-end: real built Next app + mock Supabase. Run with: npm run build && npm run test:e2e
 import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { startFakeImap } from "./fake-imap.mjs";
 import { startMock } from "./mock-supabase.mjs";
 
@@ -35,10 +35,40 @@ async function call(path, { method = "GET", body, auth = true, headers = {} } = 
 let failed = 0;
 const check = (name, ok, extra = "") => { if (!ok) failed++; console.log(`${ok ? "PASS" : "FAIL"}  ${name}${ok ? "" : "  -> " + extra}`); };
 
+// every API route and method in the codebase, discovered from the files, so a new route cannot be forgotten
+const apiRoutes = [];
+(function walk(dir) {
+  for (const name of readdirSync(dir)) {
+    const full = `${dir}/${name}`;
+    if (statSync(full).isDirectory()) walk(full);
+    else if (name === "route.ts") {
+      const methods = [...readFileSync(full, "utf8").matchAll(/export async function (GET|POST|PUT|PATCH|DELETE)\b/g)].map((m) => m[1]);
+      const path = full.replace("src/app", "").replace("/route.ts", "").replace(/\[id\]/g, "00000000-0000-4000-8000-000000000000");
+      for (const method of methods) apiRoutes.push({ path, method });
+    }
+  }
+})("src/app/api");
+const PUBLIC_API = new Set(["/api/auth/login", "/api/auth/signup", "/api/auth/logout"]);
 const PW = "correct horse battery";
 let r;
 r = await call("/", { auth: false });             check("signed-out page redirects to /login", r.status === 307 && r.location?.endsWith("/login"), `${r.status} ${r.location}`);
 r = await call("/api/files?path=x", { auth: false }); check("signed-out API gets 401", r.status === 401, r.status);
+{
+  const guarded = apiRoutes.filter((x) => !PUBLIC_API.has(x.path));
+  const open = [];
+  for (const x of guarded) {
+    const res = await call(x.path, { method: x.method, auth: false, body: x.method === "GET" ? undefined : {} });
+    if (res.status !== 401) open.push(`${x.method} ${x.path} -> ${res.status}`);
+  }
+  check(`all ${guarded.length} protected API handlers refuse a request with no session`, open.length === 0, open.join("; "));
+  const cron = guarded.filter((x) => x.path.startsWith("/api/cron/"));
+  const wrong = [];
+  for (const x of cron) { const res = await call(x.path, { method: x.method, auth: false, headers: { Authorization: "Bearer not-the-secret" } }); if (res.status !== 401) wrong.push(`${x.path} -> ${res.status}`); }
+  check("cron endpoints refuse a wrong bearer token", wrong.length === 0, wrong.join("; "));
+  const crossed = [];
+  for (const x of guarded.filter((y) => !y.path.startsWith("/api/cron/"))) { const res = await call(x.path, { method: x.method, auth: false, headers: { Authorization: `Bearer ${SECRET}` } }); if (res.status !== 401) crossed.push(`${x.method} ${x.path} -> ${res.status}`); }
+  check("the cron token opens nothing outside /api/cron", crossed.length === 0, crossed.join("; "));
+}
 r = await call("/api/auth/signup", { method: "POST", body: { email: "me@x.com", password: PW, code: "wrong" } }); check("sign-up with wrong invite code refused", r.status === 403, r.status);
 r = await call("/api/auth/signup", { method: "POST", body: { email: "me@x.com", password: "short", code: SECRET } }); check("sign-up with weak password refused", r.status === 400, r.status);
 r = await call("/api/auth/login", { method: "POST", body: { email: "me@x.com", password: PW } }); check("login before any account exists fails", r.status === 401, r.status);
@@ -59,6 +89,11 @@ r = await call("/login"); check("login page still reachable while signed in", r.
 mock.users.set("stranger@x.com", { id: "u99", email: "stranger@x.com", password: PW });
 const saved = new Map(jar); jar.clear();
 r = await call("/api/auth/login", { method: "POST", body: { email: "stranger@x.com", password: PW } }); check("valid Supabase user who is not the owner is refused (403)", r.status === 403, `${r.status} ${r.text}`);
+{
+  const blocked = [];
+  for (const x of apiRoutes.filter((y) => !PUBLIC_API.has(y.path))) { const res = await call(x.path, { method: x.method, headers: {} , body: x.method === "GET" ? undefined : {} }); if (res.status !== 401 && res.status !== 403) blocked.push(`${x.method} ${x.path} -> ${res.status}`); }
+  check("a signed-in user who is not the owner is refused on every API route", blocked.length === 0, blocked.join("; "));
+}
 r = await call("/api/files?path=bad"); check("...and gets no access afterwards", r.status === 401, r.status);
 
 jar.clear(); for (const [k, v] of saved) jar.set(k, v);
@@ -326,6 +361,45 @@ r = await call("/schedules"); check("the Schedules page shows the last run and i
 r = await call(`/logs/runs/${mock.rowsOf("automation_runs").filter((x) => x.kind === "pipeline").at(-1).id}`); check("the pipeline run has a detail page with its log", r.status === 200 && r.text.includes("pipeline run"), `${r.status}`);
 r = await call(`/api/schedules/${askId}`, { method: "DELETE" });
 
+// ---- the agent with an imperfect model
+{
+  const chat = () => mock.seen.chatPrompts ?? [];
+  // (1) a sloppy model: fenced JSON, decimal-as-text scores, a first draft that invents tools and numbers
+  mock.fixtures.chatMode = "sloppy";
+  r = await call("/api/jobs/manual", { method: "POST", body: { url: "https://boards.greenhouse.io/sloppyco/jobs/77", title: "Product Manager", company: "SloppyCo", description: longDesc, country: "sg" } });
+  r = await call("/api/cron/score?limit=40"); check("scoring survives a model that fences its JSON and sends the score as text", r.status === 200 && r.json?.scored >= 1, `${r.status} ${r.text}`);
+  const sj = mock.rowsOf("jobs").find((j) => j.company === "SloppyCo");
+  const sscore = mock.rowsOf("job_scores").find((x) => x.job_id === sj.id);
+  check("the score is stored as a whole number and the job queued", sscore?.score === 83 && Number.isInteger(sscore.score) && sj.status === "queued", JSON.stringify({ sscore, st: sj.status }));
+  const before = chat().length;
+  r = await call(`/api/jobs/${sj.id}/prepare`, { method: "POST" }); check("preparing with a sloppy model works", r.status === 200 && r.json?.verified === true, `${r.status} ${r.text}`);
+  const calls = chat().slice(before);
+  check("the invented tools were caught and the model was asked again with the reasons", calls.some((c) => c.task === "tailor" && !c.retry) && calls.some((c) => c.task === "tailor" && c.retry && /not found anywhere in the candidate's profile: Kubernetes/.test(c.prompt)), JSON.stringify(calls.map((c) => [c.task, c.retry])));
+  check("the invented number in the cover letter was caught the same way", calls.some((c) => c.task === "cover" && c.retry && /number\(s\) not in cited sources: 40/.test(c.prompt)), JSON.stringify(calls.filter((c) => c.task === "cover").map((c) => c.prompt.slice(-200))));
+  const sdocs = mock.rowsOf("documents").filter((d) => d.job_id === sj.id);
+  check("the final documents are clean: no invented tool, no invented number", sdocs.length === 2 && sdocs.every((d) => d.verification.ok && d.verification.attempts === 2) && !JSON.stringify(sdocs.map((d) => d.content)).match(/Kubernetes|Terraform|Google|40 engineers/), JSON.stringify(sdocs.map((d) => d.verification)));
+
+  // (2) a model that keeps inventing: the documents are flagged, approval is blocked, and an auto-applying schedule never submits them
+  mock.fixtures.chatMode = "broken";
+  r = await call("/api/jobs/manual", { method: "POST", body: { url: "https://boards.greenhouse.io/brokenco/jobs/78", title: "Product Manager", company: "BrokenCo", description: longDesc, country: "sg" } });
+  r = await call("/api/cron/score?limit=40");
+  const bj = mock.rowsOf("jobs").find((j) => j.company === "BrokenCo");
+  r = await call(`/api/jobs/${bj.id}/prepare`, { method: "POST" }); check("a model that keeps inventing still produces a package, flagged as unverified", r.status === 200 && r.json?.verified === false, `${r.status} ${r.text}`);
+  const bapp = mock.rowsOf("applications").find((a) => a.job_id === bj.id);
+  check("the unverified documents record their problems", mock.rowsOf("documents").filter((d) => d.job_id === bj.id).some((d) => !d.verification.ok && d.verification.issues.length > 0), "no issues stored");
+  r = await call(`/api/applications/${bapp.id}`, { method: "POST", body: { action: "approve" } }); check("one-click approval of unverified documents is refused", r.status === 409 && /not in your profile/.test(r.text) && mock.rowsOf("applications").find((a) => a.id === bapp.id).status === "prepared", `${r.status} ${r.text}`);
+  r = await call("/api/schedules", { method: "POST", body: { name: "Auto unverified", frequency: "daily", timezone: "Asia/Singapore", countries: ["sg"], integrations: ["remotive"], mode: "scan_prepare_apply", require_approval: false, max_prepare: 20, max_apply: 5 } });
+  const autoBadId = JSON.parse(r.text).id; dueNow(autoBadId);
+  await ghJob("brokenauto", "BrokenAutoCo");
+  const w2 = await runWorker();
+  const baApp = mock.rowsOf("applications").find((a) => a.job_id === mock.rowsOf("jobs").find((j) => j.company === "BrokenAutoCo")?.id);
+  check("an auto-applying schedule with a misbehaving model prepares the application but never approves it", w2.code === 0 && baApp?.status === "prepared" && !mock.rowsOf("activity_log").some((l) => l.kind === "application.approved" && l.application_id === baApp.id), `${w2.code} ${JSON.stringify(baApp?.status)} ${w2.text.slice(-300)}`);
+  check("and the ready-to-submit count told to GitHub excludes it", !/ready_to_submit=[1-9]/.test(w2.output) || mock.rowsOf("applications").filter((a) => a.status === "approved" && a.id === baApp?.id).length === 0, w2.output);
+  r = await call(`/api/schedules/${autoBadId}`, { method: "DELETE" });
+  mock.fixtures.chatMode = "normal";
+}
+
+
 // "Run now" with no GitHub connection runs the search and scoring part inline and says what was left out
 r = await call("/api/schedules", { method: "POST", body: { name: "Manual", frequency: "daily", timezone: "Asia/Singapore", countries: ["sg"], integrations: ["remotive"], mode: "scan_prepare" } });
 const manId = JSON.parse(r.text).id;
@@ -338,11 +412,11 @@ r = await call(`/api/schedules/${manId}`, { method: "DELETE" });
 const { createHash, randomUUID } = await import("node:crypto");
 const { pathToFileURL } = await import("node:url");
 const RESUME_BYTES = Buffer.from("resume-bytes-v1"), COVER_BYTES = Buffer.from("cover-bytes-v1");
-const formUrl = (hash = "") => pathToFileURL(`${process.cwd()}/tests/fixtures/greenhouse-like.html`).href + hash;
-function seedApproved(company, hash, approvedAt) {
+const formUrl = (hash = "", fixture = "greenhouse-like") => pathToFileURL(`${process.cwd()}/tests/fixtures/${fixture}.html`).href + hash;
+function seedApproved(company, hash, approvedAt, fixture = "greenhouse-like") {
   const jobId = randomUUID(), resumeId = randomUUID(), coverId = randomUUID(), appId = randomUUID();
   mock.files.set(`${jobId}/resume-v1.docx`, RESUME_BYTES); mock.files.set(`${jobId}/cover-letter-v1.docx`, COVER_BYTES);
-  mock.rowsOf("jobs").push({ id: jobId, source: "manual", external_id: appId, dedupe_key: appId, title: "Product Manager", company, country: "sg", url: formUrl(hash), apply_type: "greenhouse", portal: "greenhouse", description: "d", status: "prepared", found_at: new Date().toISOString() });
+  mock.rowsOf("jobs").push({ id: jobId, source: "manual", external_id: appId, dedupe_key: appId, title: "Product Manager", company, country: "sg", url: formUrl(hash, fixture), apply_type: "greenhouse", portal: "greenhouse", description: "d", status: "prepared", found_at: new Date().toISOString() });
   mock.rowsOf("documents").push({ id: resumeId, job_id: jobId, kind: "resume", version: 1, content: {}, storage_path: `${jobId}/resume-v1.docx` }, { id: coverId, job_id: jobId, kind: "cover_letter", version: 1, content: {}, storage_path: `${jobId}/cover-letter-v1.docx` });
   mock.rowsOf("applications").push({ id: appId, job_id: jobId, resume_doc_id: resumeId, cover_doc_id: coverId, status: "approved", method: "automated", approved_at: approvedAt, answers: [{ question: "Expected CTC", answer: "32 LPA", source: "bank" }, { question: "Are you legally authorised to work in India?", answer: "Yes" }, { question: "Are you willing to relocate?", answer: "No" }], portal: "greenhouse", country: "sg", lifecycle: "none", created_at: new Date().toISOString() });
   return { jobId, appId };
@@ -358,6 +432,10 @@ const runApplyWorker = (extra = {}) => new Promise((resolve) => {
 if (process.env.PLAYWRIGHT_BROWSERS_PATH || process.env.CHROMIUM_PATH) {
   const good = seedApproved("FormCo", "", new Date(Date.now() - 20_000).toISOString());
   const stuck = seedApproved("StuckCo", "#unknown", new Date(Date.now() - 10_000).toISOString());
+  const noForm = seedApproved("NoFormCo", "", new Date(Date.now() - 9_000).toISOString(), "job-page-only");
+  const footer = seedApproved("FooterCo", "", new Date(Date.now() - 8_000).toISOString(), "interest-footer");
+  const sponsor = seedApproved("SponsorCo", "#sponsor", new Date(Date.now() - 7_000).toISOString(), "lever-like");
+  const leverOk = seedApproved("LeverCo", "", new Date(Date.now() - 6_000).toISOString(), "lever-like");
   const wk = await runApplyWorker();
   const orphan = mock.rowsOf("applications").find((a) => a.status === "failed" && /download/i.test(a.error ?? ""));
   check("an application whose files are missing is failed with the reason, and the rest of the batch still runs", wk.code === 1 && /approved application\(s\) to submit/.test(wk.text) && !!orphan, `${wk.code} ${JSON.stringify(orphan)} ${wk.text.slice(-500)}`);
@@ -372,6 +450,11 @@ if (process.env.PLAYWRIGHT_BROWSERS_PATH || process.env.CHROMIUM_PATH) {
   check("a form needing a human is handed back, not guessed", a2.status === "needs_input" && /favourite sorting algorithm/.test(a2.error ?? ""), JSON.stringify({ s: a2.status, e: a2.error }));
   check("the hand-back keeps what was filled and what was missing", a2.submission?.outcome === "needs_input" && a2.submission.unanswered.includes("Name your favourite sorting algorithm") && a2.submission.fields.length > 0 && a2.submission.confirmation === null && !!a2.submission.error, JSON.stringify(a2.submission)?.slice(0, 400));
   check("the hand-back is logged as needing the user", mock.rowsOf("activity_log").some((l) => l.kind === "application.needs_input" && l.application_id === stuck.appId), "no log");
+  const st = (x) => mock.rowsOf("applications").find((a) => a.id === x.appId);
+  check("a page with no form is handed back, and no button was pressed", st(noForm).status === "needs_input" && /No application form was found/.test(st(noForm).error ?? "") && st(noForm).submission?.fields.length === 0, JSON.stringify({ s: st(noForm).status, e: st(noForm).error }));
+  check("a page whose footer already looks like a confirmation does not count as submitted", st(footer).status === "needs_input" && /no confirmation message was detected/.test(st(footer).error ?? "") && !st(footer).submitted_at && mock.rowsOf("jobs").find((j) => j.id === footer.jobId).status !== "applied", JSON.stringify({ s: st(footer).status, e: st(footer).error }));
+  check("a visa-sponsorship question is never answered from the authorisation answer", st(sponsor).status === "needs_input" && /visa sponsorship/.test(st(sponsor).error ?? "") && !st(sponsor).submitted_at, JSON.stringify({ s: st(sponsor).status, e: st(sponsor).error }));
+  check("a Lever-style application is submitted and its record keeps the name, company and answers", st(leverOk).status === "submitted" && st(leverOk).submission?.fields.some((f) => f.label.toLowerCase().includes("full name") && f.value === "Asha Rao") && st(leverOk).submission.fields.some((f) => f.value === "32 LPA"), JSON.stringify(st(leverOk).submission?.fields ?? st(leverOk).error));
   const again = await runApplyWorker();
   check("running the worker again does nothing and never submits twice", again.code === 0 && /No approved applications/.test(again.text) && mock.rowsOf("applications").find((a) => a.id === good.appId).status === "submitted", again.text.slice(-300));
   const single = await runApplyWorker({ APPLICATION_ID: good.appId });
@@ -594,6 +677,16 @@ r = await call("/api/models/test", { method: "POST", body: { label: "e2e-model" 
 check("the provider received the decrypted key as a bearer token", mock.seen.lastChatAuth === `Bearer ${KEY}`, String(mock.seen.lastChatAuth));
 r = await call("/api/models/key?label=e2e-model", { method: "DELETE" }); check("removing the saved key works", r.status === 200, r.status);
 r = await call("/api/models/test", { method: "POST", body: { label: "e2e-model" } }); check("after removal the test is refused again", r.status === 422, r.status);
+// ---- secrets never appear in any stored record or in the server's own log
+{
+  const secrets = { "Adzuna key": "ADZ-KEY-456", "Adzuna id": "ADZ-ID-123", "RapidAPI key": "RAPID-KEY-789", "model key": KEY, "pipeline model key": PIPE_KEY, "mailbox password": "app-pass-SECRET", "wrong mailbox password": "wrong-password", "account password": PW, "cron secret": SECRET, "Telegram token": "tg-token-123", "service key": "service-key" };
+  const stores = ["activity_log", "apply_events", "portal_scans", "automation_runs", "daily_reports", "integrations", "applications", "jobs", "model_usage"];
+  const dump = JSON.stringify(stores.flatMap((t) => mock.rowsOf(t)));
+  const leaked = Object.entries(secrets).filter(([, v]) => dump.includes(v)).map(([k]) => k);
+  check("no secret value is present in any activity, run, scan, report, job or application record", leaked.length === 0, leaked.join(", "));
+  const leakedLog = Object.entries(secrets).filter(([, v]) => log.includes(v)).map(([k]) => k);
+  check("no secret value is present in the server's console output", leakedLog.length === 0, leakedLog.join(", "));
+}
 r = await call("/api/auth/logout", { method: "POST" }); check("logout succeeds and clears cookies", r.status === 200 && jar.size === 0, `${r.status} cookies=${jar.size}`);
 r = await call("/api/files?path=bad"); check("after logout the API is closed again", r.status === 401, r.status);
 r = await call("/api/models/key", { method: "PUT", body: { label: "e2e-model", apiKey: KEY } }); check("after logout nobody can save keys", r.status === 401, r.status);

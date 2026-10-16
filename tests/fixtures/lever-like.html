@@ -1,0 +1,22 @@
+<!doctype html><html><body>
+<h1>Product Manager - Acme</h1>
+<form id="application-form">
+  <div class="application-question resume">
+    <label>Resume/CV <span class="required">✱</span><input type="file" name="resume" required style="opacity:0;position:absolute"></label>
+    <button type="button" class="attach">ATTACH RESUME/CV</button>
+  </div>
+  <div class="application-question"><label><div class="application-label">Full name <span class="required">✱</span></div><div class="application-field"><input type="text" name="name" required></div></label></div>
+  <div class="application-question"><label><div class="application-label">Email <span class="required">✱</span></div><div class="application-field"><input type="email" name="email" required></div></label></div>
+  <div class="application-question"><label><div class="application-label">Phone</div><div class="application-field"><input type="text" name="phone"></div></label></div>
+  <div class="application-question"><label><div class="application-label">Current company</div><div class="application-field"><input type="text" name="org"></div></label></div>
+  <div class="application-question"><label><div class="application-label">LinkedIn URL</div><div class="application-field"><input type="text" name="urls[LinkedIn]"></div></label></div>
+  <div class="application-question custom-question"><label><div class="application-label">Expected CTC <span class="required">✱</span></div><div class="application-field"><input type="text" name="cards[1][field0]" required></div></label></div>
+  <div id="extra"></div>
+  <button type="submit" id="btn-submit">Submit application</button>
+</form>
+<script>
+  document.getElementById('application-form').addEventListener('submit', e => { e.preventDefault(); document.body.innerHTML = '<h2>Application submitted!</h2><p>We will be in touch.</p>'; });
+  if (location.hash === '#sponsor') document.getElementById('extra').innerHTML = '<div class="application-question"><label><div class="application-label">Will you now or in the future require visa sponsorship? <span class="required">✱</span></div><div class="application-field"><input type="text" name="cards[2][field0]" required></div></label></div>';
+  if (location.hash === '#india') document.getElementById('extra').innerHTML = '<div class="application-question"><label><div class="application-label">Are you legally authorised to work in India? <span class="required">✱</span></div><div class="application-field"><input type="text" name="cards[3][field0]" required></div></label></div>';
+</script>
+</body></html>

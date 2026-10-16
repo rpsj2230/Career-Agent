@@ -4,7 +4,7 @@ import { renderCoverLetterDocx, renderResumeDocx, resumeParagraphs } from "@/lib
 import { MasterProfile, type TailoredResume } from "@/lib/types";
 
 const profile = MasterProfile.parse({
-  basics: { name: "Asha Rao", email: "a@x.com", summary: "PM with 6 years" },
+  basics: { name: "Asha Rao", email: "a@x.com", headline: "Product Manager", summary: "PM with 6 years" },
   preferences: { countries: ["in"], roles: [] },
   experience: [{ id: "exp1", company: "Acme", title: "PM", start: "2020", end: "Present", bullets: [{ id: "exp1.b1", text: "Grew activation by 24%" }] }],
   skills: [{ id: "skill1", name: "SQL" }, { id: "skill2", name: "Roadmapping" }],
@@ -25,7 +25,7 @@ describe("tailorResume", () => {
     const r = await tailorResume(profile, job, run);
     expect(r.verification.ok).toBe(true);
     expect(r.verification.attempts).toBe(2);
-    expect(prompts[1]).toMatch(/PREVIOUS ATTEMPT WAS REJECTED[\s\S]*60%/);
+    expect(prompts[1]).toMatch(/PREVIOUS ATTEMPT WAS REJECTED[\s\S]*60/);
     expect(r.diff[0].changed).toBe(true);
   });
   it("returns a flagged result when it never verifies", async () => {

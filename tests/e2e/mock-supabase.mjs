@@ -283,17 +283,24 @@ export function startMock(port) {
       const system = body.messages?.find((m) => m.role === "system")?.content ?? "";
       const prompt = body.messages?.find((m) => m.role === "user")?.content ?? "";
       let content = '{"answer":"4"}';
+      const mode = externalFixtures.chatMode ?? "normal"; // "sloppy": fenced/odd JSON and a first draft that invents things; "broken": never gets it right
+      const retry = /PREVIOUS ATTEMPT WAS REJECTED/.test(prompt);
+      seen.chatCalls = (seen.chatCalls ?? 0) + 1; (seen.chatPrompts ??= []).push({ task: /tailor a candidate's resume/.test(system) ? "tailor" : /short cover letter/.test(system) ? "cover" : "score", retry, prompt: prompt.slice(-600) });
       if (/You assess how well a job matches/.test(system)) {
         const low = /Principal/.test(prompt);
         content = JSON.stringify({ score: low ? 40 : 82, matchedSkills: ["SQL"], gaps: low ? ["Team leadership"] : [], seniorityFit: "ok", locationVisaFit: "ok", salarySignal: "unknown", summary: low ? "Too senior for this profile" : "Strong match" });
+        if (mode !== "normal") content = "Sure! Here is my assessment:\n```json\n" + content.replace('"score":82', '"score":"82.5"').replace('"score":40', '"score":"40.2"') + "\n```";
       } else if (/tailor a candidate's resume/.test(system)) {
         const exp = prompt.match(/\[(exp\d+)\] /)?.[1];
         const bullet = prompt.match(/\[(exp\d+\.b\d+)\] ([^\n]+)/);
         const skill = prompt.match(/\[(skill\d+)\]/)?.[1];
-        content = JSON.stringify({ headline: "Product Manager", summary: { text: "Product manager with relevant experience", sourceIds: ["summary"] }, experience: [{ experienceId: exp, bullets: [{ text: bullet?.[2], sourceIds: [bullet?.[1]] }] }], skillIds: skill ? [skill] : [], certificationIds: [] });
+        const invent = mode === "broken" || (mode === "sloppy" && !retry); // the first draft of a sloppy model makes things up
+        content = JSON.stringify({ headline: "Product Manager", summary: { text: "Product manager with relevant experience", sourceIds: ["summary"] }, experience: [{ experienceId: exp, bullets: [{ text: invent ? `${bullet?.[2]} using Kubernetes and Terraform` : bullet?.[2], sourceIds: [bullet?.[1]] }] }], skillIds: skill ? [skill] : [], certificationIds: [] });
+        if (mode === "sloppy") content = content.replace(/,\s*"certificationIds":\[\]/, ',"certificationIds":[],');
       } else if (/short cover letter/.test(system)) {
         const bullet = prompt.match(/\[(exp\d+\.b\d+)\] ([^\n]+)/);
-        content = JSON.stringify({ text: "Dear hiring team,\n\nI would like to apply for this role.\n\nKind regards", sourceIds: [bullet?.[1]] });
+        const inventLetter = mode === "broken" || (mode === "sloppy" && !retry);
+        content = JSON.stringify({ text: inventLetter ? "Dear hiring team,\n\nI led 40 engineers at Google.\n\nKind regards" : "Dear hiring team,\n\nI would like to apply for this role.\n\nKind regards", sourceIds: [bullet?.[1]] });
       }
       return send(res, 200, { id: "c1", object: "chat.completion", created: 0, model: body.model, choices: [{ index: 0, finish_reason: "stop", message: { role: "assistant", content } }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } });
     }

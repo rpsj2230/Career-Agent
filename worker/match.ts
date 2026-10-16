@@ -9,12 +9,32 @@ export function splitName(full: string): { first: string; last: string } {
 }
 
 const FAMILIES: [string, RegExp][] = [
+  // sponsorship is the OPPOSITE question to "are you authorised": it must never borrow the authorisation answer
+  ["sponsorship", /sponsor/i],
   ["notice", /notice\s*period|joining\s*time|how soon/i],
   ["expected_ctc", /expected.*(ctc|salary|compensation|pay)|salary\s*expectation|desired.*(salary|compensation)/i],
   ["current_ctc", /current.*(ctc|salary|compensation|pay)/i],
-  ["visa", /visa|work\s*(authori[sz]ation|permit)|authori[sz]ed\s*to\s*work|sponsor/i],
+  ["visa", /visa|work\s*(authori[sz]ation|permit)|authori[sz]ed\s*to\s*work|eligible\s*to\s*work|right\s*to\s*work/i],
   ["relocate", /relocat/i],
 ];
+/** Country and nationality words a question can contain ("authorised to work in Singapore", "Indian citizen"). */
+const COUNTRY_WORDS: Record<string, string> = {
+  india: "in", indian: "in", singapore: "sg", singaporean: "sg", uae: "ae", emirates: "ae", dubai: "ae", australia: "au", australian: "au", "new zealand": "nz",
+  uk: "gb", "united kingdom": "gb", british: "gb", england: "gb", ireland: "ie", irish: "ie", usa: "us", "united states": "us", america: "us", american: "us",
+  canada: "ca", canadian: "ca", germany: "de", german: "de", netherlands: "nl", dutch: "nl", france: "fr", french: "fr", spain: "es", italy: "it", switzerland: "ch",
+  hong: "hk", malaysia: "my", japan: "jp", qatar: "qa", "saudi arabia": "sa", eu: "eu", "european union": "eu",
+};
+export function countriesIn(text: string): Set<string> {
+  const l = text.toLowerCase();
+  return new Set(Object.entries(COUNTRY_WORDS).filter(([w]) => new RegExp(`\\b${w}\\b`).test(l)).map(([, code]) => code));
+}
+/** Work-authorisation answers are only reusable for the country they were written for. */
+function sameCountryScope(question: string, bankQuestion: string): boolean {
+  const asked = countriesIn(question);
+  if (asked.size === 0) return true;
+  const answered = countriesIn(bankQuestion);
+  return [...asked].every((c) => answered.has(c));
+}
 const family = (s: string) => FAMILIES.find(([, re]) => re.test(s))?.[0];
 const words = (s: string) => new Set(s.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter((w) => w.length > 2));
 
@@ -22,8 +42,10 @@ const words = (s: string) => new Set(s.toLowerCase().replace(/[^a-z0-9 ]+/g, " "
 export function matchAnswer(label: string, answers: Answer[]): string | null {
   const fam = family(label);
   if (fam) {
-    const hit = answers.find((a) => family(a.question) === fam && a.answer.trim());
+    const hit = answers.find((a) => family(a.question) === fam && a.answer.trim() && (fam !== "visa" || sameCountryScope(label, a.question)));
     if (hit) return hit.answer;
+    // a visa or sponsorship question with no matching saved answer is NEVER guessed from a loosely similar one
+    if (fam === "visa" || fam === "sponsorship") return null;
   }
   const lw = words(label);
   if (lw.size === 0) return null;
@@ -56,7 +78,7 @@ export function standardValue(label: string, a: Applicant): string | null {
   return null;
 }
 
-export const CONFIRMATION = /thank\s*you\s*for\s*(applying|your\s*application)|application\s*(has\s*been\s*)?(submitted|received|sent)|successfully\s*(applied|submitted)|we('|’)ve\s*received\s*your\s*application/i;
+export const CONFIRMATION = /thank\s*you\s*for\s*(applying|your\s*application)|thanks\s*for\s*applying|application\s*(has\s*been\s*|was\s*|is\s*)?(successfully\s*)?(submitted|received|sent|complete)|successfully\s*(applied|submitted)|we('|’|\s*ha)ve\s*received\s*your\s*application|you('|’)ve\s*(successfully\s*)?applied/i;
 
 /** Things the worker must never try to work around. */
 export type Block = "captcha" | "checkpoint" | "login" | null;
