@@ -3,6 +3,7 @@ import { discover } from "@/lib/jobs/sources";
 import { ingestJobs } from "@/lib/jobs/ingest";
 import { getSetting } from "@/lib/settings";
 import { getProfile } from "@/lib/profile/store";
+import { scoreNewJobs } from "@/lib/score/run";
 
 export const maxDuration = 60;
 
@@ -22,9 +23,12 @@ export async function GET() {
   const results = await discover(effective);
   const all = results.flatMap((r) => r.jobs);
   const ingest = await ingestJobs(all, effective.max_age_days);
+  // use the time left in this invocation to start scoring; /api/cron/score finishes any backlog
+  const scoring = await scoreNewJobs({ limit: 10, budgetMs: 25_000 }).catch((e) => ({ error: e instanceof Error ? e.message : String(e) }));
   return NextResponse.json({
     fetched: all.length,
     ...ingest,
+    scoring,
     sourceErrors: results.filter((r) => r.error).map((r) => ({ source: r.source, error: r.error })),
   });
 }
