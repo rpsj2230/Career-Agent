@@ -44,9 +44,10 @@ export async function resolveCredentials(): Promise<CredentialReport> {
       sources[def.id][c.key] = stored ? "app" : envVal ? "env" : null;
       if (v) values[c.key] = v;
     }
-    if (def.credentials.length > 0 && def.credentials.every((c) => values[c.key])) {
+    if (def.credentials.length > 0 && def.credentials.filter((c) => !c.optional).every((c) => values[c.key])) {
       if (def.id === "adzuna") creds.adzuna = { app_id: values.app_id, app_key: values.app_key };
       if (def.id === "jsearch") creds.jsearch = { rapidapi_key: values.rapidapi_key };
+      if (def.id === "mailbox") creds.mailbox = { host: values.imap_host, user: values.imap_user, password: values.imap_password, folder: values.imap_folder, port: values.imap_port ? Number(values.imap_port) : undefined };
     }
   }
   return { creds, sources };
@@ -54,7 +55,7 @@ export async function resolveCredentials(): Promise<CredentialReport> {
 
 export const isComplete = (id: IntegrationId, sources: CredentialReport["sources"]) => {
   const def = integrationById(id);
-  return !!def && def.credentials.every((c) => sources[id]?.[c.key]);
+  return !!def && def.credentials.filter((c) => !c.optional).every((c) => sources[id]?.[c.key]);
 };
 
 export async function saveCredentials(id: IntegrationId, values: Record<string, string>) {

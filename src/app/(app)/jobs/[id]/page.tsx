@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { ActionButton } from "@/components/app/action-button";
+import { AddDescription } from "@/components/app/add-description";
 import { ApplyTypeBadge, ScoreBadge, SourceBadge, StatusBadge } from "@/components/app/badges";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -60,6 +61,13 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
             <div><span className="font-medium">Location/visa:</span> {detail.locationVisaFit}</div>
             <div className="md:col-span-2"><span className="font-medium">Salary:</span> {detail.salarySignal}</div>
           </CardContent>
+        </Card>
+      )}
+
+      {!app && String(job.description ?? "").length < 300 && (
+        <Card className="border-amber-500">
+          <CardHeader><CardTitle>Add the full job description</CardTitle><CardDescription>This job came with only a short summary{String(job.source).startsWith("mailbox") ? " (job-alert emails do not include the description)" : ""}. Tailoring and scoring are much better with the real text.</CardDescription></CardHeader>
+          <CardContent><AddDescription jobId={id} /></CardContent>
         </Card>
       )}
 

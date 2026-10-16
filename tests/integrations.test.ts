@@ -21,7 +21,8 @@ describe("catalogue integrity", () => {
 
 describe("deriveStatus", () => {
   it("is planned for unavailable integrations and disabled when switched off", () => {
-    expect(deriveStatus(integrationById("mailbox")!, undefined, false)).toBe("planned");
+    expect(deriveStatus({ ...integrationById("mailbox")!, available: false }, undefined, false)).toBe("planned");
+    expect(deriveStatus(integrationById("mailbox")!, undefined, false)).toBe("needs_setup");
     expect(deriveStatus(adzuna, st({ enabled: false }), true)).toBe("disabled");
   });
   it("needs setup until credentials (or its list of boards) exist", () => {

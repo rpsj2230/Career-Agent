@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { runScans, type ScanDeps } from "@/lib/jobs/scans";
+import { readFileSync } from "node:fs";
+import type { MailSource } from "@/lib/jobs/mailbox";
+import { explainImapError } from "@/lib/jobs/mailbox";
 import { buildScanSpecs, jsonFetcher, testIntegration, type DiscoverySettings, type FetchLike } from "@/lib/jobs/sources";
 import { planInsert } from "@/lib/jobs/plan";
 import type { NormalizedJob } from "@/lib/jobs/normalize";
@@ -156,5 +159,53 @@ describe("per-country scan queries", () => {
   });
   it("searches Remotive once per title and never for on-site-only countries", () => {
     expect(buildScanSpecs(s2, creds, all, { only: "remotive" }).map((x) => x.query)).toEqual(["Product Manager"]);
+  });
+});
+
+describe("mailbox integration", () => {
+  const cfg = { host: "imap.example.com", user: "me@example.com", password: "app-pass", folder: "Job-alerts" };
+  const mail = (name: string, from: string) => ({ from, subject: "alerts", html: readFileSync(`tests/fixtures/mail/${name}.html`, "utf8"), date: new Date("2026-10-15T00:00:00Z") });
+  const source = (mails: ReturnType<typeof mail>[]): MailSource => ({ fetchRecent: async () => mails });
+
+  it("adds one scan for the mailbox, and only when credentials exist", async () => {
+    expect(buildScanSpecs(settings, {}, all, { only: "mailbox" })).toEqual([]);
+    const specs = buildScanSpecs(settings, { mailbox: cfg }, all, { only: "mailbox", mailSource: () => source([mail("naukri", "jobalert@naukri.com")]) });
+    expect(specs.map((s) => [s.integration, s.query])).toEqual([["mailbox", "Job-alerts (alert emails)"]]);
+    const jobs = await specs[0].fetch();
+    expect(jobs.map((j) => j.title)).toEqual(["Product Manager", "Senior Product Manager"]);
+    expect(jobs.every((j) => j.source === "mailbox")).toBe(true);
+  });
+
+  it("Test reports what was found per portal", async () => {
+    const r = await testIntegration("mailbox", { mailbox: cfg }, settings, undefined, { mailSource: () => source([mail("naukri", "jobalert@naukri.com"), mail("indeed", "alert@indeed.com")]) });
+    expect(r.ok).toBe(true);
+    expect(r.message).toMatch(/2 alert email\(s\).*4 job link\(s\).*2 from naukri.*2 from indeed/);
+  });
+  it("Test explains an empty mailbox without calling it a failure", async () => {
+    const r = await testIntegration("mailbox", { mailbox: cfg }, settings, undefined, { mailSource: () => source([]) });
+    expect(r.ok).toBe(true);
+    expect(r.message).toMatch(/no LinkedIn, Indeed, Glassdoor or Naukri alert emails in Job-alerts/);
+  });
+  it("Test flags alert emails that produce no jobs (layout change)", async () => {
+    const r = await testIntegration("mailbox", { mailbox: cfg }, settings, undefined, { mailSource: () => source([{ ...mail("naukri", "jobalert@naukri.com"), html: "<p>Hello</p>" }]) });
+    expect(r).toMatchObject({ ok: false });
+    expect(r.message).toMatch(/no jobs could be read/);
+  });
+  it("Test passes a connection error through, and asks for credentials first", async () => {
+    const bad: MailSource = { fetchRecent: async () => { throw new Error("imap.example.com rejected the sign-in"); } };
+    expect((await testIntegration("mailbox", { mailbox: cfg }, settings, undefined, { mailSource: () => bad })).message).toMatch(/rejected the sign-in/);
+    expect((await testIntegration("mailbox", {}, settings)).message).toMatch(/Enter the IMAP server/);
+  });
+});
+
+describe("explainImapError", () => {
+  const c = { host: "imap.gmail.com", user: "me@gmail.com" };
+  it("turns raw failures into instructions", () => {
+    expect(explainImapError({ authenticationFailed: true }, c)).toMatch(/app password.*2-step verification/);
+    expect(explainImapError({ code: "ENOTFOUND" }, c)).toMatch(/Could not find the server "imap.gmail.com"/);
+    expect(explainImapError({ code: "ETIMEDOUT" }, c)).toMatch(/port \(993/);
+    expect(explainImapError({ responseText: "Mailbox doesn't exist: Job-alerts" }, c)).toMatch(/folder was not found/);
+    expect(explainImapError(new Error("self-signed certificate"), c)).toMatch(/secure connection/);
+    expect(explainImapError(new Error("weird"), c)).toMatch(/Could not read the mailbox: weird/);
   });
 });

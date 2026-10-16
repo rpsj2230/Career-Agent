@@ -20,6 +20,10 @@ describe("prefilter", () => {
     expect(prefilter(job({ country: "us" }), profile)).toMatch(/outside your target countries/);
     expect(prefilter(job({ country: "us", location: "Remote" }), profile)).toBeNull();
   });
+  it("does not reject an alert-email job for a short summary (the email never has more)", () => {
+    expect(prefilter(job({ description: "PM at Acme, Singapore", source: "mailbox" }), profile)).toBeNull();
+    expect(prefilter(job({ description: "PM at Acme, Singapore", source: "adzuna:in:PM" }), profile)).toMatch(/too short/);
+  });
   it("rejects thin descriptions", () => expect(prefilter(job({ description: "short" }), profile)).toMatch(/too short/));
 });
 

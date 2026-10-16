@@ -1,5 +1,6 @@
 import { ADZUNA_COUNTRIES, explainHttpFailure, type IntegrationId } from "@/lib/integrations/catalog";
 import { countryQueries, type EffectiveCountry } from "@/lib/country-config";
+import { imapSource, scanMailbox, type MailboxConfig, type MailSource } from "./mailbox";
 import { mapAdzuna, mapGreenhouse, mapJSearch, mapLever, mapRemotive } from "./map";
 import type { NormalizedJob } from "./normalize";
 
@@ -24,7 +25,11 @@ export function searchQueries(s: DiscoverySettings): Query[] {
 export type IntegrationCreds = {
   adzuna?: { app_id: string; app_key: string };
   jsearch?: { rapidapi_key: string };
+  mailbox?: MailboxConfig;
 };
+
+/** Replaceable pieces, so scans can be tested without the network. */
+export type ScanDeps = { fetchImpl?: FetchLike; mailSource?: (cfg: MailboxConfig) => MailSource };
 
 /** One recorded unit of work: a single integration, country and query. */
 export type ScanSpec = { integration: IntegrationId; country?: string; query?: string; fetch: () => Promise<NormalizedJob[]> };
@@ -51,7 +56,7 @@ export function buildScanSpecs(
   s: DiscoverySettings,
   creds: IntegrationCreds,
   enabled: (id: IntegrationId) => boolean,
-  opts: { only?: IntegrationId; fetchImpl?: FetchLike } = {},
+  opts: { only?: IntegrationId; fetchImpl?: FetchLike; mailSource?: (cfg: MailboxConfig) => MailSource } = {},
 ): ScanSpec[] {
   const get = jsonFetcher(opts.fetchImpl);
   const want = (id: IntegrationId) => enabled(id) && (!opts.only || opts.only === id);
@@ -95,6 +100,11 @@ export function buildScanSpecs(
     }
   }
 
+  if (want("mailbox") && creds.mailbox) {
+    const cfg = creds.mailbox;
+    specs.push({ integration: "mailbox", query: `${cfg.folder || "INBOX"} (alert emails)`, fetch: async () => (await scanMailbox((opts.mailSource ?? imapSource)(cfg), { sinceDays: Math.min(s.max_age_days, 30) })).jobs });
+  }
+
   if (want("greenhouse")) {
     for (const board of s.greenhouse_boards) {
       specs.push({ integration: "greenhouse", query: board, fetch: async () => {
@@ -115,7 +125,7 @@ export function buildScanSpecs(
 }
 
 /** A minimal real request per integration, so "Test" proves the credentials and the endpoint work. */
-export async function testIntegration(id: IntegrationId, creds: IntegrationCreds, s: DiscoverySettings, fetchImpl?: FetchLike): Promise<{ ok: boolean; message: string }> {
+export async function testIntegration(id: IntegrationId, creds: IntegrationCreds, s: DiscoverySettings, fetchImpl?: FetchLike, deps: Pick<ScanDeps, "mailSource"> = {}): Promise<{ ok: boolean; message: string }> {
   const get = jsonFetcher(fetchImpl);
   try {
     switch (id) {
@@ -147,7 +157,14 @@ export async function testIntegration(id: IntegrationId, creds: IntegrationCreds
         return { ok: true, message: `Company "${company}" is reachable (${Array.isArray(d) ? d.length : 0} posting(s) in the test response).` };
       }
       case "manual": return { ok: true, message: "Manual entry needs nothing to connect." };
-      case "mailbox": return { ok: false, message: "This integration is planned and not available yet." };
+      case "mailbox": {
+        if (!creds.mailbox) return { ok: false, message: "Enter the IMAP server, your address and an app password first." };
+        const r = await scanMailbox((deps.mailSource ?? imapSource)(creds.mailbox), { sinceDays: 30 });
+        const portals = Object.entries(r.byPortal).map(([p, n]) => `${n} from ${p}`).join(", ");
+        if (r.emails === 0) return { ok: true, message: `Connected to ${creds.mailbox.host} as ${creds.mailbox.user}, but there are no LinkedIn, Indeed, Glassdoor or Naukri alert emails in ${creds.mailbox.folder || "INBOX"} from the last 30 days. Turn on job alerts on those sites (or point the folder at the label that holds them).` };
+        if (r.jobs.length === 0) return { ok: false, message: `Connected and found ${r.emails} alert email(s), but no jobs could be read from them. The portal's email layout may have changed.` };
+        return { ok: true, message: `Connected. ${r.emails} alert email(s) in the last 30 days contain ${r.jobs.length} job link(s) (${portals}).` };
+      }
     }
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : String(e) };

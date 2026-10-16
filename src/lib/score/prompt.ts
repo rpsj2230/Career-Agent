@@ -6,6 +6,8 @@ import type { MasterProfile } from "@/lib/types";
 export type JobForScoring = {
   title: string; company: string; country: string | null; location: string | null;
   description: string; salary_text: string | null;
+  /** where the job came from; alert-email jobs only have a short summary instead of a full description */
+  source?: string | null;
   salary_min?: number | null; salary_max?: number | null; salary_currency?: string | null; salary_estimated?: boolean | null;
 };
 
@@ -25,7 +27,7 @@ export function prefilter(job: JobForScoring, profile: MasterProfile, countries?
       return `Country ${job.country.toUpperCase()} is outside your target countries`;
     }
   }
-  if (job.description.trim().length < 80) return "Job description too short to assess";
+  if (job.description.trim().length < 80 && !job.source?.startsWith("mailbox")) return "Job description too short to assess";
   if (cfg) {
     if (cfg.remote === "remote_only" && !isRemote && !REMOTE_TEXT.test(job.description.slice(0, 1500))) return `Not remote, and you want remote roles only in ${cfg.country.toUpperCase()}`;
     if (cfg.remote === "onsite_only" && isRemote) return `Remote role, and you want on-site roles only in ${cfg.country.toUpperCase()}`;

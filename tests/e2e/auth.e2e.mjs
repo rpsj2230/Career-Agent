@@ -1,5 +1,7 @@
 // End-to-end: real built Next app + mock Supabase. Run with: npm run build && npm run test:e2e
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { startFakeImap } from "./fake-imap.mjs";
 import { startMock } from "./mock-supabase.mjs";
 
 const MOCK = 4010, APP = 4011, BASE = `http://127.0.0.1:${APP}`;
@@ -143,7 +145,7 @@ r = await call("/api/integrations/adzuna/scan", { method: "POST" }); check("a di
 r = await call("/portals"); check("Portals page shows it as Disabled", r.text.includes("Disabled"), "not shown");
 await call("/api/integrations/adzuna", { method: "PUT", body: { enabled: true } });
 r = await call("/api/integrations/nope/test", { method: "POST" }); check("an unknown integration is a 404", r.status === 404, r.status);
-r = await call("/api/integrations/mailbox/test", { method: "POST" }); check("a planned integration is refused clearly", r.status === 409, r.status);
+r = await call("/api/integrations/mailbox/test", { method: "POST" }); check("an integration without credentials is refused clearly", r.status === 422 && /Enter the IMAP server/.test(r.text), `${r.status} ${r.text}`);
 r = await call("/api/integrations/adzuna/credentials", { method: "PUT", body: { values: { app_id: "has space" } } }); check("credentials with spaces are rejected", r.status === 400, r.status);
 r = await call("/api/integrations/adzuna/credentials", { method: "PUT", body: { values: { bogus: "abcdefgh" } } }); check("unknown credential fields are rejected", r.status === 400, r.status);
 r = await call("/api/integrations/adzuna/credentials", { method: "DELETE" }); check("saved credentials can be removed", r.status === 200 && !JSON.stringify(mock.settings.get("integration_keys") ?? {}).includes("adzuna."), `${r.status}`);
@@ -451,6 +453,50 @@ if (process.env.PLAYWRIGHT_BROWSERS_PATH || process.env.CHROMIUM_PATH) {
   r = await call("/api/cron/digest", { auth: false, headers: { Authorization: `Bearer ${SECRET}` } });
   check("the morning digest job stores and sends yesterday's report", r.status === 200 && r.json?.ok === true && mock.rowsOf("daily_reports").length === 2 && mock.seen.telegram.length === before + 2, `${r.status} ${r.text}`);
   r = await call("/logs?kind=report.generated"); check("report generation is logged", strip(r.text).includes("Daily report for " + today), "no log");
+}
+
+// ---- job-alert mailbox (real imapflow conversation with a protocol-level fake IMAP server)
+{
+  const strip = (t) => t.replace(/<!-- -->/g, "").replace(/&amp;/g, "&");
+  const mailHtml = (n) => readFileSync(`tests/fixtures/mail/${n}.html`, "utf8");
+  const day = (d) => new Date(Date.now() - d * 86_400_000);
+  const imap = await startFakeImap({ password: "app-pass-SECRET", folders: { INBOX: [
+    { uid: 1, from: "jobalert@naukri.com", subject: "Jobs for you", date: day(1), html: mailHtml("naukri") },
+    { uid: 2, from: "alert@indeed.com", subject: "New Product Manager jobs", date: day(2), html: mailHtml("indeed") },
+    { uid: 3, from: "friend@gmail.com", subject: "lunch?", date: day(1), html: "<p>hi</p>" },
+    { uid: 4, from: "jobalerts-noreply@linkedin.com", subject: "PM in Singapore", date: day(3), html: mailHtml("linkedin") },
+  ] } });
+  const creds = (o = {}) => ({ values: { imap_host: "127.0.0.1", imap_user: "me@example.com", imap_password: "app-pass-SECRET", imap_port: String(imap.port), ...o } });
+  r = await call("/api/integrations/mailbox/test", { method: "POST" }); check("Test before connecting asks for the credentials", r.status === 422 && /Enter the IMAP server/.test(r.text), `${r.status} ${r.text}`);
+  r = await call("/api/integrations/mailbox/credentials", { method: "PUT", body: creds({ imap_password: "wrong-password" }) }); check("mailbox credentials are saved without being echoed", r.status === 200 && !r.text.includes("wrong-password"), `${r.status} ${r.text}`);
+  r = await call("/api/integrations/mailbox/test", { method: "POST" }); check("a wrong password is explained in plain words", r.status === 422 && /rejected the sign-in.*app password/.test(r.text), r.text);
+  r = await call("/api/integrations/mailbox/credentials", { method: "PUT", body: creds() });
+  const stored = JSON.stringify(mock.settings.get("integration_keys") ?? {});
+  check("the mailbox password is encrypted at rest", stored.includes("mailbox.imap_password") && !stored.includes("app-pass-SECRET") && !stored.includes("me@example.com"), "plaintext stored");
+  r = await call("/api/integrations/mailbox/test", { method: "POST" }); check("Test connects and reports the alert emails and jobs found", r.json?.ok === true && /3 alert email\(s\).*6 job link\(s\)/.test(r.json.note), r.text);
+  const before = mock.rowsOf("jobs").length;
+  r = await call("/api/integrations/mailbox/scan", { method: "POST" }); check("Scan now imports the jobs from the alert emails", r.status === 200 && /6 jobs fetched, 6 new/.test(r.text), `${r.status} ${r.text}`);
+  const mj = mock.rowsOf("jobs").filter((j) => j.source === "mailbox");
+  check("each job keeps its origin portal (from the link), the mailbox as the integration, and a clean URL", mj.length === 6 && mj.filter((j) => j.portal === "naukri").length === 2 && mj.filter((j) => j.portal === "indeed").length === 2 && mj.filter((j) => j.portal === "linkedin").length === 2 && mj.every((j) => !j.url.includes("?src=") && !j.url.includes("trackingId")), JSON.stringify(mj.map((j) => [j.portal, j.url])));
+  check("city names give the country, and the description says only a summary was available", mj.find((j) => j.company === "Zeta Solutions Pvt Ltd")?.country === "in" && mj.every((j) => /Only this summary was in the email/.test(j.description)), "country/description");
+  check("a message from a non-portal sender was never read", !imap.state.fetched.includes(3), JSON.stringify(imap.state.fetched));
+  check("the mailbox was opened read-only and never modified", imap.state.selected.every((x) => x.readOnly) && imap.state.mutations.length === 0, JSON.stringify(imap.state));
+  r = await call("/api/integrations/mailbox/scan", { method: "POST" }); check("scanning again finds the same jobs and adds nothing", r.status === 200 && /6 jobs fetched, 0 new/.test(r.text) && mock.rowsOf("jobs").filter((j) => j.source === "mailbox").length === 6, `${r.status} ${r.text}`);
+  r = await call("/portals"); check("Portals page shows the mailbox as an available, working source", strip(r.text).includes("Job-alert emails") && !strip(r.text).includes("Planned"), "still planned");
+  r = await call("/api/integrations/mailbox", { method: "PUT", body: { enabled: false } }); r = await call("/api/integrations/mailbox/scan", { method: "POST" });
+  check("a disabled mailbox is not scanned", /Nothing to scan/.test(r.text), r.text); await call("/api/integrations/mailbox", { method: "PUT", body: { enabled: true } });
+
+  // paste the real description for an alert-email job
+  const alertJob = mj.find((j) => j.company === "Eta Labs");
+  r = await call(`/jobs/${alertJob.id}`); check("an alert-email job asks for the full description", strip(r.text).includes("Add the full job description") && strip(r.text).includes("job-alert emails do not include the description"), "prompt missing");
+  r = await call(`/api/jobs/${alertJob.id}/description`, { method: "PUT", body: { description: "too short" } }); check("a too-short description is refused", r.status === 400, `${r.status} ${r.text}`);
+  const full = "Own the product roadmap for our payments platform and partner closely with engineering and design. ".repeat(4);
+  r = await call(`/api/jobs/${alertJob.id}/description`, { method: "PUT", body: { description: full } }); check("the pasted description is saved", r.status === 200 && mock.rowsOf("jobs").find((j) => j.id === alertJob.id).description === full.trim(), `${r.status} ${r.text}`);
+  r = await call(`/jobs/${alertJob.id}`); check("the prompt disappears once the job has a real description", !strip(r.text).includes("Add the full job description"), "still shown");
+  r = await call(`/api/jobs/${zeta.id}/description`, { method: "PUT", body: { description: full } }); check("a job that already has an application keeps its description fixed", r.status === 409, `${r.status} ${r.text}`);
+  r = await call(`/api/jobs/not-a-uuid/description`, { method: "PUT", body: { description: full } }); check("a bad job id is a 404", r.status === 404, `${r.status}`);
+  check("the description change is logged", mock.rowsOf("activity_log").some((l) => /Job description added by you: Senior Product Manager at Eta Labs/.test(l.message) && l.job_id === alertJob.id), "no log");
+  await imap.close();
 }
 
 // ---- real-browser smoke test: every main page loads, hydrates without console errors; optional screenshots (E2E_SHOTS=dir)

@@ -8,7 +8,7 @@
 export type IntegrationId = "adzuna" | "jsearch" | "remotive" | "greenhouse" | "lever" | "manual" | "mailbox";
 export type ApplyMode = "automated" | "assisted" | "none";
 
-export type CredentialDef = { key: string; label: string; help: string; env?: string };
+export type CredentialDef = { key: string; label: string; help: string; env?: string; /** not needed for the integration to be ready */ optional?: boolean };
 
 export type IntegrationDef = {
   id: IntegrationId;
@@ -88,11 +88,28 @@ export const INTEGRATIONS: IntegrationDef[] = [
     limitations: ["You supply the posting; nothing is fetched automatically"],
   },
   {
-    id: "mailbox", name: "Job-alert emails", kind: "email", available: false, discovers: true, apply: "assisted",
-    summary: "Reads the job-alert emails that LinkedIn, Indeed, Glassdoor, Naukri and others already send you. Planned.",
-    credentials: [], countries: "all",
-    setup: ["Planned (Phase 6): connect a mailbox with an app password"],
-    limitations: ["Not available yet"],
+    id: "mailbox", name: "Job-alert emails", kind: "email", available: true, discovers: true, apply: "assisted",
+    summary: "Reads the job-alert emails that LinkedIn, Indeed, Glassdoor and Naukri already send you (read-only IMAP) and turns each listed job into a job here. This is the compliant route to those portals: nothing logs in to them.",
+    credentials: [
+      { key: "imap_host", label: "IMAP server", help: "e.g. imap.gmail.com or outlook.office365.com", env: "IMAP_HOST" },
+      { key: "imap_user", label: "Email address", help: "The mailbox that receives the alerts", env: "IMAP_USER" },
+      { key: "imap_password", label: "App password", help: "An app password, not your normal password", env: "IMAP_PASSWORD" },
+      { key: "imap_folder", label: "Folder (optional)", help: "Default INBOX. A label such as Job-alerts keeps scans small", optional: true },
+      { key: "imap_port", label: "Port (optional)", help: "Default 993 (TLS)", optional: true },
+    ],
+    countries: "all",
+    setup: [
+      "Turn on the alerts you want in LinkedIn, Indeed, Glassdoor and Naukri (they email you matches)",
+      "Gmail: turn on 2-step verification, create an App password, and make sure IMAP is enabled. Outlook/Microsoft 365: create an app password if your tenant allows IMAP",
+      "Optional: add a filter that labels those emails (for example Job-alerts) and enter that folder name below",
+      "Enter the server, address and app password, then press Test",
+    ],
+    limitations: [
+      "Read-only: the app never changes, moves or deletes your email",
+      "Alert emails contain a title, company and location, not the full description. Open the job and paste the description before preparing an application",
+      "Email layouts change; if a portal's alerts stop producing jobs, Test shows what was found",
+      "Only mail from the portals' own domains is read",
+    ],
   },
 ];
 
