@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { parseAllowlist } from "@/lib/access";
 import { claimOwner, getOwnerEmail, releaseOwner } from "@/lib/owner";
-import { checkSignup } from "@/lib/signup";
+import { checkSignup, explainSignupError } from "@/lib/signup";
 import { logActivity } from "@/lib/activity";
 
 /**
@@ -11,6 +11,15 @@ import { logActivity } from "@/lib/activity";
  * the email is listed in the optional ALLOWED_EMAILS. The account is created already confirmed (no email sent).
  */
 export async function POST(request: Request) {
+  try { return await handle(request); } catch (e) {
+    const m = e instanceof Error ? e.message : String(e);
+    await logActivity({ kind: "auth.login_failed", level: "error", message: `Account creation crashed: ${m}`, detail: { reason: m } });
+    const x = explainSignupError(m);
+    return NextResponse.json({ error: x.text }, { status: x.status });
+  }
+}
+
+async function handle(request: Request) {
   const check = checkSignup(await request.json().catch(() => null), { INVITE_CODE: process.env.INVITE_CODE, CRON_SECRET: process.env.CRON_SECRET });
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
   if (!check.ok) {
@@ -34,9 +43,10 @@ export async function POST(request: Request) {
 
   const { error } = await db().auth.admin.createUser({ email: check.email, password: check.password, email_confirm: true });
   if (error) {
-    const exists = /already|registered|exists/i.test(error.message);
-    if (claimed && !exists) await releaseOwner(); // do not leave the app claimed by an account that was never created
-    return NextResponse.json({ error: exists ? "An account with this email already exists. Sign in instead." : "Could not create the account" }, { status: exists ? 409 : 500 });
+    const x = explainSignupError(error.message, error.status);
+    if (claimed && x.status !== 409) await releaseOwner(); // do not leave the app claimed by an account that was never created
+    await logActivity({ kind: "auth.login_failed", level: "error", message: `Account creation failed: ${error.message}`, detail: { email: check.email, ip, status: error.status ?? null } });
+    return NextResponse.json({ error: x.text }, { status: x.status });
   }
   await logActivity({ kind: "auth.signup", message: `Account created: ${check.email}${claimed ? " (owner)" : ""}`, detail: { email: check.email, owner: claimed, ip } });
   return NextResponse.json({ ok: true });
