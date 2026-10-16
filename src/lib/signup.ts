@@ -29,3 +29,13 @@ export function checkSignup(input: unknown, env: { INVITE_CODE?: string; CRON_SE
   if (password.length < MIN_PASSWORD) return { ok: false, status: 400, error: `Password must be at least ${MIN_PASSWORD} characters` };
   return { ok: true, email: email.toLowerCase(), password };
 }
+
+/** Turn a Supabase failure into something you can act on (never includes the password). */
+export function explainSignupError(message: string, status?: number): { text: string; status: number } {
+  if (/already|registered|exists/i.test(message)) return { text: "An account with this email already exists. Sign in instead.", status: 409 };
+  if (/weak|password.*(short|strength|should|requirement|pwned|leak|common)/i.test(message)) return { text: `Supabase rejected the password: ${message}. Choose a longer, less common password.`, status: 400 };
+  if (/invalid api key|jwt|apikey|unauthorized|not allowed|permission/i.test(message) || status === 401 || status === 403) return { text: "Supabase refused the request. SUPABASE_SERVICE_ROLE_KEY in Vercel is missing, wrong or is the anon key. Use the service_role key, then redeploy.", status: 500 };
+  if (/fetch failed|ENOTFOUND|ECONN|network|SUPABASE_URL/i.test(message)) return { text: "Could not reach Supabase. Check SUPABASE_URL in Vercel, then redeploy.", status: 500 };
+  return { text: `Could not create the account: ${message.slice(0, 200)}`, status: 500 };
+}
+
