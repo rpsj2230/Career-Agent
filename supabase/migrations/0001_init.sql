@@ -1,7 +1,6 @@
 -- Career-Agent schema. Single-user personal tool: access is via the service-role key
 -- from server code only; RLS is enabled with no policies so the anon key can read nothing.
 
-create extension if not exists pgcrypto;
 
 create table if not exists profile (
   id int primary key default 1 check (id = 1),
