@@ -10,7 +10,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "worker:apply": "tsx worker/apply.ts",
-    "test:e2e": "node tests/e2e/auth.e2e.mjs"
+    "test:e2e": "node tests/e2e/auth.e2e.mjs",
+    "gen:migrations": "node scripts/gen-migrations.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.70",

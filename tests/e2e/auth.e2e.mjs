@@ -62,6 +62,16 @@ r = await call("/api/files?path=bad"); check("...and gets no access afterwards",
 jar.clear(); for (const [k, v] of saved) jar.set(k, v);
 r = await call("/api/files?path=bad"); check("owner session still works", r.status === 400, r.status);
 
+// ---- database behind the code: banner and System page tell you exactly what to do, then clear once applied
+r = await call("/system?fresh=1");
+check("System page lists the pending migration with copyable SQL", r.status === 200 && r.text.includes("0002_portals_runs_logs_schedules") && r.text.includes("Copy SQL") && r.text.includes("create table if not exists integrations"), `${r.status}`);
+check("banner appears on app pages while the database is behind", r.text.includes("Database update needed"), "banner missing");
+check("System page names the missing tables and columns", r.text.includes("activity_log") && /missing columns: [^<]*portal/.test(r.text), "details missing");
+mock.applyMigration2();
+r = await call("/api/system/recheck", { method: "POST" }); check("Re-check endpoint reports the database is now healthy", r.status === 200 && r.json?.ok === true, `${r.status} ${r.text}`);
+r = await call("/system");
+check("after the migration is applied, a re-check reports up to date", r.status === 200 && r.text.includes("up to date") && !r.text.includes("Database update needed"), `${r.status} upToDate=${r.text.includes("up to date")} banner=${r.text.includes("Database update needed")} check_failed=${r.text.includes("check failed")} snippet=${(r.text.match(/Database[^<]{0,40}<[^>]*>[^<]{0,60}/g) ?? []).slice(0, 3).join(" | ")}`);
+
 // ---- models: saved keys are encrypted at rest, used for calls, and removable
 const KEY = "sk-test-key-1234567890";
 mock.modelConfigs.set("e2e-model", { id: "m1", label: "e2e-model", provider: "mock", base_url: `http://127.0.0.1:${MOCK}/v1`, model: "mock-1", api_key_env: "E2E_KEY", tasks: ["score"], priority: 1, daily_cap: null, enabled: true });

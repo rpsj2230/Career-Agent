@@ -8,6 +8,13 @@ const tokens = new Map();  // access_token -> email
 const settings = new Map(); // key -> value
 const modelConfigs = new Map(); // label -> row
 const seen = { lastChatAuth: null, lastChatBody: null };
+
+// Schema simulation, for the "database behind the code" tests. Base tables accept any column; the migration-0002
+// tables and the new jobs/applications columns appear only after applyMigration2() is called.
+const V1_TABLES = ["profile", "settings", "answer_bank", "jobs", "job_scores", "documents", "applications", "apply_events", "model_configs", "model_usage"];
+const V2_TABLES = ["integrations", "schedules", "automation_runs", "portal_scans", "activity_log", "country_prefs", "daily_reports"];
+const V2_COLUMNS = { jobs: ["portal", "scan_id", "run_id", "salary_min", "decided_at"], applications: ["job_snapshot", "profile_snapshot", "submission", "portal", "country"] };
+const schema = { v2: false };
 let n = 0;
 
 const send = (res, status, body, headers = {}) => {
@@ -74,7 +81,18 @@ export function startMock(port) {
       seen.lastChatAuth = req.headers.authorization ?? null; seen.lastChatBody = body;
       return send(res, 200, { id: "c1", object: "chat.completion", created: 0, model: body.model, choices: [{ index: 0, finish_reason: "stop", message: { role: "assistant", content: '{"answer":"4"}' } }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } });
     }
+    // ---- generic table probe used by the schema health check: GET /rest/v1/<table>?select=<cols>&limit=0
+    const m = url.pathname.match(/^\/rest\/v1\/([a-z_]+)$/);
+    if (m && req.method === "GET") {
+      const table = m[1];
+      const known = V1_TABLES.includes(table) || (schema.v2 && V2_TABLES.includes(table));
+      if (!known) return send(res, 404, { code: "PGRST205", message: `Could not find the table 'public.${table}' in the schema cache`, details: null, hint: null });
+      const missing = schema.v2 ? [] : V2_COLUMNS[table] ?? [];
+      const bad = (url.searchParams.get("select") ?? "").split(",").find((c) => missing.includes(c.trim()));
+      if (bad) return send(res, 400, { code: "42703", message: `column ${table}.${bad} does not exist`, details: null, hint: null });
+      return send(res, 200, []);
+    }
     send(res, 404, { message: `mock: no route for ${req.method} ${url.pathname}` });
   });
-  return new Promise((resolve) => server.listen(port, "127.0.0.1", () => resolve({ server, users, tokens, settings, modelConfigs, seen })));
+  return new Promise((resolve) => server.listen(port, "127.0.0.1", () => resolve({ server, users, tokens, settings, modelConfigs, seen, applyMigration2: () => { schema.v2 = true; } })));
 }

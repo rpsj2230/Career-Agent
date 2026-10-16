@@ -1,4 +1,5 @@
 import { Nav } from "@/components/app/nav";
+import { SchemaBanner } from "@/components/app/schema-banner";
 import { SignOut } from "@/components/app/sign-out";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -11,7 +12,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <SignOut />
         </div>
       </aside>
-      <main className="min-w-0 flex-1">{children}</main>
+      <main className="min-w-0 flex-1">
+        <SchemaBanner />
+        {children}
+      </main>
     </div>
   );
 }
