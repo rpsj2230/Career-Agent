@@ -14,7 +14,7 @@ export function db(): SupabaseClient {
 }
 
 /** Throw on a Supabase error so callers never silently continue with missing data. */
-export function must<T>(res: { data: T | null; error: { message: string } | null }, what: string): T {
+export function must<T>(res: { data: unknown; error: { message: string } | null }, what: string): T {
   if (res.error) throw new Error(`${what}: ${res.error.message}`);
   return res.data as T;
 }
