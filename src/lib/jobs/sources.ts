@@ -1,7 +1,7 @@
 import { ADZUNA_COUNTRIES, explainHttpFailure, type IntegrationId } from "@/lib/integrations/catalog";
 import { countryQueries, type EffectiveCountry } from "@/lib/country-config";
 import { imapSource, scanMailbox, type MailboxConfig, type MailSource } from "./mailbox";
-import { mapAdzuna, mapGreenhouse, mapJSearch, mapLever, mapRemotive } from "./map";
+import { mapAdzuna, mapArbeitnow, mapGreenhouse, mapJobicy, mapJSearch, mapLever, mapRemoteOk, mapRemotive } from "./map";
 import type { NormalizedJob } from "./normalize";
 
 export type DiscoverySettings = {
@@ -35,6 +35,19 @@ export type ScanDeps = { fetchImpl?: FetchLike; mailSource?: (cfg: MailboxConfig
 export type ScanSpec = { integration: IntegrationId; country?: string; query?: string; fetch: () => Promise<NormalizedJob[]> };
 
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
+
+/**
+ * Does a job title fit one of the wanted titles? Every meaningful word of a wanted title must appear in the job title
+ * ("Product Manager" matches "Senior Product Manager, Growth" but not "Program Manager"). With no wanted titles, everything matches.
+ */
+export function titleMatches(jobTitle: string, wanted: string[]): boolean {
+  if (wanted.length === 0) return true;
+  const hay = jobTitle.toLowerCase().replace(/[^a-z0-9+#]+/g, " ");
+  return wanted.some((w) => {
+    const words = w.toLowerCase().split(/[^a-z0-9+#]+/).filter((x) => x.length > 1);
+    return words.length > 0 && words.every((x) => hay.split(" ").includes(x) || hay.includes(x));
+  });
+}
 
 /** GET JSON with a timeout; failures become messages that say what to do. */
 export function jsonFetcher(fetchImpl: FetchLike = fetch) {
@@ -100,6 +113,24 @@ export function buildScanSpecs(
     }
   }
 
+  // Feeds without a search API: fetch the whole feed once, keep the jobs that match one of the wanted titles.
+  const titles = [...new Set(queries.map((q) => q.title))];
+  const wantsOnsite = queries.some((q) => q.remote !== "remote_only");
+  const matchesTitle = (j: NormalizedJob) => titleMatches(j.title, titles);
+  if (want("arbeitnow") && wantsOnsite) {
+    specs.push({ integration: "arbeitnow", query: "Europe feed", fetch: async () => ((await get("https://www.arbeitnow.com/api/job-board-api")).data ?? []).map(mapArbeitnow).filter(matchesTitle) });
+  }
+  if (want("remoteok")) {
+    specs.push({ integration: "remoteok", query: "remote feed", fetch: async () => {
+      const data = await get("https://remoteok.com/api", { headers: { "User-Agent": "career-agent/1.0 (personal job search)" } });
+      // the first element is a legal notice, not a job
+      return (Array.isArray(data) ? data : []).filter((r: any) => r && r.id && (r.position || r.title)).map(mapRemoteOk).filter(matchesTitle); // eslint-disable-line @typescript-eslint/no-explicit-any
+    } });
+  }
+  if (want("jobicy")) {
+    specs.push({ integration: "jobicy", query: "remote feed", fetch: async () => ((await get("https://jobicy.com/api/v2/remote-jobs?count=50")).jobs ?? []).map(mapJobicy).filter(matchesTitle) });
+  }
+
   if (want("mailbox") && creds.mailbox) {
     const cfg = creds.mailbox;
     specs.push({ integration: "mailbox", query: `${cfg.folder || "INBOX"} (alert emails)`, fetch: async () => (await scanMailbox((opts.mailSource ?? imapSource)(cfg), { sinceDays: Math.min(s.max_age_days, 30) })).jobs });
@@ -155,6 +186,18 @@ export async function testIntegration(id: IntegrationId, creds: IntegrationCreds
         if (!company) return { ok: false, message: "No Lever companies are listed yet. Add a company slug in Settings > Job discovery." };
         const d = await get(`https://api.lever.co/v0/postings/${encodeURIComponent(company)}?mode=json&limit=1`);
         return { ok: true, message: `Company "${company}" is reachable (${Array.isArray(d) ? d.length : 0} posting(s) in the test response).` };
+      }
+      case "arbeitnow": {
+        const d = await get("https://www.arbeitnow.com/api/job-board-api");
+        return { ok: true, message: `Arbeitnow is reachable (${(d.data ?? []).length} jobs in the current feed).` };
+      }
+      case "remoteok": {
+        const d = await get("https://remoteok.com/api", { headers: { "User-Agent": "career-agent/1.0 (personal job search)" } });
+        return { ok: true, message: `Remote OK is reachable (${Math.max(0, (Array.isArray(d) ? d.length : 0) - 1)} jobs in the current feed).` };
+      }
+      case "jobicy": {
+        const d = await get("https://jobicy.com/api/v2/remote-jobs?count=5");
+        return { ok: true, message: `Jobicy is reachable (${(d.jobs ?? []).length} jobs in the test response).` };
       }
       case "manual": return { ok: true, message: "Manual entry needs nothing to connect." };
       case "mailbox": {

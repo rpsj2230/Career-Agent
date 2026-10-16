@@ -48,6 +48,7 @@ discover (Adzuna / JSearch / Remotive / Greenhouse / Lever / manual paste)
    `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `LINKEDIN_STORAGE_STATE`, `APP_TIMEZONE`.
    Schedules run in GitHub Actions (`pipeline.yml`): every hour it asks the app whether a schedule is due and only then
    installs and runs the pipeline (search, score, prepare, and approve/submit if the schedule allows it).
+   Optional sources: connect a mailbox on the Portals page to read LinkedIn/Indeed/Glassdoor/Naukri job-alert emails (read-only IMAP, app password).
    Create a fine-grained token limited to this repo with "Actions: read and write" and put it in Vercel as
    `GITHUB_DISPATCH_TOKEN`.
 4. Open the app. On the sign-in page choose **Create account**, enter your email, a password (10+ characters) and the

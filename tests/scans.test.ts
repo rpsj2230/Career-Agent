@@ -209,3 +209,44 @@ describe("explainImapError", () => {
     expect(explainImapError(new Error("weird"), c)).toMatch(/Could not read the mailbox: weird/);
   });
 });
+
+describe("free feeds without a search API", () => {
+  const roles = ["Product Manager"];
+  const feedSettings: DiscoverySettings = { ...settings, roles, countries: ["de"] };
+  const json = (b: unknown) => new Response(JSON.stringify(b), { status: 200 });
+
+  it("titleMatches needs every word of a wanted title", async () => {
+    const { titleMatches } = await import("@/lib/jobs/sources");
+    expect(titleMatches("Senior Product Manager, Growth", ["Product Manager"])).toBe(true);
+    expect(titleMatches("Program Manager", ["Product Manager"])).toBe(false);
+    expect(titleMatches("Anything", [])).toBe(true);
+    expect(titleMatches("Data Scientist", ["Product Manager", "Data Scientist"])).toBe(true);
+  });
+  it("Arbeitnow, Remote OK and Jobicy are fetched once and filtered by title", async () => {
+    const f: FetchLike = async (u) => {
+      const url = String(u);
+      if (url.includes("arbeitnow")) return json({ data: [{ slug: "a", title: "Product Manager", company_name: "A", location: "Berlin", url: "https://arbeitnow.com/a", description: "d", created_at: 1760000000 }, { slug: "b", title: "Plumber", company_name: "B", location: "Berlin", url: "https://arbeitnow.com/b", description: "d", created_at: 1760000000 }] });
+      if (url.includes("remoteok")) return json([{ legal: "terms" }, { id: 1, position: "Product Manager", company: "C", url: "https://remoteok.com/1", description: "d" }, { id: 2, position: "Designer", company: "D", url: "https://remoteok.com/2", description: "d" }]);
+      return json({ jobs: [{ id: 5, url: "https://jobicy.com/5", jobTitle: "Product Manager", companyName: "E", jobGeo: "Anywhere", jobDescription: "d" }, { id: 6, url: "https://jobicy.com/6", jobTitle: "Chef", companyName: "F", jobGeo: "Anywhere", jobDescription: "d" }] });
+    };
+    for (const [id, expectTitle] of [["arbeitnow", "Product Manager"], ["remoteok", "Product Manager"], ["jobicy", "Product Manager"]] as const) {
+      const specs = buildScanSpecs(feedSettings, {}, all, { only: id, fetchImpl: f });
+      expect(specs.length).toBe(1);
+      const jobs = await specs[0].fetch();
+      expect(jobs.map((j) => j.title)).toEqual([expectTitle]);
+    }
+  });
+  it("a remote-only search skips the Europe on-site feed", () => {
+    const remoteOnly = { ...feedSettings, perCountry: [{ country: "de", titles: roles, industries: [], locations: [], remote: "remote_only" as const, salary: { min: null, max: null, currency: null }, workAuthorisation: null, needsSponsorship: null, notes: null, fallback: false }] };
+    expect(buildScanSpecs(remoteOnly, {}, all, { only: "arbeitnow" })).toEqual([]);
+    expect(buildScanSpecs(remoteOnly, {}, all, { only: "remoteok" }).length).toBe(1);
+  });
+  it("Test reports reachability for each feed and turns HTTP failures into advice", async () => {
+    const ok: FetchLike = async (u) => json(String(u).includes("remoteok") ? [{}, { id: 1 }, { id: 2 }] : String(u).includes("arbeitnow") ? { data: [{}, {}, {}] } : { jobs: [{}] });
+    expect((await testIntegration("arbeitnow", {}, feedSettings, ok)).message).toMatch(/3 jobs/);
+    expect((await testIntegration("remoteok", {}, feedSettings, ok)).message).toMatch(/2 jobs/);
+    expect((await testIntegration("jobicy", {}, feedSettings, ok)).message).toMatch(/1 jobs/);
+    const down: FetchLike = async () => new Response("", { status: 503 });
+    expect((await testIntegration("jobicy", {}, feedSettings, down)).ok).toBe(false);
+  });
+});

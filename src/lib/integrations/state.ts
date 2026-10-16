@@ -1,7 +1,9 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { isMissingSchemaError } from "@/lib/schema";
-import type { IntegrationId, IntegrationState } from "./catalog";
+import { sendTelegram } from "@/lib/notify";
+import { integrationById, type IntegrationId, type IntegrationState } from "./catalog";
+import { transitionAlert } from "./health";
 
 export type IntegrationRow = IntegrationState & { id: IntegrationId; jobs_found_total: number };
 
@@ -27,12 +29,15 @@ async function upsert(id: IntegrationId, patch: Record<string, unknown>) {
 export async function recordIntegrationScan(id: IntegrationId, r: { ok: boolean; error?: string; inserted: number }) {
   try {
     const now = new Date().toISOString();
-    const cur = (await db().from("integrations").select("jobs_found_total").eq("id", id).maybeSingle()).data as { jobs_found_total: number } | null;
+    const cur = (await db().from("integrations").select("jobs_found_total,status").eq("id", id).maybeSingle()).data as { jobs_found_total: number; status?: string } | null;
     await upsert(id, {
       last_scan_at: now,
       ...(r.ok ? { last_ok_at: now, status: "ok" } : { last_error: r.error?.slice(0, 1000), last_error_at: now, status: "error" }),
       jobs_found_total: (cur?.jobs_found_total ?? 0) + r.inserted,
     });
+    // tell you once when a source breaks or recovers (repeat failures stay in the logs and on the dashboard)
+    const alert = transitionAlert(cur?.status, r.ok, integrationById(id)?.name ?? id, r.error);
+    if (alert) await sendTelegram(alert);
   } catch (e) { console.error(`[integrations] could not record scan for ${id}: ${e instanceof Error ? e.message : e}`); }
 }
 

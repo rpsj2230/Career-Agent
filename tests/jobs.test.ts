@@ -1,3 +1,4 @@
+import { mapArbeitnow, mapJobicy, mapRemoteOk } from "@/lib/jobs/map";
 import { describe, expect, it } from "vitest";
 import { dedupeKey, detectApplyType, guessCountry, htmlToText } from "@/lib/jobs/normalize";
 import { mapAdzuna, mapGreenhouse, mapJSearch, mapLever, mapRemotive } from "@/lib/jobs/map";
@@ -44,5 +45,25 @@ describe("mappers", () => {
     expect(mapRemotive({ id: 1, title: "t", company_name: "c", url: "u", description: "<p>x</p>", candidate_required_location: "Worldwide" }).description).toBe("x");
     expect(mapGreenhouse({ id: 2, title: "t", absolute_url: "u", location: { name: "Mumbai, India" }, content: "&lt;p&gt;y&lt;/p&gt;" }, "acme")).toMatchObject({ company: "acme", country: "in", description: "y" });
     expect(mapLever({ id: "z", text: "t", hostedUrl: "u", categories: { location: "Singapore" }, descriptionPlain: "p", createdAt: 1760000000000 }, "acme")).toMatchObject({ country: "sg", description: "p" });
+  });
+});
+
+describe("free feeds: Arbeitnow, Remote OK, Jobicy", () => {
+  it("maps Arbeitnow, using the feed's unix timestamps and defaulting an on-site Europe job to Germany", () => {
+    const j = mapArbeitnow({ slug: "pm-acme-berlin-1", title: "Product Manager", company_name: "Acme GmbH", description: "<p>Own the roadmap</p>", location: "Berlin", remote: false, url: "https://www.arbeitnow.com/view/pm-acme-berlin-1", created_at: 1760000000 });
+    expect(j).toMatchObject({ source: "arbeitnow", externalId: "pm-acme-berlin-1", company: "Acme GmbH", location: "Berlin", country: "de", description: "Own the roadmap" });
+    expect(j.postedAt).toBe(new Date(1760000000 * 1000).toISOString());
+    expect(mapArbeitnow({ slug: "r", title: "PM", company_name: "X", location: "", remote: true, url: "https://x", created_at: 1 }).country).toBeUndefined();
+  });
+  it("maps Remote OK with USD salary", () => {
+    const j = mapRemoteOk({ id: "9001", position: "Senior Product Manager", company: "Beta", location: "Worldwide", description: "<p>x</p>", url: "https://remoteok.com/remote-jobs/9001", date: "2026-10-10T00:00:00+00:00", salary_min: 120000, salary_max: 150000 });
+    expect(j).toMatchObject({ source: "remoteok", externalId: "9001", title: "Senior Product Manager", salary: { min: 120000, max: 150000, currency: "USD", period: "year" } });
+    expect(j.salaryText).toBe("USD 120000 - 150000");
+    expect(mapRemoteOk({ id: 1, position: "PM", company: "B", url: "https://x" }).salary).toBeUndefined();
+  });
+  it("maps Jobicy including its currency and decoding HTML entities in titles", () => {
+    const j = mapJobicy({ id: 77, url: "https://jobicy.com/jobs/77", jobTitle: "Product Manager &amp; Owner", companyName: "Gamma", jobGeo: "Singapore", jobDescription: "<p>desc</p>", pubDate: "2026-10-09 10:00:00", annualSalaryMin: "90000", annualSalaryMax: "110000", salaryCurrency: "SGD" });
+    expect(j).toMatchObject({ source: "jobicy", title: "Product Manager & Owner", country: "sg", salary: { min: 90000, max: 110000, currency: "SGD" } });
+    expect(mapJobicy({ id: 1, url: "https://x", jobTitle: "PM", companyName: "G", salaryCurrency: "dollars" }).salary).toBeUndefined();
   });
 });

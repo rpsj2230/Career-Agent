@@ -5,7 +5,7 @@
  * scrapes LinkedIn, Indeed or Glassdoor, which have no open job-search or apply API for individuals and forbid it.
  */
 
-export type IntegrationId = "adzuna" | "jsearch" | "remotive" | "greenhouse" | "lever" | "manual" | "mailbox";
+export type IntegrationId = "adzuna" | "jsearch" | "remotive" | "arbeitnow" | "remoteok" | "jobicy" | "greenhouse" | "lever" | "manual" | "mailbox";
 export type ApplyMode = "automated" | "assisted" | "none";
 
 export type CredentialDef = { key: string; label: string; help: string; env?: string; /** not needed for the integration to be ready */ optional?: boolean };
@@ -61,6 +61,27 @@ export const INTEGRATIONS: IntegrationDef[] = [
     credentials: [], countries: "all",
     setup: ["Nothing to set up", "Press Test to confirm it is reachable"],
     limitations: ["Remote roles only", "No country filter: the country is guessed from the location text", "Applying is on the employer's site (assisted)"],
+  },
+  {
+    id: "arbeitnow", name: "Arbeitnow", kind: "aggregator API", available: true, discovers: true, apply: "assisted",
+    summary: "Free public job board feed, strongest for Germany and the rest of Europe (including visa-sponsorship and relocation roles). No account needed.",
+    credentials: [], countries: ["de", "nl", "at", "ch", "fr", "es", "pl", "ie", "gb"],
+    setup: ["Nothing to set up", "Press Test to confirm it is reachable"],
+    limitations: ["The feed has no search: it is fetched and filtered by your job titles here", "Mostly Europe; the country comes from the location text", "Applying is on the employer's site (assisted)"],
+  },
+  {
+    id: "remoteok", name: "Remote OK", kind: "aggregator API", available: true, discovers: true, apply: "assisted",
+    summary: "Free public feed of remote jobs, many with salary ranges. No account needed.",
+    credentials: [], countries: "all",
+    setup: ["Nothing to set up", "Press Test to confirm it is reachable"],
+    limitations: ["Remote roles only, filtered by your job titles here", "Remote OK asks that listings link back to remoteok.com; each job keeps its original link", "Applying is on the employer's site (assisted)"],
+  },
+  {
+    id: "jobicy", name: "Jobicy", kind: "aggregator API", available: true, discovers: true, apply: "assisted",
+    summary: "Free public feed of remote jobs worldwide with salary data on many. No account needed.",
+    credentials: [], countries: "all",
+    setup: ["Nothing to set up", "Press Test to confirm it is reachable"],
+    limitations: ["Remote roles only, filtered by your job titles here", "Applying is on the employer's site (assisted)"],
   },
   {
     id: "greenhouse", name: "Greenhouse company boards", kind: "company job-board API", available: true, discovers: true, apply: "automated", needsConfig: "greenhouse_boards",

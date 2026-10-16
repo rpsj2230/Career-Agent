@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { failStaleRuns } from "@/lib/activity";
+import { checkStaleSources } from "@/lib/integrations/health-check";
 import { isDue } from "@/lib/schedule";
 import { listSchedules } from "@/lib/schedule-store";
 
@@ -9,8 +10,9 @@ import { listSchedules } from "@/lib/schedule-store";
  */
 export async function GET() {
   const swept = await failStaleRuns(30);
+  const stale = await checkStaleSources();
   const { rows, missing } = await listSchedules();
   const now = new Date();
   const due = rows.filter((s) => isDue(s, now));
-  return NextResponse.json({ due: due.length, schedules: due.map((s) => s.name), total: rows.length, missing, swept });
+  return NextResponse.json({ due: due.length, schedules: due.map((s) => s.name), total: rows.length, missing, swept, staleSources: stale.length });
 }

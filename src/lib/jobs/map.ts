@@ -61,3 +61,35 @@ export function mapLever(r: any, company: string): NormalizedJob {
     description: r.descriptionPlain ?? htmlToText(r.description ?? ""), postedAt: iso(r.createdAt),
   };
 }
+
+/** Arbeitnow: { data: [{ slug, title, company_name, description (HTML), location, remote, url, created_at (unix seconds) }] } */
+export function mapArbeitnow(r: any): NormalizedJob {
+  const location = [r.location, r.remote ? "Remote" : ""].filter(Boolean).join(", ");
+  return {
+    source: "arbeitnow", externalId: String(r.slug ?? r.url), title: r.title ?? "", company: r.company_name ?? "Unknown",
+    location, country: guessCountry(r.location) ?? (r.remote ? undefined : "de"), url: r.url, description: htmlToText(r.description ?? ""),
+    postedAt: typeof r.created_at === "number" ? iso(r.created_at * 1000) : iso(r.created_at),
+  };
+}
+
+/** Remote OK: [ legal-notice, { id, position, company, location, description (HTML), url, date, epoch, salary_min, salary_max } ... ] */
+export function mapRemoteOk(r: any): NormalizedJob {
+  const min = Number(r.salary_min) || undefined, max = Number(r.salary_max) || undefined;
+  return {
+    source: "remoteok", externalId: String(r.id), title: r.position ?? r.title ?? "", company: r.company ?? "Unknown",
+    location: r.location || "Remote", country: guessCountry(r.location), url: r.url ?? r.apply_url, description: htmlToText(r.description ?? ""),
+    postedAt: iso(r.date) ?? (typeof r.epoch === "number" ? iso(r.epoch * 1000) : undefined),
+    salaryText: money(min, max, "USD "), salary: min || max ? { min, max, currency: "USD", period: "year" } : undefined,
+  };
+}
+
+/** Jobicy: { jobs: [{ id, url, jobTitle, companyName, jobGeo, jobDescription (HTML), pubDate, annualSalaryMin, annualSalaryMax, salaryCurrency }] } */
+export function mapJobicy(r: any): NormalizedJob {
+  const min = Number(r.annualSalaryMin) || undefined, max = Number(r.annualSalaryMax) || undefined;
+  const currency = typeof r.salaryCurrency === "string" && /^[A-Z]{3}$/.test(r.salaryCurrency) ? r.salaryCurrency : undefined;
+  return {
+    source: "jobicy", externalId: String(r.id), title: htmlToText(r.jobTitle ?? ""), company: htmlToText(r.companyName ?? "") || "Unknown",
+    location: r.jobGeo || "Remote", country: guessCountry(r.jobGeo), url: r.url, description: htmlToText(r.jobDescription ?? r.jobExcerpt ?? ""),
+    postedAt: iso(r.pubDate), salaryText: money(min, max, currency ? `${currency} ` : ""), salary: min || max ? { min, max, currency, period: "year" } : undefined,
+  };
+}

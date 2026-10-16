@@ -53,7 +53,7 @@ export function detectPortal(input: { url: string; publisher?: string | null; in
 export const PORTAL_LABELS: Record<string, string> = {
   linkedin: "LinkedIn", indeed: "Indeed", glassdoor: "Glassdoor", naukri: "Naukri", foundit: "Foundit", shine: "Shine",
   instahyre: "Instahyre", cutshort: "Cutshort", wellfound: "Wellfound", internshala: "Internshala", timesjobs: "TimesJobs", apna: "Apna",
-  greenhouse: "Greenhouse (company)", lever: "Lever (company)", remotive: "Remotive", adzuna: "Adzuna", jsearch: "JSearch", manual: "Added manually",
+  greenhouse: "Greenhouse (company)", lever: "Lever (company)", remotive: "Remotive", arbeitnow: "Arbeitnow", remoteok: "Remote OK", jobicy: "Jobicy", adzuna: "Adzuna", jsearch: "JSearch", manual: "Added manually",
   ziprecruiter: "ZipRecruiter", mailbox: "Alert emails",
 };
 export const portalLabel = (key: string | null | undefined) => (key ? PORTAL_LABELS[key] ?? key.charAt(0).toUpperCase() + key.slice(1) : "Unknown");

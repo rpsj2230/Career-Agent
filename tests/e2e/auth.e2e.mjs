@@ -108,13 +108,18 @@ r = await call("/portals"); check("Portals page shows Adzuna as Working with rec
 // a failing source: recorded, explained, and visible
 mock.fixtures.failHosts.add("api.adzuna.com");
 r = await call("/api/integrations/adzuna/test", { method: "POST" }); check("a failing test explains what happened", r.status === 422 && /quota or rate limit/.test(r.text), `${r.status} ${r.text}`);
+mock.rowsOf("integrations").find((i) => i.id === "adzuna").status = "ok"; // as after a successful earlier scan (a failed manual Test already shows its own error)
 r = await call("/api/integrations/adzuna/scan", { method: "POST" }); check("a fully failing scan reports the error instead of success", r.status === 422 && /429|quota/.test(r.text), `${r.status} ${r.text}`);
 check("the failed scan and its reason are persisted (not lost)", mock.rowsOf("portal_scans").at(-1)?.status === "error" && /quota/.test(mock.rowsOf("portal_scans").at(-1)?.error ?? ""), JSON.stringify(mock.rowsOf("portal_scans").at(-1)));
 check("the failed run is marked partial with the reason", mock.rowsOf("automation_runs").at(-1)?.status === "partial" && /scans failed/.test(mock.rowsOf("automation_runs").at(-1)?.error ?? ""), JSON.stringify(mock.rowsOf("automation_runs").at(-1)));
 check("the error is in the activity log with the integration", mock.rowsOf("activity_log").some((l) => l.kind === "scan.failed" && l.level === "error" && l.integration === "adzuna"), "no scan.failed row");
+check("the first failure sends one Telegram alert with the reason", mock.seen.telegram.filter((m) => /Adzuna stopped working/.test(m.body.text)).length === 1 && /quota or rate limit/.test(mock.seen.telegram.at(-1).body.text), JSON.stringify(mock.seen.telegram.map((m) => m.body.text.slice(0, 60))));
+r = await call("/api/integrations/adzuna/scan", { method: "POST" });
+check("a repeated failure does not alert again", mock.seen.telegram.filter((m) => /Adzuna stopped working/.test(m.body.text)).length === 1, "alerted twice");
 r = await call("/portals"); check("Portals page shows the problem and the last error", r.text.includes("Problem") && /quota or rate limit/.test(r.text), "page lacks the error");
 mock.fixtures.failHosts.delete("api.adzuna.com");
 r = await call("/api/integrations/adzuna/scan", { method: "POST" }); r = await call("/portals");
+check("recovery sends one 'working again' message", mock.seen.telegram.filter((m) => /Adzuna is working again/.test(m.body.text)).length === 1, JSON.stringify(mock.seen.telegram.map((m) => m.body.text.slice(0, 40))));
 check("after the source recovers, the status returns to Working and the Problem badge is gone", r.text.includes("Working") && !r.text.includes("Problem"), `working=${r.text.includes("Working")} problem=${r.text.includes("Problem")}`);
 
 // origin portal from an aggregator's publisher
@@ -497,6 +502,29 @@ if (process.env.PLAYWRIGHT_BROWSERS_PATH || process.env.CHROMIUM_PATH) {
   r = await call(`/api/jobs/not-a-uuid/description`, { method: "PUT", body: { description: full } }); check("a bad job id is a 404", r.status === 404, `${r.status}`);
   check("the description change is logged", mock.rowsOf("activity_log").some((l) => /Job description added by you: Senior Product Manager at Eta Labs/.test(l.message) && l.job_id === alertJob.id), "no log");
   await imap.close();
+}
+
+// ---- more free feeds, and stale-source reminders
+{
+  for (const [id, title] of [["arbeitnow", "Product Manager"], ["remoteok", "Product Manager"], ["jobicy", "Product Manager"]]) {
+    r = await call(`/api/integrations/${id}/test`, { method: "POST" }); check(`${id}: Test reports the feed is reachable`, r.status === 200 && /reachable/.test(r.text), `${r.status} ${r.text}`);
+    r = await call(`/api/integrations/${id}/scan`, { method: "POST" }); check(`${id}: Scan now keeps only jobs matching your titles`, r.status === 200 && /1 new/.test(r.text), `${r.status} ${r.text}`);
+  }
+  const feedJobs = mock.rowsOf("jobs").filter((j) => ["arbeitnow", "remoteok", "jobicy"].includes(j.source.split(":")[0]));
+  check("feed jobs record their portal, country and structured salary", feedJobs.length === 3 && feedJobs.find((j) => j.source === "remoteok")?.salary_min === 100000 && feedJobs.find((j) => j.source === "jobicy")?.salary_currency === "SGD" && feedJobs.find((j) => j.source === "arbeitnow")?.country === "de" && feedJobs.every((j) => !!j.portal), JSON.stringify(feedJobs.map((j) => [j.source, j.portal, j.country, j.salary_min])));
+  check("the Plumber listing never became a job", !mock.rowsOf("jobs").some((j) => j.title === "Plumber"), "unfiltered");
+  r = await call("/portals"); const pt = r.text.replace(/<!-- -->/g, ""); check("Portals page lists the new sources", pt.includes("Arbeitnow") && pt.includes("Remote OK") && pt.includes("Jobicy"), "missing");
+
+  // a source that is set up but has not scanned successfully for days
+  const ad = mock.rowsOf("integrations").find((x) => x.id === "jsearch");
+  ad.last_ok_at = new Date(Date.now() - 5 * 86_400_000).toISOString(); ad.last_scan_at = ad.last_ok_at; ad.status = "ok";
+  const tgBefore = mock.seen.telegram.length;
+  r = await call("/api/cron/due", { auth: false, headers: { Authorization: `Bearer ${SECRET}` } });
+  check("a source with no successful scan for days is reported once", r.json?.staleSources >= 1 && mock.seen.telegram.slice(tgBefore).some((m) => /JSearch \(Google for Jobs\) has not completed a successful scan for 5 days/.test(m.body.text)), `${r.text} ${JSON.stringify(mock.seen.telegram.slice(tgBefore).map((m) => m.body.text.slice(0, 80)))}`);
+  const tgMid = mock.seen.telegram.length;
+  r = await call("/api/cron/due", { auth: false, headers: { Authorization: `Bearer ${SECRET}` } });
+  check("...and not again within a day", !mock.seen.telegram.slice(tgMid).some((m) => /JSearch.*has not completed/.test(m.body.text)), "repeated");
+  check("the reminder is in the activity log", mock.rowsOf("activity_log").some((l) => l.kind === "integration.error" && l.status === "stale" && l.integration === "jsearch"), "no log");
 }
 
 // ---- real-browser smoke test: every main page loads, hydrates without console errors; optional screenshots (E2E_SHOTS=dir)
