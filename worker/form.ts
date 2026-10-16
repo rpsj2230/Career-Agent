@@ -1,8 +1,10 @@
+import { basename } from "node:path";
 import type { Page } from "playwright";
+import type { FieldEntry } from "../src/lib/apply/submission";
 import { matchAnswer, standardValue, type Answer, type Applicant } from "./match";
 
 export type FillContext = { applicant: Applicant; answers: Answer[]; resumePath: string; coverPath?: string };
-export type FillResult = { filled: string[]; unanswered: string[] };
+export type FillResult = { filled: string[]; unanswered: string[]; entries: FieldEntry[] };
 
 type Field = {
   idx: number; tag: string; type: string; label: string; name: string; required: boolean;
@@ -88,6 +90,7 @@ export async function fillForm(page: Page, ctx: FillContext): Promise<FillResult
   const fields = await scan(page);
   const filled: string[] = [];
   const unanswered: string[] = [];
+  const entries: FieldEntry[] = [];
   const at = (i: number) => page.locator(`[data-ca-i="${i}"]`);
   let fileCount = 0;
 
@@ -100,7 +103,7 @@ export async function fillForm(page: Page, ctx: FillContext): Promise<FillResult
         const wantsResume = /resume|cv|curriculum/i.test(probe);
         const path = wantsCover ? ctx.coverPath : wantsResume || fileCount === 0 ? ctx.resumePath : ctx.coverPath;
         fileCount++;
-        if (path) { await at(f.idx).setInputFiles(path); filled.push(`${label || "file"} (upload)`); }
+        if (path) { await at(f.idx).setInputFiles(path); filled.push(`${label || "file"} (upload)`); entries.push({ label: label || "file", value: basename(path), kind: "file", source: "upload" }); }
         else if (f.required) unanswered.push(label || "file upload");
         continue;
       }
@@ -109,28 +112,30 @@ export async function fillForm(page: Page, ctx: FillContext): Promise<FillResult
         continue;
       }
       if (f.hasValue) continue;
-      const value = standardValue(probe, ctx.applicant) ?? matchAnswer(label, ctx.answers);
+      const std = standardValue(probe, ctx.applicant);
+      const value = std ?? matchAnswer(label, ctx.answers);
+      const source: FieldEntry["source"] = std != null ? "profile" : "answers";
 
       if (f.type === "radio") {
         const answer = matchAnswer(f.label, ctx.answers);
         const i = answer ? pickOption(f.options, answer) : -1;
-        if (i >= 0) { await at(f.options[i].idx).check(); filled.push(label); }
+        if (i >= 0) { await at(f.options[i].idx).check(); filled.push(label); entries.push({ label, value: f.options[i].text, kind: "radio", source: "answers" }); }
         else if (f.required) unanswered.push(label);
         continue;
       }
       if (f.type === "select") {
         const i = value ? pickOption(f.options, value) : -1;
-        if (i >= 0) { await at(f.idx).selectOption({ index: f.options[i].idx }); filled.push(label); }
+        if (i >= 0) { await at(f.idx).selectOption({ index: f.options[i].idx }); filled.push(label); entries.push({ label, value: f.options[i].text, kind: "select", source }); }
         else if (f.required) unanswered.push(label);
         continue;
       }
-      if (value) { await at(f.idx).fill(value); filled.push(label); }
+      if (value) { await at(f.idx).fill(value); filled.push(label); entries.push({ label, value, kind: "text", source }); }
       else if (f.required) unanswered.push(label);
     } catch (e) {
       if (f.required) unanswered.push(`${label} (${e instanceof Error ? e.message.split("\n")[0] : "error"})`);
     }
   }
-  return { filled, unanswered };
+  return { filled, unanswered, entries };
 }
 
 /** Click the form's submit control. Returns false when none is found. */

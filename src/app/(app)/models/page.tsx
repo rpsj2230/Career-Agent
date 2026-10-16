@@ -6,6 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { db, must } from "@/lib/db";
 import { storedKeyLabels } from "@/lib/llm/keys";
 import { ensureDefaultModels } from "@/lib/llm/registry";
+import { fmtDateTime } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
 
@@ -62,7 +63,7 @@ export default async function ModelsPage() {
       </Card>
       {recentErrors.length > 0 && (
         <Card><CardHeader><CardTitle>Recent failures</CardTitle></CardHeader><CardContent className="grid gap-1 text-sm">
-          {recentErrors.map((e, i) => <div key={i}><span className="font-medium">{e.model_label}</span> <span className="text-muted-foreground">{new Date(e.created_at).toLocaleString("en-IN")}</span>: {e.error}</div>)}
+          {recentErrors.map((e, i) => <div key={i}><span className="font-medium">{e.model_label}</span> <span className="text-muted-foreground">{fmtDateTime(e.created_at)}</span>: {e.error}</div>)}
         </CardContent></Card>
       )}
     </div>

@@ -1,13 +1,17 @@
 import { notFound } from "next/navigation";
 import { ActionButton } from "@/components/app/action-button";
-import { ApplyTypeBadge, ScoreBadge, StatusBadge } from "@/components/app/badges";
+import { AddDescription } from "@/components/app/add-description";
+import { ApplyTypeBadge, ScoreBadge, SourceBadge, StatusBadge } from "@/components/app/badges";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { db, must } from "@/lib/db";
+import { countryLabel } from "@/lib/filters";
+import { portalLabel } from "@/lib/jobs/portal";
 import type { JobScore, TailoredResume, CoverLetter } from "@/lib/types";
+import { fmtDate, fmtDateTime } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
 
@@ -39,8 +43,10 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">{job.title}</h1>
-          <p className="text-muted-foreground">{job.company} · {job.location ?? job.country?.toUpperCase() ?? "location n/a"} · {job.salary_text ?? "salary n/a"}</p>
-          <div className="mt-2 flex flex-wrap gap-2"><ScoreBadge score={sc?.score} /><ApplyTypeBadge type={job.apply_type} /><StatusBadge status={job.status} /></div>
+          <p className="text-muted-foreground">{job.company} · {job.location ?? "location n/a"} · {countryLabel(job.country)} · {job.salary_text ?? "salary n/a"}</p>
+          <p className="text-xs text-muted-foreground">Found {fmtDateTime(job.found_at)}{job.posted_at ? ` · posted ${fmtDate(job.posted_at)}` : ""} · via {String(job.source).split(":")[0]}</p>
+          <div className="mt-2 flex flex-wrap gap-2"><SourceBadge portal={job.portal} source={job.source} /><ScoreBadge score={sc?.score} /><ApplyTypeBadge type={job.apply_type} /><StatusBadge status={job.status} /></div>
+          {Array.isArray(job.seen_on) && job.seen_on.length > 0 && <p className="mt-1 text-xs text-muted-foreground">Also listed on {job.seen_on.map((p: string) => portalLabel(p)).join(", ")}. It is kept as one job, so you will not apply twice.</p>}
         </div>
         <Button variant="outline" asChild><a href={job.url} target="_blank" rel="noreferrer">Open posting</a></Button>
       </div>
@@ -55,6 +61,13 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
             <div><span className="font-medium">Location/visa:</span> {detail.locationVisaFit}</div>
             <div className="md:col-span-2"><span className="font-medium">Salary:</span> {detail.salarySignal}</div>
           </CardContent>
+        </Card>
+      )}
+
+      {!app && String(job.description ?? "").length < 300 && (
+        <Card className="border-amber-500">
+          <CardHeader><CardTitle>Add the full job description</CardTitle><CardDescription>This job came with only a short summary{String(job.source).startsWith("mailbox") ? " (job-alert emails do not include the description)" : ""}. Tailoring and scoring are much better with the real text.</CardDescription></CardHeader>
+          <CardContent><AddDescription jobId={id} /></CardContent>
         </Card>
       )}
 

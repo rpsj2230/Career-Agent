@@ -45,7 +45,10 @@ discover (Adzuna / JSearch / Remotive / Greenhouse / Lever / manual paste)
    No other variables are needed: model keys are pasted in the app later.
 3. **GitHub** (repo Settings -> Secrets and variables -> Actions) add:
    `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `APP_URL`, `CRON_SECRET`, and optionally
-   `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `LINKEDIN_STORAGE_STATE`.
+   `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `LINKEDIN_STORAGE_STATE`, `APP_TIMEZONE`.
+   Schedules run in GitHub Actions (`pipeline.yml`): every hour it asks the app whether a schedule is due and only then
+   installs and runs the pipeline (search, score, prepare, and approve/submit if the schedule allows it).
+   Optional sources: connect a mailbox on the Portals page to read LinkedIn/Indeed/Glassdoor/Naukri job-alert emails (read-only IMAP, app password).
    Create a fine-grained token limited to this repo with "Actions: read and write" and put it in Vercel as
    `GITHUB_DISPATCH_TOKEN`.
 4. Open the app. On the sign-in page choose **Create account**, enter your email, a password (10+ characters) and the
@@ -101,8 +104,8 @@ delivery, and the Vercel/Supabase deployment itself. Expect to adjust small thin
 form matching on employers with unusual forms. LinkedIn automation is the least certain and carries account risk;
 leave it off unless you accept that.
 
-Other known limits: Vercel Hobby cron runs once a day (GitHub Actions in `.github/workflows/schedule.yml`
-provides more frequent runs for free); the prepare step makes two model calls and may need a function time limit
+Other known limits: Vercel Hobby cron runs once a day; your **Schedules** page (hourly check in
+`.github/workflows/pipeline.yml`) replaces the fixed-time `schedule.yml` jobs as soon as you have an active schedule; the prepare step makes two model calls and may need a function time limit
 above your plan's default (`maxDuration` is set to 120s; check your plan); `npm audit` reports a moderate
 `sprintf-js` issue reached through mammoth's CLI parser, which is not fed by your documents, and its suggested
 fix is a downgrade to a very old mammoth, so it is accepted for now.

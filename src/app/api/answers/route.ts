@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db, must } from "@/lib/db";
+import { logConfig } from "@/lib/activity-helpers";
 
 const slug = (q: string) => q.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 80);
 const Body = z.object({ items: z.array(z.object({ question: z.string().min(2).max(300), answer: z.string().max(2000) })).max(200) });
@@ -14,5 +15,6 @@ export async function PUT(request: Request) {
   const gone = existing.map((e) => e.key).filter((k) => !rows.some((r) => r.key === k));
   if (gone.length) must(await db().from("answer_bank").delete().in("key", gone).select("key"), "prune answers");
   if (rows.length) must(await db().from("answer_bank").upsert(rows, { onConflict: "key" }).select("key"), "save answers");
+  await logConfig("Answer bank saved", { answers: rows.length });
   return NextResponse.json({ ok: true });
 }

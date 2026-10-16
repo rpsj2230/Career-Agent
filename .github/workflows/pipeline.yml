@@ -1,0 +1,90 @@
+name: Scheduled pipeline
+
+# Runs your schedules (Schedules page). Every hour this asks the app whether anything is due; only then does it
+# install and run the pipeline, so quiet hours cost a few seconds. "Run now" on the Schedules page starts it with
+# schedule_id set.
+on:
+  schedule:
+    - cron: "7 * * * *"
+  workflow_dispatch:
+    inputs:
+      schedule_id:
+        description: Run this schedule now (leave empty to run whatever is due)
+        required: false
+
+concurrency:
+  group: pipeline # two runs of the pipeline never overlap; a waiting tick is picked up afterwards
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    outputs:
+      run: ${{ steps.due.outputs.run }}
+    steps:
+      - id: due
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          SCHEDULE_ID: ${{ inputs.schedule_id }}
+        run: |
+          set -euo pipefail
+          if [ -n "${SCHEDULE_ID:-}" ]; then echo "run=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          body=$(curl --fail-with-body -sS -m 60 -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/due")
+          echo "$body"
+          due=$(echo "$body" | jq -r '.due // 0')
+          if [ "$due" -gt 0 ]; then echo "run=true" >> "$GITHUB_OUTPUT"; else echo "run=false" >> "$GITHUB_OUTPUT"; fi
+
+  pipeline:
+    needs: check
+    if: needs.check.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      ready: ${{ steps.p.outputs.ready_to_submit }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - id: p
+        run: npx tsx worker/pipeline.ts
+        env:
+          NODE_OPTIONS: --conditions=react-server
+          SCHEDULE_ID: ${{ inputs.schedule_id }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          APP_URL: ${{ secrets.APP_URL }}
+          APP_TIMEZONE: ${{ secrets.APP_TIMEZONE }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+  apply:
+    needs: pipeline
+    if: needs.pipeline.outputs.ready != '' && needs.pipeline.outputs.ready != '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    concurrency:
+      group: apply-worker # shared with the single-application workflow: one browser session at a time
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npx tsx worker/apply.ts
+        env:
+          MAX_APPLY: "25"
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          LINKEDIN_STORAGE_STATE: ${{ secrets.LINKEDIN_STORAGE_STATE }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}

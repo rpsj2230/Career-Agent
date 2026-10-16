@@ -11,6 +11,9 @@ export type NormalizedJob = {
   description: string;
   salaryText?: string;
   postedAt?: string; // ISO
+  publisher?: string; // site the posting was published on, when an aggregator tells us (JSearch)
+  /** Structured pay when the source gives numbers. `estimated` = the job site's own guess, not the employer's. */
+  salary?: { min?: number; max?: number; currency?: string; period?: "year" | "month" | "week" | "day" | "hour"; estimated?: boolean };
 };
 
 const PORTALS = ["naukri.com", "foundit.in", "monsterindia.com", "shine.com", "indeed.", "instahyre.com", "cutshort.io", "wellfound.com", "internshala.com", "timesjobs.com", "apna.co", "glassdoor."];
@@ -52,10 +55,15 @@ const COUNTRY_NAMES: Record<string, string> = {
   india: "in", "united states": "us", usa: "us", "united kingdom": "gb", uk: "gb", singapore: "sg", australia: "au",
   canada: "ca", germany: "de", france: "fr", netherlands: "nl", "united arab emirates": "ae", uae: "ae", ireland: "ie",
 };
+const CITY_COUNTRY: Record<string, string> = {
+  bengaluru: "in", bangalore: "in", mumbai: "in", pune: "in", delhi: "in", "new delhi": "in", gurgaon: "in", gurugram: "in", noida: "in", hyderabad: "in", chennai: "in", kolkata: "in", ahmedabad: "in",
+  london: "gb", manchester: "gb", dubai: "ae", "abu dhabi": "ae", sydney: "au", melbourne: "au", toronto: "ca", vancouver: "ca", berlin: "de", munich: "de", amsterdam: "nl", dublin: "ie",
+};
 /** Best-effort ISO-2 from free text like "Bengaluru, India". */
 export function guessCountry(location?: string): string | undefined {
   if (!location) return undefined;
   const l = location.toLowerCase();
   for (const [name, code] of Object.entries(COUNTRY_NAMES)) if (new RegExp(`\\b${name}\\b`).test(l)) return code;
+  for (const [city, code] of Object.entries(CITY_COUNTRY)) if (new RegExp(`\\b${city}\\b`).test(l)) return code;
   return undefined;
 }

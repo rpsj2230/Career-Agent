@@ -1,18 +1,30 @@
 /**
- * Apply worker: runs on GitHub Actions (see .github/workflows/apply.yml), one application per run.
+ * Apply worker: runs on GitHub Actions (.github/workflows/apply.yml for one application, pipeline.yml for a batch).
  * It only submits when the application was explicitly approved in the dashboard, never touches CAPTCHAs,
  * checkpoints or consent checkboxes, and hands the application back to you whenever it is unsure.
  */
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { chromium, type Page } from "playwright";
+import { confirmationSnippet, type FieldEntry, type SubmissionRecord } from "../src/lib/apply/submission";
 import { MasterProfile } from "../src/lib/types";
 import { clickSubmit, fillForm } from "./form";
 import { CONFIRMATION, detectBlock, type Answer } from "./match";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Central activity log. Never throws: a logging problem must not change the outcome of an application. */
+async function logAct(sb: SupabaseClient, e: Record<string, unknown>) {
+  try {
+    const { error } = await sb.from("activity_log").insert({ level: "info", detail: {}, ...e });
+    if (error) console.error(`[activity] could not record ${String(e.kind)}: ${error.message} :: ${JSON.stringify(e).slice(0, 1000)}`);
+  } catch (err) {
+    console.error(`[activity] could not record ${String(e.kind)}: ${err instanceof Error ? err.message : err} :: ${JSON.stringify(e).slice(0, 1000)}`);
+  }
+}
+
 async function notify(text: string) {
   const token = process.env.TELEGRAM_BOT_TOKEN, chat = process.env.TELEGRAM_CHAT_ID;
   if (!token || !chat) return;
@@ -20,14 +32,45 @@ async function notify(text: string) {
 }
 const need = (k: string) => { const v = process.env[k]; if (!v) throw new Error(`${k} is not set`); return v; };
 
+/** Update an application with its submission record; if the database has not been upgraded yet, save the status without it. */
+async function updateApplication(sb: SupabaseClient, appId: string, patch: Record<string, unknown>, submission: SubmissionRecord) {
+  const { error } = await sb.from("applications").update({ ...patch, submission }).eq("id", appId);
+  if (!error) return;
+  if (/submission|schema cache|column/i.test(error.message)) {
+    console.error(`[submission] stored without the record (database update pending): ${error.message}`);
+    const { error: e2 } = await sb.from("applications").update(patch).eq("id", appId);
+    if (e2) throw e2;
+    return;
+  }
+  throw error;
+}
+const sha256 = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
+
 class Handback extends Error {
   constructor(public kind: "needs_input" | "failed", message: string, public stopLinkedIn = false) { super(message); }
 }
 
-async function main() {
-  const appId = need("APPLICATION_ID");
-  if (!UUID.test(appId)) throw new Error("APPLICATION_ID is not a uuid");
-  const sb = createClient(need("SUPABASE_URL"), need("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false } });
+/**
+ * Submit one approved application. A problem with this application (a missing document, a crash) marks it failed with
+ * the reason and never stops the rest of the batch.
+ */
+async function processOne(sb: SupabaseClient, appId: string) {
+  try {
+    await processInner(sb, appId);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.error(`failed: ${message}`);
+    process.exitCode = 1;
+    // only if it is still ours: an application that already finished is never overwritten
+    const { data } = await sb.from("applications").update({ status: "failed", error: message }).eq("id", appId).eq("status", "submitting").select("id, job_id");
+    if (data?.length) {
+      await sb.from("apply_events").insert({ application_id: appId, kind: "failed", detail: { message } });
+      await logAct(sb, { kind: "application.failed", level: "error", message: `Automatic submission failed: ${message}`, status: "failed", application_id: appId, job_id: data[0].job_id, detail: { method: "automated", message } });
+    }
+  }
+}
+
+async function processInner(sb: SupabaseClient, appId: string) {
   const event = async (kind: string, detail: Record<string, unknown> = {}) => { await sb.from("apply_events").insert({ application_id: appId, kind, detail }); };
 
   // Atomic claim: if another run already took it, or it is not approved, do nothing.
@@ -37,7 +80,7 @@ async function main() {
   const app = claimed[0];
   await event("worker_started");
 
-  const { data: job } = await sb.from("jobs").select("id,title,company,url,apply_type").eq("id", app.job_id).single();
+  const { data: job } = await sb.from("jobs").select("*").eq("id", app.job_id).single();
   const { data: profileRow } = await sb.from("profile").select("data").eq("id", 1).single();
   const profile = MasterProfile.parse(profileRow?.data ?? {});
   const { data: docs } = await sb.from("documents").select("id,kind,storage_path").in("id", [app.resume_doc_id, app.cover_doc_id].filter(Boolean));
@@ -62,10 +105,25 @@ async function main() {
   };
   const ctx = { applicant, answers: (app.answers as Answer[]) ?? [], resumePath, coverPath };
 
+  // Everything below is recorded so the application page can show exactly what was sent.
+  const startedAt = new Date().toISOString();
+  const entered: FieldEntry[] = [];
+  let steps = 0;
+  const unansweredNow: string[] = [];
+  const fileInfo = (role: "resume" | "cover_letter", path: string, doc: { storage_path: string } | undefined) =>
+    ({ role, name: basename(path), bytes: statSync(path).size, sha256: sha256(path), storage_path: doc?.storage_path ?? null });
+  const record = (outcome: SubmissionRecord["outcome"], p: { finalUrl: string | null; confirmation: SubmissionRecord["confirmation"]; error: string | null }): SubmissionRecord => ({
+    version: 1, method: "automated", outcome, started_at: startedAt, finished_at: new Date().toISOString(), target_url: job.url, final_url: p.finalUrl,
+    fields: entered, files: [fileInfo("resume", resumePath, resumeDoc), ...(coverPath ? [fileInfo("cover_letter", coverPath, coverDoc)] : [])],
+    unanswered: unansweredNow, confirmation: p.confirmation, error: p.error, steps, note: null,
+  });
+
   const linkedin = job.apply_type === "linkedin";
   let storageStatePath: string | undefined;
   if (linkedin) {
     const state = process.env.LINKEDIN_STORAGE_STATE;
+    const { data: capsRow } = await sb.from("settings").select("value").eq("key", "caps").maybeSingle();
+    if (capsRow && (capsRow.value as { linkedin_automation_enabled?: boolean }).linkedin_automation_enabled === false) throw new Handback("needs_input", "LinkedIn automation is switched off; apply manually");
     if (!state) throw new Handback("needs_input", "LinkedIn automation needs LINKEDIN_STORAGE_STATE (your own signed-in session); apply manually instead");
     storageStatePath = join(dir, "li-state.json");
     writeFileSync(storageStatePath, state);
@@ -75,6 +133,9 @@ async function main() {
   let page: Page | undefined;
   try {
     const context = await browser.newContext({ storageState: storageStatePath, viewport: { width: 1280, height: 1800 } });
+    // tsx compiles with "keep names", which wraps functions in a __name() helper that does not exist inside the page
+    // and breaks every page.evaluate(). Defining it as a no-op makes the injected code run.
+    await context.addInitScript({ content: "window.__name = window.__name || function (t) { return t; };" });
     page = await context.newPage();
     page.setDefaultTimeout(20_000);
     let target = job.url;
@@ -96,7 +157,8 @@ async function main() {
       for (let step = 0; step < 8; step++) {
         await checkBlock();
         const r = await fillForm(page, ctx);
-        if (r.unanswered.length) throw new Handback("needs_input", `Needs you: ${r.unanswered.join("; ")}`);
+        entered.push(...r.entries); steps++;
+        if (r.unanswered.length) { unansweredNow.push(...r.unanswered); throw new Handback("needs_input", `Needs you: ${r.unanswered.join("; ")}`); }
         const submit = page.getByRole("button", { name: /submit application/i });
         if (await submit.isVisible().catch(() => false)) { await submit.click(); break; }
         const next = page.getByRole("button", { name: /^(next|review|continue)/i }).first();
@@ -106,8 +168,9 @@ async function main() {
       }
     } else {
       const r = await fillForm(page, ctx);
-      await event("form_filled", r);
-      if (r.unanswered.length) throw new Handback("needs_input", `Needs you: ${r.unanswered.join("; ")}`);
+      entered.push(...r.entries); steps++;
+      await event("form_filled", { filled: r.filled, unanswered: r.unanswered });
+      if (r.unanswered.length) { unansweredNow.push(...r.unanswered); throw new Handback("needs_input", `Needs you: ${r.unanswered.join("; ")}`); }
       await checkBlock();
       if (!(await clickSubmit(page))) throw new Handback("needs_input", "Could not find a submit button");
     }
@@ -118,9 +181,11 @@ async function main() {
     const shot = `screenshots/${appId}/confirmation.png`;
     await sb.storage.from("documents").upload(shot, await page.screenshot({ fullPage: true }), { contentType: "image/png", upsert: true });
     const now = new Date().toISOString();
-    await sb.from("applications").update({ status: "submitted", submitted_at: now, lifecycle: "applied", screenshot_path: shot }).eq("id", appId);
+    const confirmation = { text: confirmationSnippet(await page.innerText("body").catch(() => ""), CONFIRMATION), screenshot: shot };
+    await updateApplication(sb, appId, { status: "submitted", submitted_at: now, lifecycle: "applied", screenshot_path: shot }, record("submitted", { finalUrl: page.url(), confirmation, error: null }));
     await sb.from("jobs").update({ status: "applied" }).eq("id", job.id);
     await event("submitted", { url: page.url() });
+    await logAct(sb, { kind: "application.submitted", message: `Submitted automatically: ${job.title} at ${job.company}`, status: "submitted", application_id: appId, job_id: job.id, company: job.company, country: (job as { country?: string }).country ?? null, portal: (job as { portal?: string }).portal ?? job.apply_type, detail: { method: "automated", url: page.url(), screenshot: shot } });
     await notify(`Applied: ${job.title} at ${job.company}`);
     console.log("Submitted.");
   } catch (e) {
@@ -130,12 +195,13 @@ async function main() {
       shot = `screenshots/${appId}/last-state.png`;
       await sb.storage.from("documents").upload(shot, await page.screenshot({ fullPage: true }).catch(() => Buffer.alloc(0)), { contentType: "image/png", upsert: true }).catch(() => undefined);
     }
-    await sb.from("applications").update({ status: h.kind, error: h.message, screenshot_path: shot ?? null }).eq("id", appId);
+    await updateApplication(sb, appId, { status: h.kind, error: h.message, screenshot_path: shot ?? null }, record(h.kind, { finalUrl: page?.url() ?? null, confirmation: null, error: h.message })).catch((err) => console.error("could not save the submission record:", err));
     await event(h.kind, { message: h.message });
+    await logAct(sb, { kind: h.kind === "failed" ? "application.failed" : "application.needs_input", level: h.kind === "failed" ? "error" : "warn", message: `${h.kind === "failed" ? "Automatic submission failed" : "Needs you"}: ${h.message}`, status: h.kind, application_id: appId, job_id: job.id, company: job.company, country: (job as { country?: string }).country ?? null, portal: (job as { portal?: string }).portal ?? job.apply_type, detail: { method: "automated", message: h.message, screenshot: shot ?? null } });
     if (h.stopLinkedIn) await switchOffLinkedIn(sb);
     await notify(`${h.kind === "failed" ? "Application failed" : "Needs you"}: ${h.message}`);
     console.error(`${h.kind}: ${h.message}`);
-    process.exitCode = h.kind === "failed" ? 1 : 0;
+    if (h.kind === "failed") process.exitCode = 1;
   } finally {
     await browser.close();
   }
@@ -144,6 +210,32 @@ async function main() {
 async function switchOffLinkedIn(sb: SupabaseClient) {
   const { data } = await sb.from("settings").select("value").eq("key", "caps").maybeSingle();
   await sb.from("settings").upsert({ key: "caps", value: { ...(data?.value ?? {}), linkedin_automation_enabled: false }, updated_at: new Date().toISOString() });
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * With APPLICATION_ID: submit that one application (the Approve button).
+ * Without it: submit every approved automated application, oldest first, up to MAX_APPLY (default 10), with a pause
+ * between them so the pace looks like a person and each portal sees at most one request stream.
+ */
+async function main() {
+  const sb = createClient(need("SUPABASE_URL"), need("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false } });
+  const single = process.env.APPLICATION_ID?.trim();
+  if (single) {
+    if (!UUID.test(single)) throw new Error("APPLICATION_ID is not a uuid");
+    await processOne(sb, single);
+    return;
+  }
+  const limit = Math.max(1, Math.min(50, Number(process.env.MAX_APPLY ?? 10) || 10));
+  const { data, error } = await sb.from("applications").select("id").eq("status", "approved").eq("method", "automated").order("approved_at", { ascending: true }).limit(limit);
+  if (error) throw error;
+  const ids = (data ?? []).map((r) => r.id as string);
+  console.log(ids.length ? `${ids.length} approved application(s) to submit.` : "No approved applications are waiting.");
+  for (const [i, id] of ids.entries()) {
+    if (i > 0) await sleep(Number(process.env.APPLY_PAUSE_MS ?? 20_000 + Math.random() * 40_000));
+    await processOne(sb, id);
+  }
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

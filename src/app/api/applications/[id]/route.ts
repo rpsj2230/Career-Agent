@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { logActivity } from "@/lib/activity";
+import { jobLogFields, type JobRef } from "@/lib/activity-helpers";
+import type { LogEntry } from "@/lib/activity-types";
+import { assistedRecord } from "@/lib/apply/submission";
 import { db, must } from "@/lib/db";
-import { decideApply } from "@/lib/apply/caps";
-import { dispatchApply } from "@/lib/apply/dispatch";
+import { withLegacyFallback } from "@/lib/schema";
+import { approveApplication } from "@/lib/apply/approve";
 import { logEvent } from "@/lib/apply/events";
-import { loadCapState } from "@/lib/apply/state";
-import { getSetting } from "@/lib/settings";
-import type { ApplyType } from "@/lib/jobs/normalize";
 
 const Body = z.discriminatedUnion("action", [
   z.object({ action: z.literal("approve"), override: z.boolean().optional() }),
@@ -27,47 +28,37 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
 
   const app = must<AppRow | null>(await db().from("applications").select("id,job_id,status,resume_doc_id,cover_doc_id").eq("id", id).maybeSingle(), "load application");
   if (!app) return NextResponse.json({ error: "Application not found" }, { status: 404 });
+  const jobRow = must<(JobRef & { title: string; url?: string }) | null>(await db().from("jobs").select("*").eq("id", app.job_id).maybeSingle(), "load job");
+  const log = (e: Omit<LogEntry, "job_id" | "company" | "country" | "portal" | "application_id">) =>
+    logActivity({ ...e, ...(jobRow ? jobLogFields(jobRow) : { job_id: app.job_id }), application_id: id, detail: { ...(e.detail ?? {}), title: jobRow?.title } });
   const setApp = async (patch: Record<string, unknown>) => must(await db().from("applications").update(patch).eq("id", id).select("id"), "update application");
   const setJob = async (patch: Record<string, unknown>) => must(await db().from("jobs").update(patch).eq("id", app.job_id).select("id"), "update job");
 
   switch (body.action) {
     case "approve": {
-      if (!["prepared", "needs_input", "failed"].includes(app.status)) return NextResponse.json({ error: `Already ${app.status}` }, { status: 409 });
-      const docs = must<{ verification: { ok: boolean; issues: unknown[] } | null }[]>(
-        await db().from("documents").select("verification").in("id", [app.resume_doc_id, app.cover_doc_id].filter(Boolean) as string[]), "load documents",
-      );
-      const unverified = docs.filter((d) => d.verification && !d.verification.ok);
-      if (unverified.length && !body.override) {
-        return NextResponse.json({ error: "Verification found claims that are not in your profile. Review them or approve with override.", issues: unverified.flatMap((d) => d.verification?.issues ?? []) }, { status: 409 });
-      }
-      const job = must<{ apply_type: ApplyType }>(await db().from("jobs").select("apply_type").eq("id", app.job_id).single(), "load job");
-      const decision = decideApply(job.apply_type, await getSetting("caps"), await loadCapState());
-      if (!decision.allowed) return NextResponse.json({ error: decision.reason }, { status: 429 });
-      const automated = decision.mode === "automated";
-      // Atomic claim: only one concurrent request can move the application out of its pending states.
-      const claimed = must<{ id: string }[]>(
-        await db().from("applications")
-          .update({ status: automated ? "approved" : "assisted_pending", method: decision.mode, approved_at: new Date().toISOString(), error: null })
-          .eq("id", id).in("status", ["prepared", "needs_input", "failed"]).select("id"),
-        "claim application",
-      );
-      if (claimed.length === 0) return NextResponse.json({ error: "Already being processed" }, { status: 409 });
-      await logEvent(id, "approved", { mode: decision.mode, override: !!body.override, note: decision.reason ?? null });
-      if (automated) {
-        const err = await dispatchApply(id);
-        if (err) await logEvent(id, "dispatch_failed", { error: err });
-        return NextResponse.json({ ok: true, mode: "automated", warning: err });
-      }
-      return NextResponse.json({ ok: true, mode: "assisted", note: decision.reason ?? null });
+      const r = await approveApplication(id, { override: body.override, actor: "user", dispatch: true });
+      if (!r.ok) return NextResponse.json({ error: r.error, issues: r.issues }, { status: r.status });
+      return NextResponse.json(r.mode === "automated" ? { ok: true, mode: "automated", warning: r.warning } : { ok: true, mode: "assisted", note: r.note });
     }
-    case "mark_submitted":
-      await setApp({ status: "submitted", method: "assisted", submitted_at: new Date().toISOString(), lifecycle: "applied" });
+    case "mark_submitted": {
+      const now = new Date();
+      const patch = { status: "submitted", method: "assisted", submitted_at: now.toISOString(), lifecycle: "applied" };
+      must(
+        await withLegacyFallback(
+          () => db().from("applications").update({ ...patch, submission: assistedRecord(jobRow?.url ?? "", now) }).eq("id", id).select("id"),
+          () => db().from("applications").update(patch).eq("id", id).select("id"),
+        ),
+        "mark submitted",
+      );
       await setJob({ status: "applied" });
       await logEvent(id, "marked_submitted");
+      await log({ kind: "application.submitted", message: "Marked as submitted by you (assisted)", status: "submitted", detail: { method: "assisted" } });
       return NextResponse.json({ ok: true });
+    }
     case "skip":
       await setJob({ status: "skipped", skip_reason: "Skipped by you" });
       await logEvent(id, "skipped");
+      await log({ kind: "application.skipped", message: "Skipped by you", status: "skipped" });
       return NextResponse.json({ ok: true });
     case "save":
       await setJob({ status: "saved" });
@@ -76,10 +67,12 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
       if (app.status !== "failed") return NextResponse.json({ error: "Only failed applications can be retried" }, { status: 409 });
       await setApp({ status: "prepared", error: null });
       await logEvent(id, "retry_requested");
+      await log({ kind: "application.lifecycle", message: "Returned to the queue for another attempt", status: "prepared" });
       return NextResponse.json({ ok: true });
     case "lifecycle":
       await setApp({ lifecycle: body.lifecycle, notes: body.notes ?? null });
       await logEvent(id, "lifecycle", { lifecycle: body.lifecycle });
+      await log({ kind: "application.lifecycle", message: `Outcome set to ${body.lifecycle}`, status: body.lifecycle, detail: { lifecycle: body.lifecycle, notes: body.notes ?? null } });
       return NextResponse.json({ ok: true });
   }
 }

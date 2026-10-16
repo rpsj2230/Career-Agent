@@ -1,34 +1,31 @@
 import { NextResponse } from "next/server";
-import { discover } from "@/lib/jobs/sources";
-import { ingestJobs } from "@/lib/jobs/ingest";
-import { getSetting } from "@/lib/settings";
-import { getProfile } from "@/lib/profile/store";
+import { discoverNow } from "@/lib/jobs/discover";
 import { scoreNewJobs } from "@/lib/score/run";
+import { hasActiveSchedules } from "@/lib/schedule-store";
 
 export const maxDuration = 60;
 
-/** Authorised by proxy.ts (CRON_SECRET bearer token, which Vercel Cron and GitHub Actions can send). */
-export async function GET() {
-  const settings = await getSetting("discovery");
-  const profile = await getProfile();
-  // Profile preferences take effect when the settings page has not overridden them.
-  const effective = {
-    ...settings,
-    countries: settings.countries.length ? settings.countries : profile.preferences.countries,
-    roles: settings.roles.length ? settings.roles : profile.preferences.roles,
-  };
-  if (effective.roles.length === 0) {
-    return NextResponse.json({ error: "No target roles set. Add roles in Settings or your profile preferences." }, { status: 422 });
+/**
+ * Called by schedules (bearer token) and by the "Find jobs now" button (signed-in session).
+ * Discovery runs inside a recorded run; scoring then uses the time that is left.
+ */
+export async function GET(request: Request) {
+  const trigger = request.headers.get("authorization")?.startsWith("Bearer ") ? "schedule" : "manual";
+  if (trigger === "schedule" && (await hasActiveSchedules())) return NextResponse.json({ skipped: "Your schedules (Schedules page) handle searching now." });
+  try {
+    const res = await discoverNow({ trigger, budgetMs: 35_000 });
+    const scoring = await scoreNewJobs({ limit: 10, budgetMs: 15_000, trigger }).catch((e) => ({ error: e instanceof Error ? e.message : String(e) }));
+    const scans = res.outcomes;
+    return NextResponse.json({
+      scans: scans.length,
+      fetched: scans.reduce((n, s) => n + s.counts.fetched, 0),
+      inserted: scans.reduce((n, s) => n + s.counts.inserted, 0),
+      duplicates: scans.reduce((n, s) => n + s.counts.duplicates, 0),
+      skippedScans: res.skipped,
+      sourceErrors: scans.filter((s) => !s.ok).map((s) => ({ source: `${s.integration}${s.query ? `:${s.query}` : ""}`, error: s.error })),
+      scoring,
+    });
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : "Discovery failed" }, { status: 422 });
   }
-  const results = await discover(effective);
-  const all = results.flatMap((r) => r.jobs);
-  const ingest = await ingestJobs(all, effective.max_age_days);
-  // use the time left in this invocation to start scoring; /api/cron/score finishes any backlog
-  const scoring = await scoreNewJobs({ limit: 10, budgetMs: 25_000 }).catch((e) => ({ error: e instanceof Error ? e.message : String(e) }));
-  return NextResponse.json({
-    fetched: all.length,
-    ...ingest,
-    scoring,
-    sourceErrors: results.filter((r) => r.error).map((r) => ({ source: r.source, error: r.error })),
-  });
 }
