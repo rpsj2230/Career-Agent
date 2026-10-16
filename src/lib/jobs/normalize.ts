@@ -11,6 +11,7 @@ export type NormalizedJob = {
   description: string;
   salaryText?: string;
   postedAt?: string; // ISO
+  publisher?: string; // site the posting was published on, when an aggregator tells us (JSearch)
 };
 
 const PORTALS = ["naukri.com", "foundit.in", "monsterindia.com", "shine.com", "indeed.", "instahyre.com", "cutshort.io", "wellfound.com", "internshala.com", "timesjobs.com", "apna.co", "glassdoor."];

@@ -1,8 +1,10 @@
 import { dedupeKey, detectApplyType, type ApplyType, type NormalizedJob } from "./normalize";
+import { detectPortal } from "./portal";
 
 export type JobInsert = {
   source: string; external_id: string; dedupe_key: string; title: string; company: string; country: string | null;
   location: string | null; url: string; description: string; salary_text: string | null; posted_at: string | null; apply_type: ApplyType;
+  portal: string;
 };
 
 /**
@@ -24,6 +26,7 @@ export function planInsert(jobs: NormalizedJob[], existingKeys: Set<string>, max
       source: j.source, external_id: j.externalId, dedupe_key: key, title: j.title.trim(), company: j.company.trim(),
       country: j.country ?? null, location: j.location ?? null, url: j.url, description: j.description ?? "",
       salary_text: j.salaryText ?? null, posted_at: j.postedAt ?? null, apply_type: detectApplyType(j.url),
+      portal: detectPortal({ url: j.url, publisher: j.publisher, integration: j.source }),
     });
   }
   return { rows, invalid, stale, duplicates };

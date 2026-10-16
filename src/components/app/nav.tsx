@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Briefcase, Cpu, FileText, Inbox, Server, Settings, User } from "lucide-react";
+import { BarChart3, Briefcase, Cpu, FileText, Inbox, Plug, Server, Settings, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const ITEMS = [
   { href: "/", label: "Dashboard", icon: BarChart3 },
   { href: "/jobs", label: "Review queue", icon: Inbox },
   { href: "/applications", label: "Applications", icon: Briefcase },
+  { href: "/portals", label: "Portals", icon: Plug },
   { href: "/reports", label: "Reports", icon: FileText },
   { href: "/profile", label: "Profile", icon: User },
   { href: "/models", label: "Models", icon: Cpu },

@@ -24,7 +24,7 @@ export function mapJSearch(r: any): NormalizedJob {
     country: typeof r.job_country === "string" && r.job_country.length === 2 ? r.job_country.toLowerCase() : guessCountry(location),
     location, url: r.job_apply_link ?? r.job_google_link, description: r.job_description ?? "",
     salaryText: money(r.job_min_salary, r.job_max_salary, r.job_salary_currency ? `${r.job_salary_currency} ` : ""),
-    postedAt: iso(r.job_posted_at_datetime_utc),
+    postedAt: iso(r.job_posted_at_datetime_utc), publisher: typeof r.job_publisher === "string" ? r.job_publisher : undefined,
   };
 }
 
