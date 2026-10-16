@@ -8,6 +8,7 @@ describe("explainSignupError", () => {
     expect(explainSignupError("Password is known to be weak and easy to guess")).toMatchObject({ status: 400 });
     expect(explainSignupError("Invalid API key").text).toMatch(/service_role key/);
     expect(explainSignupError("x", 401).text).toMatch(/SUPABASE_SERVICE_ROLE_KEY/);
+    expect(explainSignupError('claim owner: new row violates row-level security policy for table "settings"').text).toMatch(/service_role key/);
     expect(explainSignupError("fetch failed").text).toMatch(/SUPABASE_URL/);
     expect(explainSignupError("something odd").text).toMatch(/Could not create the account: something odd/);
   });
