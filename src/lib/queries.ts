@@ -26,3 +26,22 @@ export async function counts() {
   const failed = (await db().from("applications").select("id", { count: "exact", head: true }).in("status", ["failed", "needs_input"])).count ?? 0;
   return { fresh, queued, prepared, applied, saved, sent7, failed };
 }
+
+import type { ReportRow } from "@/lib/reports";
+
+export async function reportRows(): Promise<ReportRow[]> {
+  const rows = must<{ status: string; lifecycle: string; submitted_at: string | null; job: { country: string | null; source: string; apply_type: string; job_scores: { score: number; detail: { gaps?: string[] } } | { score: number; detail: { gaps?: string[] } }[] | null } | null }[]>(
+    await db().from("applications").select("status,lifecycle,submitted_at, job:jobs(country,source,apply_type,job_scores(score,detail))").limit(2000),
+    "report rows",
+  );
+  return rows.map((r) => {
+    const sc = Array.isArray(r.job?.job_scores) ? r.job?.job_scores[0] : r.job?.job_scores;
+    return {
+      country: r.job?.country ?? null, source: r.job?.source ?? "unknown", apply_type: r.job?.apply_type ?? "unknown", status: r.status,
+      lifecycle: r.lifecycle, submitted_at: r.submitted_at, score: sc?.score ?? null, gaps: sc?.detail?.gaps ?? [],
+    };
+  });
+}
+
+/** Start of a trailing window; kept outside components so render stays pure. */
+export const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000);
