@@ -3,11 +3,13 @@
  * It only submits when the application was explicitly approved in the dashboard, never touches CAPTCHAs,
  * checkpoints or consent checkboxes, and hands the application back to you whenever it is unsure.
  */
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { chromium, type Page } from "playwright";
+import { confirmationSnippet, type FieldEntry, type SubmissionRecord } from "../src/lib/apply/submission";
 import { MasterProfile } from "../src/lib/types";
 import { clickSubmit, fillForm } from "./form";
 import { CONFIRMATION, detectBlock, type Answer } from "./match";
@@ -30,12 +32,45 @@ async function notify(text: string) {
 }
 const need = (k: string) => { const v = process.env[k]; if (!v) throw new Error(`${k} is not set`); return v; };
 
+/** Update an application with its submission record; if the database has not been upgraded yet, save the status without it. */
+async function updateApplication(sb: SupabaseClient, appId: string, patch: Record<string, unknown>, submission: SubmissionRecord) {
+  const { error } = await sb.from("applications").update({ ...patch, submission }).eq("id", appId);
+  if (!error) return;
+  if (/submission|schema cache|column/i.test(error.message)) {
+    console.error(`[submission] stored without the record (database update pending): ${error.message}`);
+    const { error: e2 } = await sb.from("applications").update(patch).eq("id", appId);
+    if (e2) throw e2;
+    return;
+  }
+  throw error;
+}
+const sha256 = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
+
 class Handback extends Error {
   constructor(public kind: "needs_input" | "failed", message: string, public stopLinkedIn = false) { super(message); }
 }
 
-/** Submit one approved application. Never throws for an application-level problem: it hands the application back instead. */
+/**
+ * Submit one approved application. A problem with this application (a missing document, a crash) marks it failed with
+ * the reason and never stops the rest of the batch.
+ */
 async function processOne(sb: SupabaseClient, appId: string) {
+  try {
+    await processInner(sb, appId);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.error(`failed: ${message}`);
+    process.exitCode = 1;
+    // only if it is still ours: an application that already finished is never overwritten
+    const { data } = await sb.from("applications").update({ status: "failed", error: message }).eq("id", appId).eq("status", "submitting").select("id, job_id");
+    if (data?.length) {
+      await sb.from("apply_events").insert({ application_id: appId, kind: "failed", detail: { message } });
+      await logAct(sb, { kind: "application.failed", level: "error", message: `Automatic submission failed: ${message}`, status: "failed", application_id: appId, job_id: data[0].job_id, detail: { method: "automated", message } });
+    }
+  }
+}
+
+async function processInner(sb: SupabaseClient, appId: string) {
   const event = async (kind: string, detail: Record<string, unknown> = {}) => { await sb.from("apply_events").insert({ application_id: appId, kind, detail }); };
 
   // Atomic claim: if another run already took it, or it is not approved, do nothing.
@@ -70,6 +105,19 @@ async function processOne(sb: SupabaseClient, appId: string) {
   };
   const ctx = { applicant, answers: (app.answers as Answer[]) ?? [], resumePath, coverPath };
 
+  // Everything below is recorded so the application page can show exactly what was sent.
+  const startedAt = new Date().toISOString();
+  const entered: FieldEntry[] = [];
+  let steps = 0;
+  const unansweredNow: string[] = [];
+  const fileInfo = (role: "resume" | "cover_letter", path: string, doc: { storage_path: string } | undefined) =>
+    ({ role, name: basename(path), bytes: statSync(path).size, sha256: sha256(path), storage_path: doc?.storage_path ?? null });
+  const record = (outcome: SubmissionRecord["outcome"], p: { finalUrl: string | null; confirmation: SubmissionRecord["confirmation"]; error: string | null }): SubmissionRecord => ({
+    version: 1, method: "automated", outcome, started_at: startedAt, finished_at: new Date().toISOString(), target_url: job.url, final_url: p.finalUrl,
+    fields: entered, files: [fileInfo("resume", resumePath, resumeDoc), ...(coverPath ? [fileInfo("cover_letter", coverPath, coverDoc)] : [])],
+    unanswered: unansweredNow, confirmation: p.confirmation, error: p.error, steps, note: null,
+  });
+
   const linkedin = job.apply_type === "linkedin";
   let storageStatePath: string | undefined;
   if (linkedin) {
@@ -85,6 +133,9 @@ async function processOne(sb: SupabaseClient, appId: string) {
   let page: Page | undefined;
   try {
     const context = await browser.newContext({ storageState: storageStatePath, viewport: { width: 1280, height: 1800 } });
+    // tsx compiles with "keep names", which wraps functions in a __name() helper that does not exist inside the page
+    // and breaks every page.evaluate(). Defining it as a no-op makes the injected code run.
+    await context.addInitScript({ content: "window.__name = window.__name || function (t) { return t; };" });
     page = await context.newPage();
     page.setDefaultTimeout(20_000);
     let target = job.url;
@@ -106,7 +157,8 @@ async function processOne(sb: SupabaseClient, appId: string) {
       for (let step = 0; step < 8; step++) {
         await checkBlock();
         const r = await fillForm(page, ctx);
-        if (r.unanswered.length) throw new Handback("needs_input", `Needs you: ${r.unanswered.join("; ")}`);
+        entered.push(...r.entries); steps++;
+        if (r.unanswered.length) { unansweredNow.push(...r.unanswered); throw new Handback("needs_input", `Needs you: ${r.unanswered.join("; ")}`); }
         const submit = page.getByRole("button", { name: /submit application/i });
         if (await submit.isVisible().catch(() => false)) { await submit.click(); break; }
         const next = page.getByRole("button", { name: /^(next|review|continue)/i }).first();
@@ -116,8 +168,9 @@ async function processOne(sb: SupabaseClient, appId: string) {
       }
     } else {
       const r = await fillForm(page, ctx);
-      await event("form_filled", r);
-      if (r.unanswered.length) throw new Handback("needs_input", `Needs you: ${r.unanswered.join("; ")}`);
+      entered.push(...r.entries); steps++;
+      await event("form_filled", { filled: r.filled, unanswered: r.unanswered });
+      if (r.unanswered.length) { unansweredNow.push(...r.unanswered); throw new Handback("needs_input", `Needs you: ${r.unanswered.join("; ")}`); }
       await checkBlock();
       if (!(await clickSubmit(page))) throw new Handback("needs_input", "Could not find a submit button");
     }
@@ -128,7 +181,8 @@ async function processOne(sb: SupabaseClient, appId: string) {
     const shot = `screenshots/${appId}/confirmation.png`;
     await sb.storage.from("documents").upload(shot, await page.screenshot({ fullPage: true }), { contentType: "image/png", upsert: true });
     const now = new Date().toISOString();
-    await sb.from("applications").update({ status: "submitted", submitted_at: now, lifecycle: "applied", screenshot_path: shot }).eq("id", appId);
+    const confirmation = { text: confirmationSnippet(await page.innerText("body").catch(() => ""), CONFIRMATION), screenshot: shot };
+    await updateApplication(sb, appId, { status: "submitted", submitted_at: now, lifecycle: "applied", screenshot_path: shot }, record("submitted", { finalUrl: page.url(), confirmation, error: null }));
     await sb.from("jobs").update({ status: "applied" }).eq("id", job.id);
     await event("submitted", { url: page.url() });
     await logAct(sb, { kind: "application.submitted", message: `Submitted automatically: ${job.title} at ${job.company}`, status: "submitted", application_id: appId, job_id: job.id, company: job.company, country: (job as { country?: string }).country ?? null, portal: (job as { portal?: string }).portal ?? job.apply_type, detail: { method: "automated", url: page.url(), screenshot: shot } });
@@ -141,7 +195,7 @@ async function processOne(sb: SupabaseClient, appId: string) {
       shot = `screenshots/${appId}/last-state.png`;
       await sb.storage.from("documents").upload(shot, await page.screenshot({ fullPage: true }).catch(() => Buffer.alloc(0)), { contentType: "image/png", upsert: true }).catch(() => undefined);
     }
-    await sb.from("applications").update({ status: h.kind, error: h.message, screenshot_path: shot ?? null }).eq("id", appId);
+    await updateApplication(sb, appId, { status: h.kind, error: h.message, screenshot_path: shot ?? null }, record(h.kind, { finalUrl: page?.url() ?? null, confirmation: null, error: h.message })).catch((err) => console.error("could not save the submission record:", err));
     await event(h.kind, { message: h.message });
     await logAct(sb, { kind: h.kind === "failed" ? "application.failed" : "application.needs_input", level: h.kind === "failed" ? "error" : "warn", message: `${h.kind === "failed" ? "Automatic submission failed" : "Needs you"}: ${h.message}`, status: h.kind, application_id: appId, job_id: job.id, company: job.company, country: (job as { country?: string }).country ?? null, portal: (job as { portal?: string }).portal ?? job.apply_type, detail: { method: "automated", message: h.message, screenshot: shot ?? null } });
     if (h.stopLinkedIn) await switchOffLinkedIn(sb);

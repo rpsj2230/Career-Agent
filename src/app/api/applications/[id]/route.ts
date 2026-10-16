@@ -3,7 +3,9 @@ import { z } from "zod";
 import { logActivity } from "@/lib/activity";
 import { jobLogFields, type JobRef } from "@/lib/activity-helpers";
 import type { LogEntry } from "@/lib/activity-types";
+import { assistedRecord } from "@/lib/apply/submission";
 import { db, must } from "@/lib/db";
+import { withLegacyFallback } from "@/lib/schema";
 import { approveApplication } from "@/lib/apply/approve";
 import { logEvent } from "@/lib/apply/events";
 
@@ -26,7 +28,7 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
 
   const app = must<AppRow | null>(await db().from("applications").select("id,job_id,status,resume_doc_id,cover_doc_id").eq("id", id).maybeSingle(), "load application");
   if (!app) return NextResponse.json({ error: "Application not found" }, { status: 404 });
-  const jobRow = must<(JobRef & { title: string }) | null>(await db().from("jobs").select("*").eq("id", app.job_id).maybeSingle(), "load job");
+  const jobRow = must<(JobRef & { title: string; url?: string }) | null>(await db().from("jobs").select("*").eq("id", app.job_id).maybeSingle(), "load job");
   const log = (e: Omit<LogEntry, "job_id" | "company" | "country" | "portal" | "application_id">) =>
     logActivity({ ...e, ...(jobRow ? jobLogFields(jobRow) : { job_id: app.job_id }), application_id: id, detail: { ...(e.detail ?? {}), title: jobRow?.title } });
   const setApp = async (patch: Record<string, unknown>) => must(await db().from("applications").update(patch).eq("id", id).select("id"), "update application");
@@ -38,12 +40,21 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
       if (!r.ok) return NextResponse.json({ error: r.error, issues: r.issues }, { status: r.status });
       return NextResponse.json(r.mode === "automated" ? { ok: true, mode: "automated", warning: r.warning } : { ok: true, mode: "assisted", note: r.note });
     }
-    case "mark_submitted":
-      await setApp({ status: "submitted", method: "assisted", submitted_at: new Date().toISOString(), lifecycle: "applied" });
+    case "mark_submitted": {
+      const now = new Date();
+      const patch = { status: "submitted", method: "assisted", submitted_at: now.toISOString(), lifecycle: "applied" };
+      must(
+        await withLegacyFallback(
+          () => db().from("applications").update({ ...patch, submission: assistedRecord(jobRow?.url ?? "", now) }).eq("id", id).select("id"),
+          () => db().from("applications").update(patch).eq("id", id).select("id"),
+        ),
+        "mark submitted",
+      );
       await setJob({ status: "applied" });
       await logEvent(id, "marked_submitted");
       await log({ kind: "application.submitted", message: "Marked as submitted by you (assisted)", status: "submitted", detail: { method: "assisted" } });
       return NextResponse.json({ ok: true });
+    }
     case "skip":
       await setJob({ status: "skipped", skip_reason: "Skipped by you" });
       await logEvent(id, "skipped");

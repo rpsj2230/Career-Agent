@@ -192,6 +192,49 @@ create table if not exists daily_reports (
   unique (report_date, timezone)
 );
 
+-- ---------------------------------------------------------------- history that cannot be lost by accident
+-- 1. A job that has an application or generated documents cannot be deleted (it used to cascade and wipe the history).
+do $$
+begin
+  if exists (select 1 from pg_constraint where conname = 'applications_job_id_fkey' and confdeltype = 'c') then
+    alter table applications drop constraint applications_job_id_fkey;
+    alter table applications add constraint applications_job_id_fkey foreign key (job_id) references jobs(id) on delete restrict;
+  end if;
+  if exists (select 1 from pg_constraint where conname = 'documents_job_id_fkey' and confdeltype = 'c') then
+    alter table documents drop constraint documents_job_id_fkey;
+    alter table documents add constraint documents_job_id_fkey foreign key (job_id) references jobs(id) on delete restrict;
+  end if;
+end $$;
+
+-- 2. What an application was prepared from never changes afterwards: its job and profile snapshots are write-once,
+--    and a generated document's content is fixed (a new version is a new row).
+create or replace function protect_application_history() returns trigger language plpgsql as $$
+begin
+  if old.job_snapshot is not null and new.job_snapshot is distinct from old.job_snapshot then
+    raise exception 'applications.job_snapshot is write-once' using errcode = 'check_violation';
+  end if;
+  if old.profile_snapshot is not null and new.profile_snapshot is distinct from old.profile_snapshot then
+    raise exception 'applications.profile_snapshot is write-once' using errcode = 'check_violation';
+  end if;
+  if old.answers is distinct from new.answers and old.status not in ('prepared','needs_input','failed') then
+    raise exception 'answers cannot change once an application has been approved' using errcode = 'check_violation';
+  end if;
+  return new;
+end $$;
+drop trigger if exists applications_protect_history on applications;
+create trigger applications_protect_history before update on applications for each row execute function protect_application_history();
+
+create or replace function protect_document_history() returns trigger language plpgsql as $$
+begin
+  if new.content is distinct from old.content or new.diff is distinct from old.diff
+     or new.storage_path is distinct from old.storage_path or new.version is distinct from old.version or new.kind is distinct from old.kind then
+    raise exception 'a generated document is immutable; create a new version instead' using errcode = 'check_violation';
+  end if;
+  return new;
+end $$;
+drop trigger if exists documents_protect_history on documents;
+create trigger documents_protect_history before update on documents for each row execute function protect_document_history();
+
 -- ---------------------------------------------------------------- row level security (server uses the service role)
 alter table integrations   enable row level security;
 alter table schedules      enable row level security;

@@ -42,6 +42,13 @@ describe.skipIf(!executablePath)("fillForm against a Greenhouse-like fixture", (
     expect(await page.inputValue("#auth")).toBe("1");
     expect(await page.isChecked('input[name="q3"][value="n"]')).toBe(true);
     expect(await page.inputValue("#why")).toBe(""); // optional + no answer: left blank, not invented
+    // every value that was entered is recorded with where it came from
+    const byLabel = Object.fromEntries(r.entries.map((e) => [e.label, e]));
+    expect(r.entries.length).toBe(r.filled.length);
+    expect(r.entries).toContainEqual({ label: "First name", value: "Asha", kind: "text", source: "profile" });
+    expect(r.entries.find((e) => e.kind === "text" && e.value === "32 LPA")).toMatchObject({ source: "answers" });
+    expect(r.entries.find((e) => e.kind === "file")).toMatchObject({ value: "resume.docx", source: "upload" });
+    expect(Object.values(byLabel).every((e) => e.value.length > 0)).toBe(true);
     expect(await clickSubmit(page)).toBe(true);
     await page.waitForFunction(() => document.body.innerText.includes("Thank you"));
     expect(CONFIRMATION.test(await page.innerText("body"))).toBe(true);

@@ -27,7 +27,7 @@ async function call(path, { method = "GET", body, auth = true, headers = {} } = 
     if (gone) jar.delete(name); else jar.set(name, value);
   }
   const text = await res.text();
-  return { status: res.status, location: res.headers.get("location"), setCookie: res.headers.getSetCookie(), json: (() => { try { return JSON.parse(text); } catch { return null; } })(), text };
+  return { status: res.status, contentType: res.headers.get("content-type"), location: res.headers.get("location"), setCookie: res.headers.getSetCookie(), json: (() => { try { return JSON.parse(text); } catch { return null; } })(), text };
 }
 
 let failed = 0;
@@ -185,6 +185,15 @@ for (const kind of ["resume.generated", "cover.generated", "application.prepared
 }
 r = await call(`/api/jobs/${zeta.id}/prepare`, { method: "POST" });
 check("preparing the same job again does not create a second application (no duplicates)", r.status === 200 && mock.rowsOf("applications").filter((a) => a.job_id === zeta.id).length === 1, `${r.status}`);
+check("the application keeps a snapshot of the job as it was (with its fit result)", application.job_snapshot?.title === "Product Manager" && application.job_snapshot.company === "Zeta Pte" && application.job_snapshot.description === longDesc && application.job_snapshot.fit?.score === 82 && !!application.job_snapshot.captured_at, JSON.stringify(application.job_snapshot)?.slice(0, 300));
+check("...and a snapshot of the master profile it was prepared from", application.profile_snapshot?.profile?.basics?.name === "Asha Rao" && application.profile_snapshot.profile.experience.length > 0, JSON.stringify(application.profile_snapshot)?.slice(0, 200));
+const beforeSnap = JSON.stringify([application.job_snapshot, application.profile_snapshot]);
+r = await call("/api/profile/confirm", { method: "POST", body: { ...PROFILE, basics: { ...PROFILE.basics, name: "Changed Name", headline: "Changed headline" } } }); check("the master profile is edited afterwards", r.status === 200, `${r.status} ${r.text}`);
+const mock_zeta = mock.rowsOf("applications").find((a) => a.id === application.id);
+check("editing the profile does not change an existing application's snapshots", JSON.stringify([mock_zeta.job_snapshot, mock_zeta.profile_snapshot]) === beforeSnap, "snapshot changed");
+r = await call(`/api/applications/${application.id}/original`); check("the original resume is rebuilt from the snapshot as a DOCX download", r.status === 200 && /wordprocessingml/.test(r.contentType ?? "") && r.text.startsWith("PK"), `${r.status} ${r.contentType}`);
+r = await call("/api/profile/confirm", { method: "POST", body: PROFILE }); check("profile restored for the remaining checks", r.status === 200, `${r.status}`);
+r = await call("/api/applications/00000000-0000-4000-8000-000000000000/original"); check("an unknown application has no original", r.status === 404, `${r.status}`);
 r = await call(`/api/applications/${application.id}`, { method: "POST", body: { action: "approve" } }); check("approving a Naukri job is assisted", r.status === 200 && r.json?.mode === "assisted", `${r.status} ${r.text}`);
 check("the approval is logged with its mode", logs().some((l) => l.kind === "application.approved" && l.application_id === application.id && l.detail?.mode === "assisted"), "missing");
 r = await call(`/api/applications/${application.id}`, { method: "POST", body: { action: "approve" } }); check("a second approval is refused", r.status === 409, r.status);
@@ -295,6 +304,52 @@ r = await call(`/api/schedules/${manId}/run`, { method: "POST" }); check("Run no
 r = await call(`/api/schedules/${manId}/run`, { method: "POST" }); check("Run now twice is safe", r.status === 200, `${r.status} ${r.text}`);
 r = await call(`/api/schedules/not-a-uuid/run`, { method: "POST" }); check("Run now with a bad id is a 404", r.status === 404, r.status);
 r = await call(`/api/schedules/${manId}`, { method: "DELETE" });
+
+// ---- the apply worker (worker/apply.ts) in batch mode, driving a real browser against a local employer-style form
+const { createHash, randomUUID } = await import("node:crypto");
+const { pathToFileURL } = await import("node:url");
+const RESUME_BYTES = Buffer.from("resume-bytes-v1"), COVER_BYTES = Buffer.from("cover-bytes-v1");
+const formUrl = (hash = "") => pathToFileURL(`${process.cwd()}/tests/fixtures/greenhouse-like.html`).href + hash;
+function seedApproved(company, hash, approvedAt) {
+  const jobId = randomUUID(), resumeId = randomUUID(), coverId = randomUUID(), appId = randomUUID();
+  mock.files.set(`${jobId}/resume-v1.docx`, RESUME_BYTES); mock.files.set(`${jobId}/cover-letter-v1.docx`, COVER_BYTES);
+  mock.rowsOf("jobs").push({ id: jobId, source: "manual", external_id: appId, dedupe_key: appId, title: "Product Manager", company, country: "sg", url: formUrl(hash), apply_type: "greenhouse", portal: "greenhouse", description: "d", status: "prepared", found_at: new Date().toISOString() });
+  mock.rowsOf("documents").push({ id: resumeId, job_id: jobId, kind: "resume", version: 1, content: {}, storage_path: `${jobId}/resume-v1.docx` }, { id: coverId, job_id: jobId, kind: "cover_letter", version: 1, content: {}, storage_path: `${jobId}/cover-letter-v1.docx` });
+  mock.rowsOf("applications").push({ id: appId, job_id: jobId, resume_doc_id: resumeId, cover_doc_id: coverId, status: "approved", method: "automated", approved_at: approvedAt, answers: [{ question: "Expected CTC", answer: "32 LPA", source: "bank" }, { question: "Are you legally authorised to work in India?", answer: "Yes" }, { question: "Are you willing to relocate?", answer: "No" }], portal: "greenhouse", country: "sg", lifecycle: "none", created_at: new Date().toISOString() });
+  return { jobId, appId };
+}
+const runApplyWorker = (extra = {}) => new Promise((resolve) => {
+  const p = spawn("node_modules/.bin/tsx", ["worker/apply.ts"], {
+    env: { ...process.env, SUPABASE_URL: `http://127.0.0.1:${MOCK}`, SUPABASE_SERVICE_ROLE_KEY: "service-key", CHROMIUM_PATH: process.env.CHROMIUM_PATH ?? `${process.env.PLAYWRIGHT_BROWSERS_PATH}/chromium`, APPLY_PAUSE_MS: "0", ...extra },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let text = ""; p.stdout.on("data", (d) => (text += d)); p.stderr.on("data", (d) => (text += d));
+  p.on("close", (code) => resolve({ code, text }));
+});
+if (process.env.PLAYWRIGHT_BROWSERS_PATH || process.env.CHROMIUM_PATH) {
+  const good = seedApproved("FormCo", "", new Date(Date.now() - 20_000).toISOString());
+  const stuck = seedApproved("StuckCo", "#unknown", new Date(Date.now() - 10_000).toISOString());
+  const wk = await runApplyWorker();
+  const orphan = mock.rowsOf("applications").find((a) => a.status === "failed" && /download/i.test(a.error ?? ""));
+  check("an application whose files are missing is failed with the reason, and the rest of the batch still runs", wk.code === 1 && /approved application\(s\) to submit/.test(wk.text) && !!orphan, `${wk.code} ${JSON.stringify(orphan)} ${wk.text.slice(-500)}`);
+  const a1 = mock.rowsOf("applications").find((a) => a.id === good.appId), a2 = mock.rowsOf("applications").find((a) => a.id === stuck.appId);
+  check("the application that could be completed was submitted", a1.status === "submitted" && a1.lifecycle === "applied" && !!a1.submitted_at, JSON.stringify({ s: a1.status, e: a1.error }));
+  const sub = a1.submission;
+  check("the submission record names the method, the page and the outcome", sub?.version === 1 && sub.method === "automated" && sub.outcome === "submitted" && sub.target_url.startsWith("file://") && !!sub.final_url && sub.steps === 1, JSON.stringify(sub)?.slice(0, 400));
+  check("every value entered is recorded with its source", sub.fields.some((f) => f.label === "First Name" && f.value === "Asha" && f.source === "profile") && sub.fields.some((f) => f.value === "32 LPA" && f.source === "answers") && sub.fields.some((f) => f.kind === "file"), JSON.stringify(sub.fields));
+  check("the attached files are recorded with a SHA-256 of the exact bytes sent", sub.files.length === 2 && sub.files.find((f) => f.role === "resume").sha256 === createHash("sha256").update(RESUME_BYTES).digest("hex") && sub.files.find((f) => f.role === "cover_letter").sha256 === createHash("sha256").update(COVER_BYTES).digest("hex") && sub.files[0].bytes === RESUME_BYTES.length, JSON.stringify(sub.files));
+  check("the employer's confirmation text and screenshot are kept", /Thank you/.test(sub.confirmation?.text ?? "") && sub.confirmation.screenshot === `screenshots/${good.appId}/confirmation.png` && a1.screenshot_path === sub.confirmation.screenshot, JSON.stringify(sub.confirmation));
+  check("the job is marked applied and the submission is logged", mock.rowsOf("jobs").find((j) => j.id === good.jobId).status === "applied" && mock.rowsOf("activity_log").some((l) => l.kind === "application.submitted" && l.application_id === good.appId && l.detail.method === "automated"), "state missing");
+  check("a form needing a human is handed back, not guessed", a2.status === "needs_input" && /favourite sorting algorithm/.test(a2.error ?? ""), JSON.stringify({ s: a2.status, e: a2.error }));
+  check("the hand-back keeps what was filled and what was missing", a2.submission?.outcome === "needs_input" && a2.submission.unanswered.includes("Name your favourite sorting algorithm") && a2.submission.fields.length > 0 && a2.submission.confirmation === null && !!a2.submission.error, JSON.stringify(a2.submission)?.slice(0, 400));
+  check("the hand-back is logged as needing the user", mock.rowsOf("activity_log").some((l) => l.kind === "application.needs_input" && l.application_id === stuck.appId), "no log");
+  const again = await runApplyWorker();
+  check("running the worker again does nothing and never submits twice", again.code === 0 && /No approved applications/.test(again.text) && mock.rowsOf("applications").find((a) => a.id === good.appId).status === "submitted", again.text.slice(-300));
+  const single = await runApplyWorker({ APPLICATION_ID: good.appId });
+  check("targeting an application that is already submitted is a no-op", single.code === 0 && /nothing to do/i.test(single.text) && mock.rowsOf("applications").find((a) => a.id === good.appId).submission.outcome === "submitted", single.text.slice(-300));
+} else {
+  console.log("SKIP  apply worker checks (set PLAYWRIGHT_BROWSERS_PATH or CHROMIUM_PATH)");
+}
 
 // ---- models: saved keys are encrypted at rest, used for calls, and removable
 const KEY = "sk-test-key-1234567890";

@@ -8,6 +8,7 @@ import { getProfile } from "@/lib/profile/store";
 import { renderCoverLetterDocx, renderResumeDocx } from "@/lib/tailor/docx";
 import { tailorResume, writeCoverLetter, type Runner } from "@/lib/tailor/tailor";
 import { buildAnswers } from "./answers";
+import { buildJobSnapshot, buildProfileSnapshot } from "./snapshot";
 import { logEvent } from "./events";
 
 const DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
@@ -53,10 +54,16 @@ export async function prepareApplication(jobId: string): Promise<{ applicationId
     await db().from("documents").insert({ job_id: jobId, kind: "cover_letter", version: cv, content: cover.content, verification: cover.verification, storage_path: coverPath, model: cover.model }).select("id").single(),
     "save cover doc",
   );
+  const scoreRow = must<{ score: number; model: string | null; detail: { summary?: string; matchedSkills?: string[]; gaps?: string[] } } | null>(
+    await db().from("job_scores").select("score,model,detail").eq("job_id", jobId).maybeSingle(), "load score",
+  );
   const appRow = { job_id: jobId, resume_doc_id: resumeDoc.id, cover_doc_id: coverDoc.id, answers: buildAnswers(bank, profile.preferences, profile), status: "prepared" };
   const app = must<{ id: string }>(
     await withLegacyFallback(
-      () => db().from("applications").insert({ ...appRow, portal: job.portal ?? job.source?.split(":")[0] ?? null, country: job.country ?? null }).select("id").single(),
+      () => db().from("applications").insert({
+        ...appRow, portal: job.portal ?? job.source?.split(":")[0] ?? null, country: job.country ?? null,
+        job_snapshot: buildJobSnapshot(job, scoreRow), profile_snapshot: buildProfileSnapshot(profile),
+      }).select("id").single(),
       () => db().from("applications").insert(appRow).select("id").single(),
     ),
     "create application",

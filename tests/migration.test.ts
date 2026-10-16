@@ -130,3 +130,60 @@ describe("0002_portals_runs_logs_schedules.sql", () => {
     await db.query("insert into daily_reports (report_date, timezone) values ('2026-10-16','UTC')");
   });
 });
+
+describe("history protection", () => {
+  const mkJob = async (ext: string) => (await rows<{ id: string }>("insert into jobs (source, external_id, dedupe_key, title, company, url) values ('hp',$1,$2,'t','c','http://u') returning id", [ext, `k-${ext}`]))[0].id;
+
+  it("refuses to delete a job that has an application or documents", async () => {
+    const j = await mkJob("h1");
+    await db.query("insert into documents (job_id, kind, content) values ($1,'resume','{}')", [j]);
+    await expect(db.query("delete from jobs where id=$1", [j])).rejects.toThrow(/foreign key constraint/);
+    const j2 = await mkJob("h2");
+    await db.query("insert into applications (job_id) values ($1)", [j2]);
+    await expect(db.query("delete from jobs where id=$1", [j2])).rejects.toThrow(/foreign key constraint/);
+    expect((await rows("select 1 from applications where job_id=$1", [j2])).length).toBe(1);
+  });
+
+  it("still deletes a job that has nothing to preserve", async () => {
+    const j = await mkJob("h3");
+    await db.query("delete from jobs where id=$1", [j]);
+    expect(await rows("select 1 from jobs where id=$1", [j])).toEqual([]);
+  });
+
+  it("makes the job and profile snapshots write-once", async () => {
+    const j = await mkJob("h4");
+    await db.query("insert into applications (job_id, job_snapshot, profile_snapshot) values ($1,'{\"title\":\"A\"}','{\"v\":1}')", [j]);
+    await expect(db.query("update applications set job_snapshot='{\"title\":\"B\"}' where job_id=$1", [j])).rejects.toThrow(/write-once/);
+    await expect(db.query("update applications set profile_snapshot=null where job_id=$1", [j])).rejects.toThrow(/write-once/);
+    await db.query("update applications set job_snapshot='{\"title\":\"A\"}' where job_id=$1", [j]); // same value is fine
+  });
+
+  it("allows a snapshot to be filled in once when it was empty (applications from before snapshots)", async () => {
+    const j = await mkJob("h5");
+    await db.query("insert into applications (job_id) values ($1)", [j]);
+    await db.query("update applications set job_snapshot='{\"title\":\"A\"}' where job_id=$1", [j]);
+  });
+
+  it("freezes answers once approved, but not while still being prepared or after a failure", async () => {
+    const j = await mkJob("h6");
+    await db.query("insert into applications (job_id, answers) values ($1,'[]')", [j]);
+    await db.query("update applications set answers='[{\"question\":\"q\"}]' where job_id=$1", [j]);
+    await db.query("update applications set status='approved' where job_id=$1", [j]);
+    await expect(db.query("update applications set answers='[]' where job_id=$1", [j])).rejects.toThrow(/cannot change once/);
+    await db.query("update applications set status='failed' where job_id=$1", [j]);
+    await db.query("update applications set answers='[]' where job_id=$1", [j]);
+  });
+
+  it("keeps generated documents immutable", async () => {
+    const j = await mkJob("h7");
+    const d = (await rows<{ id: string }>("insert into documents (job_id, kind, content, storage_path) values ($1,'resume','{\"a\":1}','p') returning id", [j]))[0].id;
+    await expect(db.query("update documents set content='{\"a\":2}' where id=$1", [d])).rejects.toThrow(/immutable/);
+    await expect(db.query("update documents set storage_path='q' where id=$1", [d])).rejects.toThrow(/immutable/);
+    await db.query("update documents set model='m' where id=$1", [d]); // metadata is not content
+  });
+
+  it("is still safe to run twice", async () => {
+    await db.exec(sql);
+    expect((await rows("select 1 from pg_trigger where tgname in ('applications_protect_history','documents_protect_history')")).length).toBe(2);
+  });
+});

@@ -99,6 +99,7 @@ const mapView = (table, keyCol, valCol) => ({
 });
 const settings = mapView("settings", "key", "value");
 const modelConfigs = { set: (label, row) => { const rows = rowsOf("model_configs"); const i = rows.findIndex((r) => r.label === label); if (i >= 0) rows[i] = row; else rows.push(row); }, get: (l) => rowsOf("model_configs").find((r) => r.label === l) };
+const files = new Map(); // storage objects tests put there for the worker to download
 const seen = { lastChatAuth: null, lastChatBody: null, external: [], uploads: [] };
 
 // ------------------------------------------------------------------ external provider fakes (/ext/<host>/<path>)
@@ -244,6 +245,12 @@ export function startMock(port) {
 
     // ---- file storage (uploads are kept so tests can inspect them)
     const st = url.pathname.match(/^\/storage\/v1\/object\/([^/]+)\/(.+)$/);
+    if (st && req.method === "GET") {
+      const bytes = files.get(decodeURIComponent(st[2]));
+      if (!bytes) return send(res, 404, { message: "Object not found" });
+      res.writeHead(200, { "Content-Type": "application/octet-stream" });
+      return res.end(bytes);
+    }
     if (st && (req.method === "POST" || req.method === "PUT")) {
       seen.uploads.push({ bucket: st[1], path: decodeURIComponent(st[2]), bytes: raw.length });
       return send(res, 200, { Key: `${st[1]}/${st[2]}`, Id: randomUUID() });
@@ -256,7 +263,7 @@ export function startMock(port) {
     send(res, 404, { message: `mock: no route for ${req.method} ${url.pathname}` });
   });
   return new Promise((resolve) => server.listen(port, "127.0.0.1", () => resolve({
-    server, users, tokens, settings, modelConfigs, seen, tables, rowsOf, fixtures: externalFixtures,
+    server, users, tokens, settings, modelConfigs, seen, tables, rowsOf, files, fixtures: externalFixtures,
     applyMigration2: () => { schema.v2 = true; },
   })));
 }
