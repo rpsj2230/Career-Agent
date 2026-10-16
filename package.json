@@ -9,10 +9,12 @@
     "lint": "eslint",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "worker:apply": "tsx worker/apply.ts"
+    "worker:apply": "tsx worker/apply.ts",
+    "test:e2e": "node tests/e2e/auth.e2e.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.70",
+    "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.118.0",
     "ai": "^7.0.142",
     "class-variance-authority": "^0.7.1",

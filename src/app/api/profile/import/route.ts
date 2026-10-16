@@ -8,12 +8,14 @@ export const maxDuration = 60;
 export async function POST(request: Request) {
   const form = await request.formData();
   const files = form.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
-  if (files.length === 0) return NextResponse.json({ error: "Attach at least one file" }, { status: 400 });
+  const pasted = String(form.get("pasted") ?? "");
+  const linkedinUrl = String(form.get("linkedinUrl") ?? "");
+  if (files.length === 0 && pasted.trim().length === 0) return NextResponse.json({ error: "Attach a file or paste your LinkedIn profile text" }, { status: 400 });
   if (files.some((f) => f.size > 10 * 1024 * 1024)) return NextResponse.json({ error: "Each file must be under 10 MB" }, { status: 400 });
   try {
     const existing = await getProfile();
     const uploads = await Promise.all(files.map(async (f) => ({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) })));
-    const draft = await importProfile(uploads, existing.preferences);
+    const draft = await importProfile({ uploads, pastedText: pasted, linkedinUrl }, existing.preferences);
     await saveDraft(draft);
     return NextResponse.json({ ok: true, conflicts: draft.conflicts, model: draft.model });
   } catch (e) {

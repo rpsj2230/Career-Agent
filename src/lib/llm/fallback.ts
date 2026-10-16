@@ -15,17 +15,17 @@ export type ModelRow = {
 
 /**
  * Pick the models that may serve `task`, best first. A model is skipped when it is disabled,
- * does not serve the task, has no API key configured, or has used up its daily cap.
+ * does not serve the task, has no usable API key (see `hasKey`), or has used up its daily cap.
  */
 export function selectCandidates(
   rows: ModelRow[],
   task: Task,
-  env: Record<string, string | undefined>,
+  hasKey: (m: ModelRow) => boolean,
   usedToday: Record<string, number>,
 ): ModelRow[] {
   return rows
     .filter((m) => m.enabled && m.tasks.includes(task))
-    .filter((m) => m.api_key_env === null || !!env[m.api_key_env])
+    .filter((m) => hasKey(m))
     .filter((m) => m.daily_cap === null || (usedToday[m.label] ?? 0) < m.daily_cap)
     .sort((a, b) => a.priority - b.priority);
 }

@@ -33,7 +33,8 @@ discover (Adzuna / JSearch / Remotive / Greenhouse / Lever / manual paste)
 - Daily and weekly caps for automated applications, including a separate LinkedIn cap. When a cap is hit the
   package is prepared for manual submission; nothing is dropped.
 - A LinkedIn security checkpoint switches LinkedIn automation off immediately.
-- The app fails closed: with no `APP_PASSWORD` set, nothing is reachable.
+- Sign-in uses Supabase Auth (email + password, httpOnly session cookie). The first account created becomes the **owner**; nobody else can register or use the app afterwards (extra emails can be allowed with the optional `ALLOWED_EMAILS`). Creating the account needs your `CRON_SECRET` as an invite code, so nobody can register your address before you do. With no owner yet, nobody is let in.
+- Provider API keys can be pasted on the Models page; they are stored AES-256-GCM encrypted (key derived from your service-role key) and are never sent back to the browser.
 
 ## Setup (about 30 minutes)
 
@@ -41,12 +42,16 @@ discover (Adzuna / JSearch / Remotive / Greenhouse / Lever / manual paste)
    Copy the project URL and the `service_role` key (Project Settings -> API).
 2. **Vercel**: import this GitHub repo. Add the environment variables from `.env.example`
    (at minimum the Required block plus one model key). Deploy.
+   No other variables are needed: model keys are pasted in the app later.
 3. **GitHub** (repo Settings -> Secrets and variables -> Actions) add:
    `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `APP_URL`, `CRON_SECRET`, and optionally
    `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `LINKEDIN_STORAGE_STATE`.
    Create a fine-grained token limited to this repo with "Actions: read and write" and put it in Vercel as
    `GITHUB_DISPATCH_TOKEN`.
-4. Open the app and sign in (any username, your `APP_PASSWORD`). The dashboard shows a three-step checklist:
+4. Open the app. On the sign-in page choose **Create account**, enter your email, a password (10+ characters) and the
+   invite code (your `CRON_SECRET` value). You become the owner and your browser or password manager can remember the login.
+   Then open **Models**, press **Edit** on a model, paste its key, and press **Test**.
+   The dashboard shows a three-step checklist:
    import your profile, add a model key, set roles and countries.
 
 ### Free model keys
@@ -59,9 +64,11 @@ dates of birth from anything you upload.
 A **Claude subscription does not provide API access**; the optional `claude-sonnet` row needs API credits.
 
 ### Your profile
-Profile page -> upload your resume (PDF/DOCX) and/or your LinkedIn data export (.zip from LinkedIn Settings ->
-Data privacy -> Get a copy of your data). LinkedIn has no public profile API and scraping it breaks its terms,
-so the export file is the supported route. The result is a **draft**: review and edit it, then Confirm.
+Profile page -> any combination of: your LinkedIn link, your LinkedIn profile **pasted** (open your own profile, show all
+sections, select all, copy, paste), a LinkedIn **Save to PDF** or the LinkedIn **data export** (.zip), and your resume
+(PDF/DOCX). LinkedIn has no public profile API, blocks anonymous fetches and forbids scraping, so these routes
+(which use only data you provide) are what is supported. The result is a **draft**: review and edit it, then Confirm.
+The answer bank comes pre-listed with the standard application questions; facts already on your profile are filled in automatically.
 
 ### India portals
 Naukri, Foundit, Shine and similar sites have no open APIs and restrict scraping. Discovery reaches India through
@@ -79,9 +86,10 @@ npm run typecheck && npx eslint . && npm test
 npm run worker:apply         # needs APPLICATION_ID + Supabase env; normally run by GitHub Actions
 ```
 
-`npm test` runs 67 tests: the verifier, model fallback, importers, job mappers and dedupe, caps, auth gate, the
+`npm test` runs 87 tests: the verifier, model fallback, importers, job mappers and dedupe, caps, access rules and signup guards, the
 SQL migration on an embedded Postgres (PGlite), and the form filler in a real Chromium against a local
-fixture. The browser tests need Chromium (`npx playwright install chromium`, or set `CHROMIUM_PATH`) and are
+fixture. `npm run build && npm run test:e2e` additionally runs the real built app against a local stand-in for Supabase
+(sign-up, owner lock-out, login, logout, encrypted key storage and use). The browser tests need Chromium (`npx playwright install chromium`, or set `CHROMIUM_PATH`) and are
 skipped when no browser path is configured.
 
 ## What is and is not verified
