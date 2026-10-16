@@ -1,6 +1,8 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
-import { daysAgo, reportRows } from "@/lib/queries";
+import { CountrySelect } from "@/components/app/country-select";
+import { countryLabel, parseCountry } from "@/lib/filters";
+import { daysAgo, filterOptions, reportRows } from "@/lib/queries";
 import { summarize, type Summary } from "@/lib/reports";
 
 export const dynamic = "force-dynamic";
@@ -34,13 +36,16 @@ function Block({ title, s }: { title: string; s: Summary }) {
   );
 }
 
-export default async function ReportsPage() {
-  const rows = await reportRows();
+export default async function ReportsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const country = parseCountry(await searchParams);
+  const [rows, opts] = await Promise.all([reportRows(country), filterOptions()]);
   const week = summarize(rows, daysAgo(7));
   const all = summarize(rows);
   return (
     <div className="grid gap-6">
       <div><h1 className="text-2xl font-semibold">Reports</h1><p className="text-sm text-muted-foreground">Response rate counts interviews and offers only; rejections are shown separately. Update outcomes on each application so these stay accurate.</p></div>
+      <CountrySelect action="/reports" country={country} options={opts.countries} />
+      {country && <p className="text-sm">Showing {countryLabel(country)} only.</p>}
       <Block title="Last 7 days" s={week} />
       <Block title="All time" s={all} />
     </div>

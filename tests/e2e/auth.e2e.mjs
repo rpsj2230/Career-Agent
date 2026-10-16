@@ -132,6 +132,9 @@ r = await call("/jobs?view=all&country=sg"); check("country filter keeps matchin
 r = await call("/jobs?view=all&portal=x%27%3B%20delete&view2=1"); check("a hostile portal value is ignored, not executed", r.status === 200 && r.text.includes("Gamma Pte Ltd"), `${r.status}`);
 r = await call("/jobs"); check("the default view is the review queue (nothing matched yet)", r.status === 200 && r.text.includes("Nothing here for these filters"), `${r.status}`);
 r = await call("/applications"); check("Applications list renders with its filter bar", r.status === 200 && r.text.includes("Pending approval") && r.text.includes("All portals"), `${r.status}`);
+r = await call("/?country=sg"); check("dashboard can be narrowed to one country", r.status === 200 && r.text.replace(/<!-- -->/g, "").includes("Showing Singapore only") && r.text.includes("All countries"), `${r.status}`);
+r = await call("/reports?country=sg"); check("reports can be narrowed to one country", r.status === 200 && r.text.replace(/<!-- -->/g, "").includes("Showing Singapore only"), `${r.status}`);
+r = await call("/reports?country=%27%3Bdrop"); check("a hostile country value on reports is ignored", r.status === 200 && !r.text.includes("Showing"), `${r.status}`);
 r = await call("/api/export/applications?portal=linkedin&country=sg"); check("CSV export accepts the same filters", r.status === 200 && r.text.startsWith("company,title,country,portal,found_via"), `${r.status} ${r.text.slice(0, 80)}`);
 
 // enable / disable and guard rails

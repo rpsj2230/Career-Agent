@@ -5,16 +5,21 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { db, must } from "@/lib/db";
 import { getProfile } from "@/lib/profile/store";
-import { counts } from "@/lib/queries";
+import { CountrySelect } from "@/components/app/country-select";
+import { countryLabel, parseCountry } from "@/lib/filters";
+import { counts, filterOptions } from "@/lib/queries";
 import { getSetting } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
 
-export default async function Dashboard() {
-  const [c, profile, discovery] = await Promise.all([counts(), getProfile(), getSetting("discovery")]);
+export default async function Dashboard({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const country = parseCountry(await searchParams);
+  const [c, profile, discovery, opts] = await Promise.all([counts(country), getProfile(), getSetting("discovery"), filterOptions()]);
   const models = must<{ enabled: boolean; api_key_env: string | null }[]>(await db().from("model_configs").select("enabled,api_key_env"), "models");
+  let recentQ = db().from("applications").select(`id,status,created_at, job:jobs${country ? "!inner" : ""}(title,company)`);
+  if (country) recentQ = recentQ.eq("job.country", country);
   const recent = must<{ id: string; status: string; created_at: string; job: { title: string; company: string } | null }[]>(
-    await db().from("applications").select("id,status,created_at, job:jobs(title,company)").order("created_at", { ascending: false }).limit(6), "recent",
+    await recentQ.order("created_at", { ascending: false }).limit(6), "recent",
   );
   const steps = [
     { done: profile.experience.length > 0, label: "Import and confirm your profile", href: "/profile" },
@@ -49,6 +54,8 @@ export default async function Dashboard() {
         </Card>
       )}
 
+      <CountrySelect action="/" country={country} options={opts.countries} />
+      {country && <p className="text-sm">Showing {countryLabel(country)} only.</p>}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
         {tiles.map((t) => (
           <Card key={t.label}><CardHeader className="pb-1"><CardDescription>{t.label}</CardDescription><CardTitle className="text-3xl">{t.value}</CardTitle></CardHeader></Card>

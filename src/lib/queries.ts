@@ -72,21 +72,31 @@ export async function filterOptions(): Promise<{ portals: { key: string; n: numb
   return { portals: tally(rows, "portal"), countries: tally(rows, "country") };
 }
 
-export async function counts() {
-  const c = async (status: string) =>
-    (await db().from("jobs").select("id", { count: "exact", head: true }).eq("status", status)).count ?? 0;
+export async function counts(country?: string) {
+  const c = async (status: string) => {
+    let q = db().from("jobs").select("id", { count: "exact", head: true }).eq("status", status);
+    if (country) q = q.eq("country", country);
+    return (await q).count ?? 0;
+  };
+  const appCount = async (apply: (q: any) => any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+    let q = db().from("applications").select(country ? "id, job:jobs!inner(country)" : "id", { count: "exact", head: true });
+    if (country) q = q.eq("job.country", country);
+    return ((await apply(q)).count as number | null) ?? 0;
+  };
   const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString();
   const [fresh, queued, prepared, applied, saved] = await Promise.all([c("new"), c("queued"), c("prepared"), c("applied"), c("saved")]);
-  const sent7 = (await db().from("applications").select("id", { count: "exact", head: true }).eq("status", "submitted").gte("submitted_at", weekAgo)).count ?? 0;
-  const failed = (await db().from("applications").select("id", { count: "exact", head: true }).in("status", ["failed", "needs_input"])).count ?? 0;
+  const sent7 = await appCount((q) => q.eq("status", "submitted").gte("submitted_at", weekAgo));
+  const failed = await appCount((q) => q.in("status", ["failed", "needs_input"]));
   return { fresh, queued, prepared, applied, saved, sent7, failed };
 }
 
 import type { ReportRow } from "@/lib/reports";
 
-export async function reportRows(): Promise<ReportRow[]> {
+export async function reportRows(country?: string): Promise<ReportRow[]> {
+  let q = db().from("applications").select(`status,lifecycle,submitted_at, job:jobs${country ? "!inner" : ""}(country,source,apply_type,job_scores(score,detail))`).limit(2000);
+  if (country) q = q.eq("job.country", country);
   const rows = must<{ status: string; lifecycle: string; submitted_at: string | null; job: { country: string | null; source: string; apply_type: string; job_scores: { score: number; detail: { gaps?: string[] } } | { score: number; detail: { gaps?: string[] } }[] | null } | null }[]>(
-    await db().from("applications").select("status,lifecycle,submitted_at, job:jobs(country,source,apply_type,job_scores(score,detail))").limit(2000),
+    await q,
     "report rows",
   );
   return rows.map((r) => {

@@ -58,3 +58,9 @@ export const COUNTRY_NAMES: Record<string, string> = {
   ie: "Ireland", fr: "France", es: "Spain", it: "Italy", nz: "New Zealand", za: "South Africa", pl: "Poland", br: "Brazil", mx: "Mexico", ch: "Switzerland", at: "Austria", be: "Belgium",
 };
 export const countryLabel = (c: string | null | undefined) => (c ? COUNTRY_NAMES[c.toLowerCase()] ?? c.toUpperCase() : "Unknown");
+
+/** A single optional two-letter country from the query string; anything else is ignored. */
+export function parseCountry(sp: SP): string | undefined {
+  const c = one(sp.country)?.toLowerCase();
+  return c && /^[a-z]{2}$/.test(c) ? c : undefined;
+}
