@@ -7,12 +7,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   const sp = await searchParams;
   return (
     <main className="flex min-h-screen items-center justify-center p-4">
-      <LoginForm
-        url={process.env.SUPABASE_URL ?? ""}
-        anonKey={process.env.SUPABASE_ANON_KEY ?? ""}
-        next={safeNext(sp.next)}
-        notAllowed={sp.error === "not-allowed"}
-      />
+      <LoginForm next={safeNext(sp.next)} notAllowed={sp.error === "not-allowed"} />
     </main>
   );
 }

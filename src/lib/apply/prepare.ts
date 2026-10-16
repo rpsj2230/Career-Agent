@@ -51,7 +51,7 @@ export async function prepareApplication(jobId: string): Promise<{ applicationId
     "save cover doc",
   );
   const app = must<{ id: string }>(
-    await db().from("applications").insert({ job_id: jobId, resume_doc_id: resumeDoc.id, cover_doc_id: coverDoc.id, answers: buildAnswers(bank, profile.preferences), status: "prepared" }).select("id").single(),
+    await db().from("applications").insert({ job_id: jobId, resume_doc_id: resumeDoc.id, cover_doc_id: coverDoc.id, answers: buildAnswers(bank, profile.preferences, profile), status: "prepared" }).select("id").single(),
     "create application",
   );
   must(await db().from("jobs").update({ status: "prepared" }).eq("id", jobId).select("id"), "mark prepared");

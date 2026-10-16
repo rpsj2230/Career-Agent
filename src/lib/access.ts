@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 
 /** Pages and endpoints reachable without a session. Everything else needs an allowed signed-in user. */
-export const PUBLIC_PATHS = ["/login", "/api/auth/signup"];
+export const PUBLIC_PATHS = ["/login", "/api/auth/signup", "/api/auth/login", "/api/auth/logout"];
 
 export const isPublic = (pathname: string) => PUBLIC_PATHS.includes(pathname);
 
@@ -29,15 +29,13 @@ export type Access =
   | { kind: "allow" }
   | { kind: "login" }          // pages: send to /login
   | { kind: "unauthorized" }   // APIs: 401 JSON
-  | { kind: "forbidden" }      // signed in, but the email is not on the allowlist
-  | { kind: "misconfigured"; message: string };
+  | { kind: "forbidden" };     // signed in, but the email is not the owner / on the allowlist
 
 /**
  * Decide access for a non-public, non-cron request.
- * Fails closed: with no allowlist configured nobody gets in, so a missing setting can never open the app.
+ * Fails closed: an empty allowlist (no owner account yet) admits nobody, so a missing row can never open the app.
  */
 export function decideAccess(i: { user: { email?: string | null } | null; allowlist: string[]; isApi: boolean }): Access {
-  if (i.allowlist.length === 0) return { kind: "misconfigured", message: "ALLOWED_EMAILS is not set" };
   if (!i.user) return i.isApi ? { kind: "unauthorized" } : { kind: "login" };
   const email = i.user.email?.toLowerCase();
   return email && i.allowlist.includes(email) ? { kind: "allow" } : { kind: "forbidden" };

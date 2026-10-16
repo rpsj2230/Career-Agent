@@ -8,13 +8,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
+import { COUNTRY_PRESETS, ROLE_PRESETS, toggleCsv } from "@/lib/standard-questions";
 import { call } from "./api";
 
 type Discovery = { countries: string[]; roles: string[]; greenhouse_boards: string[]; lever_companies: string[]; max_age_days: number };
 type Caps = { daily_total: number; daily_linkedin: number; weekly_linkedin: number; linkedin_automation_enabled: boolean };
 const csv = (s: string) => s.split(",").map((x) => x.trim()).filter(Boolean);
 
-export function SettingsForm({ discovery, threshold, caps }: { discovery: Discovery; threshold: number; caps: Caps }) {
+export function SettingsForm({ discovery, threshold, caps, profileTitles }: { discovery: Discovery; threshold: number; caps: Caps; profileTitles: string[] }) {
   const router = useRouter();
   const [d, setD] = useState({ ...discovery, countries: discovery.countries.join(", "), roles: discovery.roles.join(", "), greenhouse_boards: discovery.greenhouse_boards.join(", "), lever_companies: discovery.lever_companies.join(", ") });
   const [t, setT] = useState(threshold);
@@ -29,10 +31,36 @@ export function SettingsForm({ discovery, threshold, caps }: { discovery: Discov
   return (
     <div className="grid gap-4">
       <Card>
-        <CardHeader><CardTitle>Job discovery</CardTitle><CardDescription>Blank countries or roles fall back to your profile preferences. Greenhouse board tokens and Lever company slugs come from the careers-page URL (boards.greenhouse.io/<b>token</b>, jobs.lever.co/<b>slug</b>).</CardDescription></CardHeader>
+        <CardHeader><CardTitle>Job discovery</CardTitle><CardDescription>Tap the chips to add or remove, or type your own. Blank countries or roles fall back to your profile preferences. Greenhouse board tokens and Lever company slugs come from the careers-page URL (boards.greenhouse.io/<b>token</b>, jobs.lever.co/<b>slug</b>).</CardDescription></CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-2">
-          <div className="grid gap-1"><Label htmlFor="c">Countries (ISO codes)</Label><Input id="c" value={d.countries} placeholder="in, sg, ae" onChange={(e) => setD({ ...d, countries: e.target.value })} /></div>
-          <div className="grid gap-1"><Label htmlFor="r">Roles</Label><Input id="r" value={d.roles} placeholder="Product Manager, Business Analyst" onChange={(e) => setD({ ...d, roles: e.target.value })} /></div>
+          <div className="grid gap-2">
+            <Label htmlFor="c">Countries (ISO codes)</Label>
+            <Input id="c" value={d.countries} placeholder="in, sg, ae" onChange={(e) => setD({ ...d, countries: e.target.value })} />
+            <div className="flex flex-wrap gap-1">
+              {COUNTRY_PRESETS.map((c) => (
+                <button type="button" key={c.code} onClick={() => setD({ ...d, countries: toggleCsv(d.countries, c.code) })}>
+                  <Badge variant={csv(d.countries).includes(c.code) ? "default" : "outline"}>{c.name}</Badge>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="r">Roles</Label>
+            <Input id="r" value={d.roles} placeholder="Product Manager, Business Analyst" onChange={(e) => setD({ ...d, roles: e.target.value })} />
+            <div className="flex flex-wrap gap-1">
+              {profileTitles.length > 0 && <span className="self-center text-xs text-muted-foreground">From your profile:</span>}
+              {profileTitles.map((r) => (
+                <button type="button" key={`p-${r}`} onClick={() => setD({ ...d, roles: toggleCsv(d.roles, r) })}>
+                  <Badge variant={csv(d.roles).map((x) => x.toLowerCase()).includes(r.toLowerCase()) ? "default" : "secondary"}>{r}</Badge>
+                </button>
+              ))}
+              {ROLE_PRESETS.map((r) => (
+                <button type="button" key={r} onClick={() => setD({ ...d, roles: toggleCsv(d.roles, r) })}>
+                  <Badge variant={csv(d.roles).map((x) => x.toLowerCase()).includes(r.toLowerCase()) ? "default" : "outline"}>{r}</Badge>
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="grid gap-1"><Label htmlFor="g">Greenhouse boards</Label><Input id="g" value={d.greenhouse_boards} placeholder="razorpay, postman" onChange={(e) => setD({ ...d, greenhouse_boards: e.target.value })} /></div>
           <div className="grid gap-1"><Label htmlFor="l">Lever companies</Label><Input id="l" value={d.lever_companies} placeholder="cred, meesho" onChange={(e) => setD({ ...d, lever_companies: e.target.value })} /></div>
           <div className="grid gap-1"><Label htmlFor="age">Ignore jobs older than (days)</Label>{num(d.max_age_days, (n) => setD({ ...d, max_age_days: n }), "age")}</div>

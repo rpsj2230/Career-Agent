@@ -37,3 +37,27 @@ describe("assignIds", () => {
     expect(p.education[0].id).toBe("edu1");
   });
 });
+
+import { cleanPastedProfile, normalizeLinkedInUrl } from "@/lib/profile/linkedin";
+
+describe("normalizeLinkedInUrl", () => {
+  it("canonicalises common forms", () => {
+    for (const u of ["linkedin.com/in/asha-rao", "https://in.linkedin.com/in/asha-rao/?utm_source=x", "HTTP://WWW.LINKEDIN.COM/in/asha-rao/details/experience"])
+      expect(normalizeLinkedInUrl(u), u).toBe("https://www.linkedin.com/in/asha-rao");
+  });
+  it("rejects non-profile and look-alike links", () => {
+    for (const u of ["", "https://example.com/in/asha", "https://linkedin.com.evil.com/in/asha", "https://www.linkedin.com/company/acme", "not a url", "javascript:alert(1)"])
+      expect(normalizeLinkedInUrl(u), u).toBeNull();
+  });
+});
+
+describe("cleanPastedProfile", () => {
+  const pasted = "Asha Rao\nProduct Manager at Acme\nConnect\nMessage\nMore\n\n\n\nExperience\nSenior PM, Acme\nGrew activation 24%\nShow all 5 experiences\nPeople also viewed\nSomeone Else\nHead of Product";
+  it("drops page chrome and everything after the profile", () => {
+    const out = cleanPastedProfile(pasted);
+    expect(out).toContain("Senior PM, Acme");
+    expect(out).toContain("Grew activation 24%");
+    expect(out).not.toMatch(/Connect|Message|Show all|People also viewed|Someone Else/);
+    expect(out).not.toMatch(/\n{3,}/);
+  });
+});

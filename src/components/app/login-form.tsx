@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { createBrowserClient } from "@supabase/ssr";
 import { toast } from "sonner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -10,13 +9,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-export function LoginForm({ url, anonKey, next, notAllowed }: { url: string; anonKey: string; next: string; notAllowed: boolean }) {
+export function LoginForm({ next, notAllowed }: { next: string; notAllowed: boolean }) {
   const [busy, setBusy] = useState(false);
-  const configured = !!url && !!anonKey;
 
   async function signIn(email: string, password: string): Promise<boolean> {
-    const { error } = await createBrowserClient(url, anonKey).auth.signInWithPassword({ email, password });
-    if (error) { toast.error(error.message === "Invalid login credentials" ? "Wrong email or password" : error.message); return false; }
+    const res = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { toast.error(data.error ?? "Could not sign in"); return false; }
     window.location.href = next; // full navigation so the proxy sees the new session cookie
     return true;
   }
@@ -53,7 +52,6 @@ export function LoginForm({ url, anonKey, next, notAllowed }: { url: string; ano
         <CardDescription>Sign in with your account. Your browser or password manager can remember it.</CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4">
-        {!configured && <Alert variant="destructive"><AlertTitle>Not configured</AlertTitle><AlertDescription>SUPABASE_URL and SUPABASE_ANON_KEY must be set in the environment.</AlertDescription></Alert>}
         {notAllowed && <Alert variant="destructive"><AlertTitle>This account is not allowed</AlertTitle><AlertDescription>Its email is not on the allowed list. Sign in with a different account.</AlertDescription></Alert>}
         <Tabs defaultValue="signin">
           <TabsList className="grid w-full grid-cols-2"><TabsTrigger value="signin">Sign in</TabsTrigger><TabsTrigger value="create">Create account</TabsTrigger></TabsList>
@@ -61,17 +59,17 @@ export function LoginForm({ url, anonKey, next, notAllowed }: { url: string; ano
             <form onSubmit={onSignIn} className="grid gap-3 pt-3">
               {field("email", "Email", "email", { autoComplete: "username" })}
               {field("password", "Password", "password", { autoComplete: "current-password" })}
-              <Button type="submit" disabled={busy || !configured}>{busy ? "Signing in..." : "Sign in"}</Button>
+              <Button type="submit" disabled={busy}>{busy ? "Signing in..." : "Sign in"}</Button>
             </form>
           </TabsContent>
           <TabsContent value="create">
             <form onSubmit={onCreate} className="grid gap-3 pt-3">
-              {field("email", "Your email (must be on the allowed list)", "email", { autoComplete: "username" })}
+              {field("email", "Your email", "email", { autoComplete: "username" })}
               {field("password", "Choose a password (10+ characters)", "password", { autoComplete: "new-password", minLength: "10" })}
               {field("confirm", "Repeat the password", "password", { autoComplete: "new-password" })}
               {field("code", "Invite code", "password", { autoComplete: "off" })}
-              <p className="text-xs text-muted-foreground">The invite code is the INVITE_CODE value you set in Vercel. It stops anyone else registering your email.</p>
-              <Button type="submit" disabled={busy || !configured}>{busy ? "Creating..." : "Create account"}</Button>
+              <p className="text-xs text-muted-foreground">Invite code: your CRON_SECRET value from Vercel (Settings, Environment Variables). The first account created becomes the owner; nobody else can register afterwards.</p>
+              <Button type="submit" disabled={busy}>{busy ? "Creating..." : "Create account"}</Button>
             </form>
           </TabsContent>
         </Tabs>

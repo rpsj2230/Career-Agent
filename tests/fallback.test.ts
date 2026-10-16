@@ -16,12 +16,13 @@ describe("selectCandidates", () => {
     row({ label: "scoreonly", priority: 4, api_key_env: "A", tasks: ["score"] }),
     row({ label: "local", priority: 50, api_key_env: null }),
   ];
-  const env = { A: "1", B: "1" };
+  const env: Record<string, string> = { A: "1", B: "1" };
+  const hasKey = (m: ModelRow) => m.api_key_env === null || !!env[m.api_key_env];
   it("filters and orders by priority", () => {
-    expect(selectCandidates(rows, "tailor", env, { capped: 2 }).map((m) => m.label)).toEqual(["b", "a", "local"]);
+    expect(selectCandidates(rows, "tailor", hasKey, { capped: 2 }).map((m) => m.label)).toEqual(["b", "a", "local"]);
   });
   it("respects task and a cap that is not yet reached", () => {
-    expect(selectCandidates(rows, "score", env, { capped: 1 }).map((m) => m.label)).toEqual(["capped", "scoreonly", "b", "a", "local"]);
+    expect(selectCandidates(rows, "score", hasKey, { capped: 1 }).map((m) => m.label)).toEqual(["capped", "scoreonly", "b", "a", "local"]);
   });
 });
 

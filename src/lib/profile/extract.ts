@@ -1,6 +1,7 @@
 import "server-only";
 import { runStructured } from "@/lib/llm/registry";
 import { assignIds, ExtractedProfile } from "./ids";
+import { cleanPastedProfile, normalizeLinkedInUrl } from "./linkedin";
 import { uploadToText, type Upload } from "./parse";
 import type { MasterProfile } from "@/lib/types";
 
@@ -12,15 +13,22 @@ Rules:
 - If two sources disagree (dates, titles, employers), keep the more specific one and list the disagreement in "conflicts".
 - Empty string for any basics field that is not present.`;
 
-export async function importProfile(uploads: Upload[], preferences: MasterProfile["preferences"]) {
-  if (uploads.length === 0) throw new Error("No files uploaded");
+export type ImportInput = { uploads: Upload[]; pastedText?: string; linkedinUrl?: string };
+
+const MAX_PASTE = 60_000;
+
+export async function importProfile(input: ImportInput, preferences: MasterProfile["preferences"]) {
+  const pasted = cleanPastedProfile(input.pastedText ?? "").slice(0, MAX_PASTE);
+  if (input.uploads.length === 0 && pasted.length < 50) throw new Error("Upload a file or paste your profile text (at least a few lines)");
+  const linkedin = input.linkedinUrl?.trim() ? normalizeLinkedInUrl(input.linkedinUrl) : null;
+  if (input.linkedinUrl?.trim() && !linkedin) throw new Error("That is not a LinkedIn profile link (expected linkedin.com/in/your-name)");
+
   const parts: string[] = [];
-  for (const u of uploads) parts.push(`===== SOURCE: ${u.name} =====\n${await uploadToText(u)}`);
-  const { output, model } = await runStructured({
-    task: "extract",
-    schema: ExtractedProfile,
-    system: SYSTEM,
-    prompt: parts.join("\n\n"),
-  });
-  return { profile: assignIds(output, preferences), conflicts: output.conflicts, model };
+  for (const u of input.uploads) parts.push(`===== SOURCE: ${u.name} =====\n${await uploadToText(u)}`);
+  if (pasted) parts.push(`===== SOURCE: LinkedIn profile (copied from the profile page) =====\n${pasted}`);
+
+  const { output, model } = await runStructured({ task: "extract", schema: ExtractedProfile, system: SYSTEM, prompt: parts.join("\n\n") });
+  const profile = assignIds(output, preferences);
+  if (linkedin && !profile.basics.links.some((l) => normalizeLinkedInUrl(l) === linkedin)) profile.basics.links.unshift(linkedin);
+  return { profile, conflicts: output.conflicts, model };
 }

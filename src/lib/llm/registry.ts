@@ -4,10 +4,31 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { z } from "zod";
 import { db, must } from "@/lib/db";
 import type { Task } from "@/lib/types";
+import { DEFAULT_MODELS } from "./defaults";
 import { runWithFallback, selectCandidates, type ModelRow } from "./fallback";
+import { resolveKeys } from "./keys";
 
-async function loadCandidates(task: Task): Promise<ModelRow[]> {
+let ensured = false;
+/** Make sure the verified default models exist (never overwrites rows you edited). Runs once per server instance. */
+export async function ensureDefaultModels() {
+  if (ensured) return;
+  must(await db().from("model_configs").upsert(DEFAULT_MODELS, { onConflict: "label", ignoreDuplicates: true }).select("label"), "ensure default models");
+  ensured = true;
+}
+
+export function buildModel(m: ModelRow, apiKey: string | undefined) {
+  return createOpenAICompatible({
+    name: m.provider,
+    baseURL: m.base_url,
+    apiKey,
+    supportsStructuredOutputs: false, // free tiers differ; the schema is enforced by zod
+  })(m.model);
+}
+
+async function loadCandidates(task: Task): Promise<{ candidates: ModelRow[]; keys: Map<string, string> }> {
+  await ensureDefaultModels();
   const rows = must(await db().from("model_configs").select("*"), "load model_configs") as ModelRow[];
+  const keys = await resolveKeys(rows);
   const since = new Date();
   since.setUTCHours(0, 0, 0, 0);
   const usage = must(
@@ -16,7 +37,9 @@ async function loadCandidates(task: Task): Promise<ModelRow[]> {
   ) as { model_label: string }[];
   const usedToday: Record<string, number> = {};
   for (const u of usage) usedToday[u.model_label] = (usedToday[u.model_label] ?? 0) + 1;
-  return selectCandidates(rows, task, process.env, usedToday);
+  // a saved/env key makes a model usable; a model with no env var name at all is treated as local (no key needed)
+  const hasKey = (m: ModelRow) => keys.has(m.label) || m.api_key_env === null;
+  return { candidates: selectCandidates(rows, task, hasKey, usedToday), keys };
 }
 
 /**
@@ -30,19 +53,13 @@ export async function runStructured<S extends z.ZodType>(opts: {
   prompt: string;
   jobId?: string;
 }): Promise<{ output: z.infer<S>; model: string }> {
-  const candidates = await loadCandidates(opts.task);
+  const { candidates, keys } = await loadCandidates(opts.task);
   const { value, used } = await runWithFallback(
     opts.task,
     candidates,
     async (m) => {
-      const provider = createOpenAICompatible({
-        name: m.provider,
-        baseURL: m.base_url,
-        apiKey: m.api_key_env ? process.env[m.api_key_env] : undefined,
-        supportsStructuredOutputs: false, // free tiers differ; schema is enforced by zod below
-      });
       const res = await generateText({
-        model: provider(m.model),
+        model: buildModel(m, keys.get(m.label)),
         system: opts.system,
         prompt: opts.prompt,
         output: Output.object({ schema: opts.schema }),

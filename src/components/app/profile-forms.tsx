@@ -8,6 +8,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { rowsToSave, type AnswerRow } from "@/lib/standard-questions";
 import { call } from "./api";
 
 export function ImportBox() {
@@ -25,12 +26,31 @@ export function ImportBox() {
     } finally { setBusy(false); }
   }
   return (
-    <form onSubmit={submit} className="grid gap-3">
-      <div className="grid gap-1">
-        <Label htmlFor="files">Resume (PDF, DOCX, TXT) and/or LinkedIn data export (.zip)</Label>
-        <Input id="files" name="files" type="file" multiple required accept=".pdf,.docx,.txt,.md,.zip" />
-      </div>
-      <p className="text-xs text-muted-foreground">Your text is sent to the configured free model providers. Remove ID numbers and dates of birth first.</p>
+    <form onSubmit={submit} className="grid gap-5">
+      <section className="grid gap-2">
+        <Label htmlFor="linkedinUrl">1. Your LinkedIn profile link (optional)</Label>
+        <Input id="linkedinUrl" name="linkedinUrl" placeholder="https://www.linkedin.com/in/your-name" />
+        <p className="text-xs text-muted-foreground">Saved on your profile and used in applications that ask for it.</p>
+      </section>
+
+      <section className="grid gap-2">
+        <Label htmlFor="pasted">2. Paste your LinkedIn profile (recommended)</Label>
+        <ol className="list-decimal pl-5 text-xs text-muted-foreground">
+          <li>Open your own profile on linkedin.com in your browser, signed in.</li>
+          <li>Click &quot;Show all&quot; on Experience, Education and Skills so the full lists are on the page.</li>
+          <li>Press Ctrl+A (Cmd+A on Mac) to select everything, then Ctrl+C to copy, and paste it below.</li>
+        </ol>
+        <Textarea id="pasted" name="pasted" rows={8} placeholder="Paste the copied profile text here" />
+        <p className="text-xs text-muted-foreground">Page menus and &quot;people also viewed&quot; are removed automatically. LinkedIn does not allow apps to fetch profiles by link, so copying your own page is the reliable route.</p>
+      </section>
+
+      <section className="grid gap-2">
+        <Label htmlFor="files">3. Or upload files: resume (PDF, DOCX), LinkedIn &quot;Save to PDF&quot;, or the LinkedIn data export (.zip)</Label>
+        <Input id="files" name="files" type="file" multiple accept=".pdf,.docx,.txt,.md,.zip" />
+        <p className="text-xs text-muted-foreground">On your profile: More, then Save to PDF. For the full export: LinkedIn Settings, Data privacy, Get a copy of your data. You can combine sources; conflicts are listed for you to resolve.</p>
+      </section>
+
+      <p className="text-xs text-muted-foreground">Your text is sent to the configured AI model provider. Remove ID numbers and dates of birth first.</p>
       <Button type="submit" disabled={busy} className="w-fit">{busy ? "Reading and structuring..." : "Import"}</Button>
     </form>
   );
@@ -95,27 +115,38 @@ export function PreferencesForm({ prefs }: { prefs: Prefs }) {
   );
 }
 
-export function AnswerBankEditor({ initial }: { initial: { question: string; answer: string }[] }) {
+export function AnswerBankEditor({ initial }: { initial: AnswerRow[] }) {
   const router = useRouter();
-  const [rows, setRows] = useState(initial.length ? initial : [{ question: "", answer: "" }]);
-  const update = (i: number, k: "question" | "answer", v: string) => setRows((r) => r.map((x, j) => (j === i ? { ...x, [k]: v } : x)));
+  const [rows, setRows] = useState<AnswerRow[]>(initial);
+  const update = (i: number, answer: string) => setRows((r) => r.map((x, j) => (j === i ? { ...x, answer } : x)));
+  const updateQ = (i: number, question: string) => setRows((r) => r.map((x, j) => (j === i ? { ...x, question } : x)));
   async function save() {
-    const items = rows.filter((r) => r.question.trim());
-    if (await call("/api/answers", "PUT", { items }, "Answer bank saved")) router.refresh();
+    if (await call("/api/answers", "PUT", { items: rowsToSave(rows) }, "Answer bank saved")) router.refresh();
   }
+  const groups = [...new Set(rows.filter((r) => r.standard).map((r) => r.group ?? "Other"))];
+  const answered = rows.filter((r) => r.answer.trim()).length;
+  const rowView = (r: AnswerRow, i: number) => (
+    <div key={i} className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
+      {r.standard ? <Label className="self-center text-sm font-normal">{r.question}</Label> : <Input placeholder="Your own question" value={r.question} onChange={(e) => updateQ(i, e.target.value)} />}
+      <Input placeholder={r.hint ?? "Your answer"} value={r.answer} onChange={(e) => update(i, e.target.value)} />
+      {!r.standard ? <Button variant="ghost" onClick={() => setRows((x) => x.filter((_, j) => j !== i))}>Remove</Button> : <span />}
+    </div>
+  );
   return (
-    <div className="grid gap-3">
-      {rows.map((r, i) => (
-        <div key={i} className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
-          <Input placeholder="Question, e.g. Are you legally authorised to work in Singapore?" value={r.question} onChange={(e) => update(i, "question", e.target.value)} />
-          <Input placeholder="Your answer" value={r.answer} onChange={(e) => update(i, "answer", e.target.value)} />
-          <Button variant="ghost" onClick={() => setRows((x) => x.filter((_, j) => j !== i))}>Remove</Button>
-        </div>
+    <div className="grid gap-4">
+      <p className="text-sm text-muted-foreground">{answered} of {rows.length} answered. Fill what you are comfortable sharing; the agent only uses answers that exist here, and hands the application back to you for anything it cannot answer.</p>
+      {groups.map((g) => (
+        <section key={g} className="grid gap-2">
+          <h3 className="text-sm font-semibold">{g}</h3>
+          {rows.map((r, i) => (r.standard && (r.group ?? "Other") === g ? rowView(r, i) : null))}
+        </section>
       ))}
-      <div className="flex gap-2">
-        <Button variant="outline" onClick={() => setRows((r) => [...r, { question: "", answer: "" }])}>Add answer</Button>
-        <Button onClick={save}>Save answer bank</Button>
-      </div>
+      <section className="grid gap-2">
+        <h3 className="text-sm font-semibold">Your own questions</h3>
+        {rows.map((r, i) => (!r.standard ? rowView(r, i) : null))}
+        <Button variant="outline" className="w-fit" onClick={() => setRows((r) => [...r, { question: "", answer: "" }])}>Add your own question</Button>
+      </section>
+      <Button onClick={save} className="w-fit">Save answer bank</Button>
     </div>
   );
 }

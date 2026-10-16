@@ -8,7 +8,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <div className="mb-3 px-3 text-lg font-semibold">Career Agent</div>
         <Nav />
         <div className="mt-4 md:mt-auto">
-          <SignOut url={process.env.SUPABASE_URL ?? ""} anonKey={process.env.SUPABASE_ANON_KEY ?? ""} />
+          <SignOut />
         </div>
       </aside>
       <main className="min-w-0 flex-1">{children}</main>

@@ -9,7 +9,8 @@
     "lint": "eslint",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "worker:apply": "tsx worker/apply.ts"
+    "worker:apply": "tsx worker/apply.ts",
+    "test:e2e": "node tests/e2e/auth.e2e.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.70",

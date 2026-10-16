@@ -1,14 +1,13 @@
 "use client";
 
-import { createBrowserClient } from "@supabase/ssr";
 import { useRouter } from "next/navigation";
 import { LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-export function SignOut({ url, anonKey }: { url: string; anonKey: string }) {
+export function SignOut() {
   const router = useRouter();
   async function signOut() {
-    await createBrowserClient(url, anonKey).auth.signOut();
+    await fetch("/api/auth/logout", { method: "POST" });
     router.replace("/login");
     router.refresh(); // drop cached signed-in pages
   }

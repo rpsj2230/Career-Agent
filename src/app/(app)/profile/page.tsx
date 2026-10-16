@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { db, must } from "@/lib/db";
 import { getDraft, getProfile } from "@/lib/profile/store";
+import { mergeStandard } from "@/lib/standard-questions";
 
 export const dynamic = "force-dynamic";
 
@@ -43,8 +44,8 @@ export default async function ProfilePage() {
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>Answer bank</CardTitle><CardDescription>Reusable answers for common application questions. The agent never guesses an answer that is not here or in your preferences.</CardDescription></CardHeader>
-        <CardContent><AnswerBankEditor initial={bank} /></CardContent>
+        <CardHeader><CardTitle>Answer bank</CardTitle><CardDescription>Standard questions that appear in most applications, pre-listed for you. Things already on your profile (experience, location, links, education) are filled in automatically when a form asks and you have not answered here.</CardDescription></CardHeader>
+        <CardContent><AnswerBankEditor initial={mergeStandard(bank)} /></CardContent>
       </Card>
     </div>
   );

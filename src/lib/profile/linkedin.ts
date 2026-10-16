@@ -47,3 +47,33 @@ export function linkedinExportToText(files: Record<string, string>): string {
   if (certs.length) out.push(`## Certifications\n${certs.join("\n")}`);
   return out.join("\n");
 }
+
+/** Accepts "linkedin.com/in/x", "https://in.linkedin.com/in/x/?utm=1" etc.; returns the canonical URL or null. */
+export function normalizeLinkedInUrl(raw: string | undefined | null): string | null {
+  const s = (raw ?? "").trim();
+  if (!s) return null;
+  try {
+    const u = new URL(/^https?:\/\//i.test(s) ? s : `https://${s}`);
+    if (!/(^|\.)linkedin\.com$/i.test(u.hostname)) return null;
+    const m = u.pathname.match(/^\/in\/([A-Za-z0-9\-_%.]+)\/?/);
+    return m ? `https://www.linkedin.com/in/${m[1]}` : null;
+  } catch {
+    return null;
+  }
+}
+
+// Page furniture that follows the profile content when you copy a whole LinkedIn page.
+const TAIL_MARKERS = /\n\s*(People also viewed|People you may know|More profiles for you|Explore premium profiles|Browse more profiles|You might like|Profile language|Public profile & URL)\b[\s\S]*$/i;
+const NOISE_LINES = /^\s*(Connect|Message|Follow|More|Contact info|Show all( \d+ \w+)?|See more|…see more|Open to|Add profile section|Enhance profile|Resources|Show details|Endorse|\d+ (connections?|followers?)|· ?(1st|2nd|3rd)|Premium)\s*$/i;
+
+/** Strip LinkedIn page chrome from pasted text so the extractor sees mostly profile content. */
+export function cleanPastedProfile(raw: string): string {
+  return raw
+    .replace(/\r/g, "")
+    .replace(TAIL_MARKERS, "")
+    .split("\n")
+    .filter((l) => !NOISE_LINES.test(l))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
