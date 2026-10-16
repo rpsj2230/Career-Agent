@@ -1,0 +1,51 @@
+import { AnswerBankEditor, DraftReview, ImportBox, PreferencesForm } from "@/components/app/profile-forms";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { db, must } from "@/lib/db";
+import { getDraft, getProfile } from "@/lib/profile/store";
+
+export const dynamic = "force-dynamic";
+
+export default async function ProfilePage() {
+  const [profile, draft] = await Promise.all([getProfile(), getDraft()]);
+  const bank = must<{ question: string; answer: string }[]>(await db().from("answer_bank").select("question,answer").order("question"), "load answers");
+  const empty = profile.experience.length === 0;
+  return (
+    <div className="grid gap-4">
+      <h1 className="text-2xl font-semibold">Profile</h1>
+
+      {draft && (
+        <Card className="border-amber-500">
+          <CardHeader><CardTitle>Review imported draft</CardTitle><CardDescription>Nothing is used for applications until you confirm. Extracted by {draft.model}.</CardDescription></CardHeader>
+          <CardContent><DraftReview initial={draft.profile} conflicts={draft.conflicts} /></CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader><CardTitle>{empty ? "Import your profile" : "Re-import or add another source"}</CardTitle><CardDescription>Upload your resume and/or your LinkedIn data export (Settings, Data privacy, Get a copy of your data).</CardDescription></CardHeader>
+        <CardContent><ImportBox /></CardContent>
+      </Card>
+
+      {!empty && (
+        <Card>
+          <CardHeader><CardTitle>{profile.basics.name || "Your profile"}</CardTitle><CardDescription>{profile.basics.headline} · {profile.basics.location}</CardDescription></CardHeader>
+          <CardContent className="grid gap-3 text-sm">
+            <p>{profile.basics.summary}</p>
+            <div className="flex flex-wrap gap-1">{profile.skills.map((s) => <Badge key={s.id} variant="secondary">{s.name}</Badge>)}</div>
+            <ul className="grid gap-1">{profile.experience.map((e) => <li key={e.id}><span className="font-medium">{e.title}</span>, {e.company} <span className="text-muted-foreground">({e.start} - {e.end}) · {e.bullets.length} facts</span></li>)}</ul>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader><CardTitle>Preferences</CardTitle><CardDescription>Used for discovery, scoring and pre-filled application answers.</CardDescription></CardHeader>
+        <CardContent><PreferencesForm prefs={profile.preferences} /></CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>Answer bank</CardTitle><CardDescription>Reusable answers for common application questions. The agent never guesses an answer that is not here or in your preferences.</CardDescription></CardHeader>
+        <CardContent><AnswerBankEditor initial={bank} /></CardContent>
+      </Card>
+    </div>
+  );
+}

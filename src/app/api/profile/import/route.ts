@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { importProfile } from "@/lib/profile/extract";
-import { getProfile, saveDraft } from "@/lib/profile/store";
+import { clearDraft, getProfile, saveDraft } from "@/lib/profile/store";
 
 export const maxDuration = 60;
 
@@ -19,4 +19,9 @@ export async function POST(request: Request) {
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Import failed" }, { status: 422 });
   }
+}
+
+export async function DELETE() {
+  await clearDraft();
+  return NextResponse.json({ ok: true });
 }
