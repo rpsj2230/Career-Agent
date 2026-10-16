@@ -97,6 +97,7 @@ create index if not exists jobs_portal_idx on jobs (portal);
 create index if not exists jobs_country_idx on jobs (country);
 create index if not exists jobs_run_idx on jobs (run_id);
 
+alter table jobs add column if not exists seen_on text[] not null default '{}';  -- other portals this same posting was also found on
 alter table applications add column if not exists job_snapshot jsonb;        -- job as it was when prepared
 alter table applications add column if not exists profile_snapshot jsonb;    -- original (master) resume source at that moment
 alter table applications add column if not exists submission jsonb;          -- exactly what was entered and attached, and the outcome

@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { changedSince, fmtBytes, shortHash, submissionView, summariseDiff, type DiffRow } from "@/lib/apply/detail";
 import { db, must } from "@/lib/db";
 import { countryLabel } from "@/lib/filters";
+import { portalLabel } from "@/lib/jobs/portal";
 import { getProfile } from "@/lib/profile/store";
 import { masterAsTailored, resumeView } from "@/lib/tailor/sections";
 import { fmtDate, fmtDateTime } from "@/lib/time";
@@ -93,6 +94,7 @@ export default async function ApplicationPage({ params }: { params: Promise<{ id
             <Table><TableBody>
               <Row k="Posting"><Link2 href={job.url} /></Row>
               <Row k="Where it lives"><SourceBadge portal={job.portal} source={job.source} /> <span className="text-xs text-muted-foreground">found via {String(job.source ?? "unknown").split(":")[0]}</span></Row>
+              {Array.isArray(live.seen_on) && live.seen_on.length > 0 && <Row k="Also listed on">{live.seen_on.map((p: string) => portalLabel(p)).join(", ")} <span className="text-xs text-muted-foreground">(same role, kept as one job)</span></Row>}
               <Row k="Location">{job.location ?? "-"} · {countryLabel(job.country)}</Row>
               <Row k="Salary">{job.salary_text ?? "not stated"}{job.salary_min != null && <span className="text-muted-foreground"> · {job.salary_currency} {Math.round(job.salary_min).toLocaleString()}{job.salary_max && job.salary_max !== job.salary_min ? ` to ${Math.round(job.salary_max).toLocaleString()}` : ""} a year{job.salary_estimated ? " (estimate by the job site)" : ""}</span>}</Row>
               <Row k="Posted">{job.posted_at ? fmtDate(job.posted_at) : "not stated"}</Row>

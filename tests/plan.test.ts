@@ -1,3 +1,4 @@
+import { dedupeKey } from "@/lib/jobs/normalize";
 import { describe, expect, it } from "vitest";
 import { planInsert } from "@/lib/jobs/plan";
 import type { NormalizedJob } from "@/lib/jobs/normalize";
@@ -42,5 +43,38 @@ describe("salary on inserted rows", () => {
   it("stores nulls when there is no usable pay", () => {
     const r = planInsert([j({ salaryText: "Competitive", externalId: "3", company: "C" })], new Set(), 14, now2).rows[0];
     expect(r).toMatchObject({ salary_min: null, salary_max: null, salary_currency: null });
+  });
+});
+
+describe("cross-portal duplicates", () => {
+  const now3 = new Date("2026-10-16T00:00:00Z");
+  const mk = (o: Partial<NormalizedJob>): NormalizedJob => ({ source: "jsearch:sg:PM", externalId: "a", title: "Product Manager", company: "Acme", country: "sg", url: "https://www.linkedin.com/jobs/view/1", description: "d", postedAt: "2026-10-10T00:00:00Z", ...o });
+  const key = dedupeKey("Acme", "Product Manager", "sg");
+
+  it("merges the same role found on two portals in one batch and remembers the second portal", () => {
+    const plan = planInsert([mk({}), mk({ externalId: "b", url: "https://sg.indeed.com/viewjob?jk=2" })], new Set(), 14, now3);
+    expect(plan.rows.length).toBe(1);
+    expect(plan.rows[0]).toMatchObject({ portal: "linkedin", seen_on: ["indeed"] });
+    expect(plan.duplicates).toBe(1);
+  });
+  it("does not list the primary portal as 'also seen on', nor repeat a portal", () => {
+    const plan = planInsert([mk({}), mk({ externalId: "b" }), mk({ externalId: "c", url: "https://sg.indeed.com/viewjob?jk=3" }), mk({ externalId: "d", url: "https://sg.indeed.com/viewjob?jk=4" })], new Set(), 14, now3);
+    expect(plan.rows[0].seen_on).toEqual(["indeed"]);
+  });
+  it("reports a stored job found on a different portal as a sighting, once", () => {
+    const known = new Map([[key, { id: "job-1", portal: "adzuna", seen_on: [] as string[] }]]);
+    const plan = planInsert([mk({}), mk({ externalId: "z" })], new Set([key]), 14, now3, known);
+    expect(plan.rows).toEqual([]);
+    expect(plan.sightings).toEqual([expect.objectContaining({ jobId: "job-1", portal: "linkedin", primaryPortal: "adzuna", title: "Product Manager", company: "Acme" })]);
+  });
+  it("records nothing for a stored job whose own portal is unknown", () => {
+    const unknown = new Map([[key, { id: "j", portal: null, seen_on: [] as string[] }]]);
+    expect(planInsert([mk({})], new Set([key]), 14, now3, unknown).sightings).toEqual([]);
+  });
+  it("ignores a re-fetch from the same portal and portals already recorded", () => {
+    const same = new Map([[key, { id: "j", portal: "linkedin", seen_on: [] as string[] }]]);
+    expect(planInsert([mk({})], new Set([key]), 14, now3, same).sightings).toEqual([]);
+    const recorded = new Map([[key, { id: "j", portal: "adzuna", seen_on: ["linkedin"] }]]);
+    expect(planInsert([mk({})], new Set([key]), 14, now3, recorded).sightings).toEqual([]);
   });
 });

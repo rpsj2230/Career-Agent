@@ -159,6 +159,16 @@ const longDesc = "Own the roadmap and partner with engineering. ".repeat(6);
 r = await call("/api/jobs/manual", { method: "POST", body: { url: "https://www.naukri.com/job-listings-pm-zeta", title: "Product Manager", company: "Zeta Pte", description: longDesc, country: "sg" } }); check("manual add (Singapore, Naukri)", r.status === 200, `${r.status} ${r.text}`);
 r = await call("/api/jobs/manual", { method: "POST", body: { url: "https://www.naukri.com/job-listings-pm-usco", title: "Product Manager", company: "US Co", description: longDesc, country: "us" } }); check("manual add (outside the target country)", r.status === 200, `${r.status} ${r.text}`);
 check("the manual job's origin portal comes from its URL", mock.rowsOf("jobs").find((j) => j.company === "Zeta Pte")?.portal === "naukri", JSON.stringify(mock.rowsOf("jobs").find((j) => j.company === "Zeta Pte")));
+{
+  const jobsBefore = mock.rowsOf("jobs").length;
+  r = await call("/api/jobs/manual", { method: "POST", body: { url: "https://sg.indeed.com/viewjob?jk=zeta-indeed", title: "Product Manager", company: "Zeta Pte", description: longDesc, country: "sg" } });
+  check("the same role found on another portal is not stored twice", r.status === 409 && mock.rowsOf("jobs").length === jobsBefore, `${r.status} ${r.text}`);
+  const z = mock.rowsOf("jobs").find((j) => j.company === "Zeta Pte");
+  check("...but the other portal is recorded on the job", z.portal === "naukri" && JSON.stringify(z.seen_on) === '["indeed"]', JSON.stringify(z.seen_on));
+  check("...and logged once, with both portals named", mock.rowsOf("activity_log").filter((l) => l.kind === "job.duplicate" && l.job_id === z.id).length === 1 && /also listed on Indeed.*first found on Naukri/i.test(mock.rowsOf("activity_log").find((l) => l.kind === "job.duplicate" && l.job_id === z.id).message), JSON.stringify(mock.rowsOf("activity_log").filter((l) => l.kind === "job.duplicate")));
+  r = await call("/api/jobs/manual", { method: "POST", body: { url: "https://sg.indeed.com/viewjob?jk=zeta-indeed-2", title: "Product Manager", company: "Zeta Pte", description: longDesc, country: "sg" } });
+  check("seeing it on the same portal again adds nothing", r.status === 409 && mock.rowsOf("activity_log").filter((l) => l.kind === "job.duplicate" && l.job_id === z.id).length === 1 && z.seen_on.length === 1, `${r.status}`);
+}
 r = await call("/api/cron/score?limit=40"); check("scoring runs", r.status === 200 && r.json?.scored >= 4, `${r.status} ${r.text}`);
 const scoreRun = mock.rowsOf("automation_runs").filter((x) => x.kind === "score").at(-1);
 check("scoring is a recorded run with counters", scoreRun?.status === "succeeded" && scoreRun.stats.matched >= 4 && scoreRun.stats.rejected >= 2, JSON.stringify(scoreRun));
@@ -192,6 +202,18 @@ r = await call("/api/profile/confirm", { method: "POST", body: { ...PROFILE, bas
 const mock_zeta = mock.rowsOf("applications").find((a) => a.id === application.id);
 check("editing the profile does not change an existing application's snapshots", JSON.stringify([mock_zeta.job_snapshot, mock_zeta.profile_snapshot]) === beforeSnap, "snapshot changed");
 r = await call(`/api/applications/${application.id}/original`); check("the original resume is rebuilt from the snapshot as a DOCX download", r.status === 200 && /wordprocessingml/.test(r.contentType ?? "") && r.text.startsWith("PK"), `${r.status} ${r.contentType}`);
+{
+  // two prepare requests at the same moment (double click, or a schedule and a button) must end with exactly one application
+  r = await call("/api/jobs/manual", { method: "POST", body: { url: "https://www.naukri.com/job-listings-pm-race", title: "Product Manager", company: "Race Pte", description: longDesc, country: "sg" } });
+  const raceJob = mock.rowsOf("jobs").find((j) => j.company === "Race Pte");
+  const [p1, p2] = await Promise.all([call(`/api/jobs/${raceJob.id}/prepare`, { method: "POST" }), call(`/api/jobs/${raceJob.id}/prepare`, { method: "POST" })]);
+  check("two simultaneous prepares both succeed", p1.status === 200 && p2.status === 200, `${p1.status} ${p1.text} / ${p2.status} ${p2.text}`);
+  check("...and there is exactly one application and no duplicated document versions", mock.rowsOf("applications").filter((a) => a.job_id === raceJob.id).length === 1 && new Set(mock.rowsOf("documents").filter((d) => d.job_id === raceJob.id).map((d) => `${d.kind}-${d.version}`)).size === mock.rowsOf("documents").filter((d) => d.job_id === raceJob.id).length, "duplicates");
+  check("both responses point at the same application", p1.json?.applicationId === p2.json?.applicationId, `${p1.text} ${p2.text}`);
+  const raceApp = mock.rowsOf("applications").find((a) => a.job_id === raceJob.id);
+  const [a1, a2] = await Promise.all([call(`/api/applications/${raceApp.id}`, { method: "POST", body: { action: "approve" } }), call(`/api/applications/${raceApp.id}`, { method: "POST", body: { action: "approve" } })]);
+  check("two simultaneous approvals: exactly one wins, the other is told it is already being processed", [a1.status, a2.status].sort().join() === "200,409" && mock.rowsOf("activity_log").filter((l) => l.kind === "application.approved" && l.application_id === raceApp.id).length === 1 && mock.rowsOf("apply_events").filter((e) => e.application_id === raceApp.id && e.kind === "approved").length === 1, `${a1.status} ${a1.text} / ${a2.status} ${a2.text}`);
+}
 r = await call("/api/profile/confirm", { method: "POST", body: PROFILE }); check("profile restored for the remaining checks", r.status === 200, `${r.status}`);
 r = await call("/api/applications/00000000-0000-4000-8000-000000000000/original"); check("an unknown application has no original", r.status === 404, `${r.status}`);
 r = await call(`/api/applications/${application.id}`, { method: "POST", body: { action: "approve" } }); check("approving a Naukri job is assisted", r.status === 200 && r.json?.mode === "assisted", `${r.status} ${r.text}`);
@@ -357,12 +379,14 @@ if (process.env.PLAYWRIGHT_BROWSERS_PATH || process.env.CHROMIUM_PATH) {
   r = await call(`/applications/${application.id}`);
   let t = strip(r.text);
   check("detail page renders all three sections with anchors", r.status === 200 && ["A. Job details", "B. Resume and documents", "C. Answers and submission"].every((x) => t.includes(x)) && t.includes('id="job"') && t.includes('id="documents"') && t.includes('id="answers"'), `${r.status}`);
+  check("A names the other portals the same role was found on", t.includes("Also listed on") && t.includes("Indeed"), "missing");
   check("A shows the job as snapshotted: posting, portal, dates, fit, statuses and the full description", t.includes("naukri.com/job-listings-pm-zeta") && t.includes("Naukri") && t.includes("Full job description") && t.includes("Own the roadmap") && /Discovered/.test(t) && /application:/.test(t) && t.includes("As it was when this application was prepared"), "missing");
   check("B shows the tailored resume preview, the original, downloads and the change log", t.includes("Resume preview") && t.includes("Asha Rao") && t.includes("Download original resume") && t.includes("Original resume (your master profile when this was prepared)") && t.includes("Changes made for this job") && /Download DOCX/.test(t), "missing");
   check("B shows the cover letter text", t.includes("Cover letter v1"), "missing");
   check("the original keeps the pre-edit name, not the edited profile's", !t.includes("Changed Name"), "leaked");
   check("C shows prepared answers and says nothing was submitted by the app (marked by you)", t.includes("Answers prepared") && t.includes("Expected CTC") || t.includes("Total years of experience"), "answers missing");
   check("C shows the assisted submission record honestly", t.includes("Submitted by you") && t.includes("The values you entered there are not visible to this app"), "assisted record missing");
+  r = await call(`/jobs/${application.job_id}`); check("the job page says it was also listed elsewhere", strip(r.text).includes("Also listed on Indeed"), "missing");
   check("the page links to this application's activity log", t.includes(`/logs?app=${application.id}`), "link missing");
   const worked = mock.rowsOf("applications").find((a) => a.submission?.method === "automated" && a.submission.outcome === "submitted");
   if (worked) {

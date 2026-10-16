@@ -19,7 +19,7 @@ export const REQUIRED_SCHEMA: { table: string; migration: string; columns: strin
   { table: "activity_log", migration: "0002_portals_runs_logs_schedules", columns: ["id", "at", "level", "kind", "portal", "country", "company", "message", "detail"] },
   { table: "country_prefs", migration: "0002_portals_runs_logs_schedules", columns: ["country", "enabled", "titles", "currency"] },
   { table: "daily_reports", migration: "0002_portals_runs_logs_schedules", columns: ["id", "report_date", "summary", "items"] },
-  { table: "jobs", migration: "0002_portals_runs_logs_schedules", columns: ["portal", "scan_id", "run_id", "salary_min", "salary_max", "salary_currency", "salary_estimated", "decided_at"] },
+  { table: "jobs", migration: "0002_portals_runs_logs_schedules", columns: ["portal", "scan_id", "run_id", "salary_min", "salary_max", "salary_currency", "salary_estimated", "decided_at", "seen_on"] },
   { table: "applications", migration: "0002_portals_runs_logs_schedules", columns: ["job_snapshot", "profile_snapshot", "submission", "run_id", "portal", "country"] },
 ];
 

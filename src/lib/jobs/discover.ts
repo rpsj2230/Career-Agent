@@ -6,7 +6,7 @@ import { loadIntegrationStates, recordIntegrationScan } from "@/lib/integrations
 import { getSetting } from "@/lib/settings";
 import { loadEffectiveCountries } from "@/lib/country-config-store";
 import type { RunTrigger } from "@/lib/activity-types";
-import { ingestScan, loadExistingKeys } from "./ingest";
+import { ingestScan, loadKnownJobs } from "./ingest";
 import { runScans, type ScanDeps } from "./scans";
 import { buildScanSpecs, searchQueries, type DiscoverySettings } from "./sources";
 
@@ -42,11 +42,12 @@ export async function scanStep(ctx: RunCtx, o: ScanScope) {
     ctx.markPartial("Nothing to scan: no connected integration is ready. Connect one on the Portals page.");
     return { outcomes: [], skipped: 0, legacy: false, settings };
   }
-  const existing = await loadExistingKeys();
+  const known = await loadKnownJobs();
+  const existing = new Set(known.keys());
   const deps: ScanDeps = {
     startScan: (m) => startScan({ ...m, run_id: ctx.id }),
     finishScan: (id, m, r) => finishScan(id, { ...m, run_id: ctx.id }, r),
-    ingest: (jobs, scanId) => ingestScan(jobs, { maxAgeDays: settings.max_age_days, existing, scanId, runId: ctx.id }),
+    ingest: (jobs, scanId) => ingestScan(jobs, { maxAgeDays: settings.max_age_days, existing, known, scanId, runId: ctx.id }),
     recordIntegration: (id, r) => recordIntegrationScan(id, r),
   };
   const res = await runScans(specs, deps, { budgetMs: o.budgetMs });

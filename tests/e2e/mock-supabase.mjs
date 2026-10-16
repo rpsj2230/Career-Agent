@@ -15,12 +15,12 @@ let n = 0;
 // ------------------------------------------------------------------ schema simulation
 const V1_TABLES = ["profile", "settings", "answer_bank", "jobs", "job_scores", "documents", "applications", "apply_events", "model_configs", "model_usage"];
 const V2_TABLES = ["integrations", "schedules", "automation_runs", "portal_scans", "activity_log", "country_prefs", "daily_reports"];
-const V2_COLUMNS = { jobs: ["portal", "scan_id", "run_id", "salary_min", "salary_max", "salary_currency", "salary_estimated", "decided_at"], applications: ["job_snapshot", "profile_snapshot", "submission", "portal", "country", "run_id"] };
+const V2_COLUMNS = { jobs: ["portal", "scan_id", "run_id", "salary_min", "salary_max", "salary_currency", "salary_estimated", "decided_at", "seen_on"], applications: ["job_snapshot", "profile_snapshot", "submission", "portal", "country", "run_id"] };
 const schema = { v2: false };
 
 // ------------------------------------------------------------------ table store
 const PK = { settings: ["key"], profile: ["id"], model_configs: ["label"], integrations: ["id"], country_prefs: ["country"], jobs: ["id"] };
-const UNIQUE = { jobs: [["source", "external_id"]], answer_bank: [["key"]], daily_reports: [["report_date", "timezone"]] };
+const UNIQUE = { jobs: [["source", "external_id"]], applications: [["job_id"]], documents: [["job_id", "kind", "version"]], answer_bank: [["key"]], daily_reports: [["report_date", "timezone"]] };
 const DEFAULTS = {
   jobs: () => ({ id: randomUUID(), found_at: new Date().toISOString(), status: "new" }),
   automation_runs: () => ({ id: randomUUID(), started_at: new Date().toISOString(), heartbeat_at: new Date().toISOString(), status: "running", stats: {}, scope: {} }),

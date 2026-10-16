@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { db, must } from "@/lib/db";
 import { countryLabel } from "@/lib/filters";
+import { portalLabel } from "@/lib/jobs/portal";
 import type { JobScore, TailoredResume, CoverLetter } from "@/lib/types";
 import { fmtDate, fmtDateTime } from "@/lib/time";
 
@@ -44,6 +45,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
           <p className="text-muted-foreground">{job.company} · {job.location ?? "location n/a"} · {countryLabel(job.country)} · {job.salary_text ?? "salary n/a"}</p>
           <p className="text-xs text-muted-foreground">Found {fmtDateTime(job.found_at)}{job.posted_at ? ` · posted ${fmtDate(job.posted_at)}` : ""} · via {String(job.source).split(":")[0]}</p>
           <div className="mt-2 flex flex-wrap gap-2"><SourceBadge portal={job.portal} source={job.source} /><ScoreBadge score={sc?.score} /><ApplyTypeBadge type={job.apply_type} /><StatusBadge status={job.status} /></div>
+          {Array.isArray(job.seen_on) && job.seen_on.length > 0 && <p className="mt-1 text-xs text-muted-foreground">Also listed on {job.seen_on.map((p: string) => portalLabel(p)).join(", ")}. It is kept as one job, so you will not apply twice.</p>}
         </div>
         <Button variant="outline" asChild><a href={job.url} target="_blank" rel="noreferrer">Open posting</a></Button>
       </div>

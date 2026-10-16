@@ -101,7 +101,7 @@ Verified working today and not part of this plan: accounts and owner lock-out, e
 | 1 Foundation and visibility | Done | migration tests on real Postgres (PGlite), unit tests, end-to-end run against the emulator |
 | 2 Multi-country | Done | per-country queries, remote/sponsorship/salary rules, country filters on jobs, applications, logs, reports, dashboard |
 | 3 Scheduling and automation | Done | schedule logic incl. time-zone/DST tests; the real `worker/pipeline.ts` run end to end against the emulator (claim, run record, prepare, auto-approve vs ask-first, pause, idempotent second run); policy and orchestration unit tests; mutation check on the approval rule |
-| 4 Application records | Next | |
+| 4 Application records | Done | job/profile snapshots (write-once in the database), exact submission record from the real `worker/apply.ts` run in a real browser (values, SHA-256 of files, confirmation text, screenshot), rebuilt A/B/C detail page, resume preview = DOCX (same source, tested), cross-portal duplicate merging, concurrent prepare/approve safety, jobs with history cannot be deleted |
 | 5 Dashboard and daily reports | Planned | |
 | 6 More portal reach | Planned | |
 
