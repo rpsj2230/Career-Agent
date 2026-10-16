@@ -106,3 +106,16 @@ Verified working today and not part of this plan: accounts and owner lock-out, e
 | 6 More portal reach | Done | read-only IMAP alert-email connector (LinkedIn, Indeed, Glassdoor, Naukri) exercised through the real imapflow client against a protocol-level fake server (read-only, sender-filtered, never modifies mail), paste-the-description flow for summary-only jobs, three more free feeds (Arbeitnow, Remote OK, Jobicy), once-only Telegram alerts when a source breaks or recovers, daily stale-source reminders |
 
 Not exercised against live services: Adzuna/JSearch/Remotive/Arbeitnow/Remote OK/Jobicy responses (feed mappers follow each service's documented shape; the Test button confirms the real one), real LinkedIn/Indeed/Glassdoor/Naukri alert-email layouts (parsers are tested on representative fixtures and are heuristic), a real IMAP provider, GitHub Actions itself (workflow files are syntax-checked only), Telegram delivery, real employer forms.
+
+## 7. QA pass (adversarial review of the agent's core path)
+
+Defects found by review and fixed, each with a regression test:
+
+| Area | Defect | Fix |
+|---|---|---|
+| Anti-fabrication | Verifier only checked fact ids and numbers: an invented tool, employer or credential passed; the model's headline was not checked at all (title inflation); a bullet could be moved under a different employer; "24 percent" or "five" slipped past the number check | Invented-term check against the whole profile (target company/role allowed), headline check, cross-role citation check, numbers normalised (%, separators, spelled-out) |
+| Model output | A float or text score, a missing list or a fenced JSON answer failed the whole attempt; a hung provider could stall a run for the full job limit | Forgiving schemas, JSON rescue, hard 90 s deadline per model, no SDK retries (fallback is faster) |
+| Apply worker | A sponsorship question was answered from the work-authorisation answer (opposite meaning); an authorisation answer written for one country was reused for another; a page with only an Apply button could be "submitted"; confirmation-like text already on the page counted as success; the page-level Apply button could be pressed instead of the form's submit | Sponsorship and country-scoped answers, no-form guard, baseline confirmation check, submit-button priority |
+| Verified safe | Every API handler refuses requests with no session (discovered from the files, 36 handlers); cron token opens nothing outside /api/cron; no secret value appears in any stored record or in server output; CSV export neutralises formula injection | e2e checks |
+
+Verified by an end-to-end run with a sloppy model (fenced JSON, invented first drafts: caught and corrected on retry) and a broken model (never corrects: documents flagged, approval refused, an auto-applying schedule prepares but never approves).
