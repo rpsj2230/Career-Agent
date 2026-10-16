@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { db, must } from "@/lib/db";
+import { fmtDateTime } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,7 @@ export default async function ApplicationPage({ params }: { params: Promise<{ id
   if (!app) notFound();
   const events = must<any[]>(await db().from("apply_events").select("*").eq("application_id", id).order("at", { ascending: true }), "load events");
   const docs = must<any[]>(await db().from("documents").select("id,kind,version,storage_path,model,created_at,verification").eq("job_id", app.job_id).order("created_at", { ascending: true }), "load docs");
-  const fmt = (d: string | null) => (d ? new Date(d).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "-");
+  const fmt = (d: string | null) => fmtDateTime(d);
 
   return (
     <div className="grid gap-4">

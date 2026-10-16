@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { ingestJobs } from "@/lib/jobs/ingest";
+import { logActivity } from "@/lib/activity";
+import { portalFromUrl } from "@/lib/jobs/portal";
 
 const Body = z.object({
   url: z.url(),
@@ -25,5 +27,6 @@ export async function POST(request: Request) {
     36500,
   );
   if (r.inserted === 0) return NextResponse.json({ error: "Already in your list (same company, title and country)" }, { status: 409 });
+  await logActivity({ kind: "scan.finished", message: `Added manually: ${b.title} at ${b.company}`, integration: "manual", company: b.company, country: b.country?.toLowerCase() ?? null, portal: portalFromUrl(b.url) ?? "manual", detail: { url: b.url, inserted: 1 } });
   return NextResponse.json({ ok: true });
 }

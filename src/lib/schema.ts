@@ -93,3 +93,12 @@ export async function checkSchema(fresh = false): Promise<SchemaStatus> {
 /** For pages that read new tables: true when an error just means "migration not applied yet". */
 export const isMissingSchemaError = (message: string | undefined | null) =>
   !!message && classifySchemaError({ message }) !== "other" && classifySchemaError({ message }) !== null;
+
+/**
+ * Run `primary`; if it fails only because the database has not been migrated yet (missing table/column), run
+ * `fallback` (the same operation without the new fields) so features keep working while System asks for the update.
+ */
+export async function withLegacyFallback<T extends { error: { message: string } | null }>(primary: () => PromiseLike<T>, fallback: () => PromiseLike<T>): Promise<T> {
+  const r = await primary();
+  return r.error && isMissingSchemaError(r.error.message) ? fallback() : r;
+}

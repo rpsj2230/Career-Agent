@@ -1,5 +1,8 @@
 import "server-only";
+import { logActivity } from "@/lib/activity";
+import { jobLogFields } from "@/lib/activity-helpers";
 import { db, must } from "@/lib/db";
+import { withLegacyFallback } from "@/lib/schema";
 import { runStructured } from "@/lib/llm/registry";
 import { getProfile } from "@/lib/profile/store";
 import { renderCoverLetterDocx, renderResumeDocx } from "@/lib/tailor/docx";
@@ -24,8 +27,8 @@ export async function prepareApplication(jobId: string): Promise<{ applicationId
   const existing = must<{ id: string } | null>(await db().from("applications").select("id").eq("job_id", jobId).maybeSingle(), "check existing");
   if (existing) return { applicationId: existing.id, verified: true };
 
-  const job = must<{ id: string; title: string; company: string; description: string }>(
-    await db().from("jobs").select("id,title,company,description").eq("id", jobId).single(), "load job",
+  const job = must<{ id: string; title: string; company: string; description: string; country?: string | null; portal?: string | null; source?: string | null }>(
+    await db().from("jobs").select("*").eq("id", jobId).single(), "load job",
   );
   const profile = await getProfile();
   if (profile.experience.length === 0) throw new Error("Profile is empty: import and confirm your resume first");
@@ -50,12 +53,20 @@ export async function prepareApplication(jobId: string): Promise<{ applicationId
     await db().from("documents").insert({ job_id: jobId, kind: "cover_letter", version: cv, content: cover.content, verification: cover.verification, storage_path: coverPath, model: cover.model }).select("id").single(),
     "save cover doc",
   );
+  const appRow = { job_id: jobId, resume_doc_id: resumeDoc.id, cover_doc_id: coverDoc.id, answers: buildAnswers(bank, profile.preferences, profile), status: "prepared" };
   const app = must<{ id: string }>(
-    await db().from("applications").insert({ job_id: jobId, resume_doc_id: resumeDoc.id, cover_doc_id: coverDoc.id, answers: buildAnswers(bank, profile.preferences, profile), status: "prepared" }).select("id").single(),
+    await withLegacyFallback(
+      () => db().from("applications").insert({ ...appRow, portal: job.portal ?? job.source?.split(":")[0] ?? null, country: job.country ?? null }).select("id").single(),
+      () => db().from("applications").insert(appRow).select("id").single(),
+    ),
     "create application",
   );
   must(await db().from("jobs").update({ status: "prepared" }).eq("id", jobId).select("id"), "mark prepared");
   const verified = resume.verification.ok && cover.verification.ok;
+  const ref = { ...jobLogFields(job), application_id: app.id };
+  await logActivity({ kind: "resume.generated", level: resume.verification.ok ? "info" : "warn", message: `Resume v${rv} for ${job.title} at ${job.company}${resume.verification.ok ? "" : ` (${resume.verification.issues.length} claim(s) failed verification)`}`, ...ref, status: resume.verification.ok ? "verified" : "unverified", detail: { version: rv, model: resume.model, attempts: resume.verification.attempts, issues: resume.verification.issues, path: resumePath } });
+  await logActivity({ kind: "cover.generated", level: cover.verification.ok ? "info" : "warn", message: `Cover letter v${cv} for ${job.title} at ${job.company}${cover.verification.ok ? "" : ` (${cover.verification.issues.length} claim(s) failed verification)`}`, ...ref, status: cover.verification.ok ? "verified" : "unverified", detail: { version: cv, model: cover.model, attempts: cover.verification.attempts, issues: cover.verification.issues, path: coverPath } });
+  await logActivity({ kind: "application.prepared", message: `Application prepared for ${job.title} at ${job.company}: ${verified ? "verified, awaiting your approval" : "needs your review (unverified claims)"}`, ...ref, status: "prepared", detail: { verified, answers: appRow.answers.length } });
   await logEvent(app.id, "prepared", { verified, resumeModel: resume.model, coverModel: cover.model, resumeIssues: resume.verification.issues, coverIssues: cover.verification.issues });
   return { applicationId: app.id, verified };
 }

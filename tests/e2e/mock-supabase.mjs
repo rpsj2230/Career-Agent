@@ -43,12 +43,18 @@ function parseFilters(params) {
   const out = [];
   for (const [k, v] of params) {
     if (["select", "order", "limit", "offset", "on_conflict", "columns"].includes(k)) continue;
+    if (k === "or") { // or=(a.ilike.%x%,b.ilike.%x%)
+      const parts = v.replace(/^\(|\)$/g, "").split(",").map((p) => { const [col, op, ...rest] = p.split("."); return { col, op, val: rest.join(".") }; });
+      out.push({ or: parts });
+      continue;
+    }
     const dot = v.indexOf(".");
     out.push({ col: k, op: v.slice(0, dot), val: v.slice(dot + 1) });
   }
   return out;
 }
 function matches(row, f) {
+  if (f.or) return f.or.some((g) => matches(row, g));
   const x = row[f.col];
   const cmp = (a, b) => (isNaN(Date.parse(a)) || isNaN(Date.parse(b)) || /^\d+$/.test(String(a)) ? (String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0) : Date.parse(a) - Date.parse(b));
   switch (f.op) {
@@ -60,6 +66,11 @@ function matches(row, f) {
     case "gte": return x != null && cmp(x, f.val) >= 0;
     case "in": return f.val.replace(/^\(|\)$/g, "").split(",").map((s) => s.replace(/^"|"$/g, "")).includes(String(x));
     case "is": return f.val === "null" ? x == null : String(x) === f.val;
+    case "like":
+    case "ilike": {
+      const re = new RegExp("^" + f.val.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/[%*]/g, ".*").replace(/_/g, ".") + "$", f.op === "ilike" ? "i" : "");
+      return x != null && re.test(String(x));
+    }
     default: return true;
   }
 }
@@ -88,7 +99,7 @@ const mapView = (table, keyCol, valCol) => ({
 });
 const settings = mapView("settings", "key", "value");
 const modelConfigs = { set: (label, row) => { const rows = rowsOf("model_configs"); const i = rows.findIndex((r) => r.label === label); if (i >= 0) rows[i] = row; else rows.push(row); }, get: (l) => rowsOf("model_configs").find((r) => r.label === l) };
-const seen = { lastChatAuth: null, lastChatBody: null, external: [] };
+const seen = { lastChatAuth: null, lastChatBody: null, external: [], uploads: [] };
 
 // ------------------------------------------------------------------ external provider fakes (/ext/<host>/<path>)
 export const externalFixtures = {
@@ -121,7 +132,7 @@ function rest(req, res, url, table, body) {
   const returnRep = prefer.includes("return=representation");
   const filters = parseFilters(url.searchParams);
   const select = url.searchParams.get("select");
-  const cols = [...(select ?? "").split(",").map((c) => c.trim()).filter((c) => c && !c.includes("(") && c !== "*"), ...filters.map((f) => f.col)];
+  const cols = [...(select ?? "").split(",").map((c) => c.trim()).filter((c) => c && !c.includes("(") && c !== "*"), ...filters.flatMap((f) => (f.or ? f.or.map((g) => g.col) : [f.col]))];
   const bodyCols = (Array.isArray(body) ? body : body ? [body] : []).flatMap((r) => Object.keys(r));
   const err = schemaError(table, [...cols, ...bodyCols]);
   if (err) return send(res, err.status, err.body);
@@ -136,11 +147,13 @@ function rest(req, res, url, table, body) {
     let list = rows.filter((r) => filters.every((f) => matches(r, f)));
     const order = url.searchParams.get("order");
     if (order) for (const spec of order.split(",").reverse()) { const [c, d] = spec.split("."); list = [...list].sort((a, b) => (a[c] > b[c] ? 1 : a[c] < b[c] ? -1 : 0) * (d === "desc" ? -1 : 1)); }
+    const totalBeforePaging = list.length;
     const range = (req.headers.range ?? "").match(/^(\d+)-(\d+)$/);
     if (range) list = list.slice(+range[1], +range[2] + 1);
     const lim = url.searchParams.get("limit");
     if (lim !== null) list = list.slice(0, +lim);
     if (req.method === "HEAD") return send(res, 200, undefined, { "Content-Range": `0-${Math.max(list.length - 1, 0)}/${list.length}` });
+    if (prefer.includes("count=exact")) res.setHeader("Content-Range", `${range ? range[1] : 0}-${Math.max(list.length - 1 + (range ? +range[1] : 0), 0)}/${totalBeforePaging}`);
     return respondRows(list);
   }
   if (req.method === "POST") {
@@ -178,7 +191,8 @@ export function startMock(port) {
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, "http://x");
     const raw = await new Promise((r) => { let d = ""; req.on("data", (c) => (d += c)); req.on("end", () => r(d)); });
-    const body = raw ? JSON.parse(raw) : undefined;
+    let body;
+    try { body = raw ? JSON.parse(raw) : undefined; } catch { body = undefined; } // uploads are not JSON
     const bearer = (req.headers.authorization ?? "").replace(/^Bearer /, "");
 
     // ---- auth
@@ -207,10 +221,32 @@ export function startMock(port) {
     const m = url.pathname.match(/^\/rest\/v1\/([a-z_]+)$/);
     if (m) return rest(req, res, url, m[1], body);
 
-    // ---- OpenAI-compatible chat endpoint
+    // ---- OpenAI-compatible chat endpoint: answers each task like a model would, so whole flows can run
     if (url.pathname === "/v1/chat/completions" && req.method === "POST") {
       seen.lastChatAuth = req.headers.authorization ?? null; seen.lastChatBody = body;
-      return send(res, 200, { id: "c1", object: "chat.completion", created: 0, model: body.model, choices: [{ index: 0, finish_reason: "stop", message: { role: "assistant", content: '{"answer":"4"}' } }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } });
+      const system = body.messages?.find((m) => m.role === "system")?.content ?? "";
+      const prompt = body.messages?.find((m) => m.role === "user")?.content ?? "";
+      let content = '{"answer":"4"}';
+      if (/You assess how well a job matches/.test(system)) {
+        const low = /Principal/.test(prompt);
+        content = JSON.stringify({ score: low ? 40 : 82, matchedSkills: ["SQL"], gaps: low ? ["Team leadership"] : [], seniorityFit: "ok", locationVisaFit: "ok", salarySignal: "unknown", summary: low ? "Too senior for this profile" : "Strong match" });
+      } else if (/tailor a candidate's resume/.test(system)) {
+        const exp = prompt.match(/\[(exp\d+)\] /)?.[1];
+        const bullet = prompt.match(/\[(exp\d+\.b\d+)\] ([^\n]+)/);
+        const skill = prompt.match(/\[(skill\d+)\]/)?.[1];
+        content = JSON.stringify({ headline: "Product Manager", summary: { text: "Product manager with relevant experience", sourceIds: ["summary"] }, experience: [{ experienceId: exp, bullets: [{ text: bullet?.[2], sourceIds: [bullet?.[1]] }] }], skillIds: skill ? [skill] : [], certificationIds: [] });
+      } else if (/short cover letter/.test(system)) {
+        const bullet = prompt.match(/\[(exp\d+\.b\d+)\] ([^\n]+)/);
+        content = JSON.stringify({ text: "Dear hiring team,\n\nI would like to apply for this role.\n\nKind regards", sourceIds: [bullet?.[1]] });
+      }
+      return send(res, 200, { id: "c1", object: "chat.completion", created: 0, model: body.model, choices: [{ index: 0, finish_reason: "stop", message: { role: "assistant", content } }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } });
+    }
+
+    // ---- file storage (uploads are kept so tests can inspect them)
+    const st = url.pathname.match(/^\/storage\/v1\/object\/([^/]+)\/(.+)$/);
+    if (st && (req.method === "POST" || req.method === "PUT")) {
+      seen.uploads.push({ bucket: st[1], path: decodeURIComponent(st[2]), bytes: raw.length });
+      return send(res, 200, { Key: `${st[1]}/${st[2]}`, Id: randomUUID() });
     }
 
     // ---- external job APIs (requests are redirected here by redirect-fetch.cjs)

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { putSetting } from "@/lib/settings";
+import { logConfig } from "@/lib/activity-helpers";
 
 const list = z.array(z.string().trim().min(1).max(80)).max(50);
 const Schemas = {
@@ -22,5 +23,6 @@ export async function PUT(request: Request) {
   const parsed = schema.safeParse(body.value);
   if (!parsed.success) return NextResponse.json({ error: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ") }, { status: 400 });
   await putSetting(body.key!, parsed.data);
+  await logConfig(`Settings changed: ${body.key}`, { key: body.key, value: parsed.data });
   return NextResponse.json({ ok: true });
 }

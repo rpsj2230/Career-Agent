@@ -8,10 +8,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { integrationById } from "@/lib/integrations/catalog";
 import { loadPortalsView } from "@/lib/integrations/view";
 import { portalLabel } from "@/lib/jobs/portal";
+import { fmtDateTime } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
 
-const when = (d: string | null | undefined) => (d ? new Date(d).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : "never");
+const when = (d: string | null | undefined) => fmtDateTime(d, undefined, "never");
 const APPLY = { automated: "Auto-apply where allowed", assisted: "You submit", none: "n/a" } as const;
 
 export default async function PortalsPage() {

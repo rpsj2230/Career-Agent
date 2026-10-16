@@ -13,6 +13,16 @@ import { clickSubmit, fillForm } from "./form";
 import { CONFIRMATION, detectBlock, type Answer } from "./match";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Central activity log. Never throws: a logging problem must not change the outcome of an application. */
+async function logAct(sb: SupabaseClient, e: Record<string, unknown>) {
+  try {
+    const { error } = await sb.from("activity_log").insert({ level: "info", detail: {}, ...e });
+    if (error) console.error(`[activity] could not record ${String(e.kind)}: ${error.message} :: ${JSON.stringify(e).slice(0, 1000)}`);
+  } catch (err) {
+    console.error(`[activity] could not record ${String(e.kind)}: ${err instanceof Error ? err.message : err} :: ${JSON.stringify(e).slice(0, 1000)}`);
+  }
+}
+
 async function notify(text: string) {
   const token = process.env.TELEGRAM_BOT_TOKEN, chat = process.env.TELEGRAM_CHAT_ID;
   if (!token || !chat) return;
@@ -37,7 +47,7 @@ async function main() {
   const app = claimed[0];
   await event("worker_started");
 
-  const { data: job } = await sb.from("jobs").select("id,title,company,url,apply_type").eq("id", app.job_id).single();
+  const { data: job } = await sb.from("jobs").select("*").eq("id", app.job_id).single();
   const { data: profileRow } = await sb.from("profile").select("data").eq("id", 1).single();
   const profile = MasterProfile.parse(profileRow?.data ?? {});
   const { data: docs } = await sb.from("documents").select("id,kind,storage_path").in("id", [app.resume_doc_id, app.cover_doc_id].filter(Boolean));
@@ -121,6 +131,7 @@ async function main() {
     await sb.from("applications").update({ status: "submitted", submitted_at: now, lifecycle: "applied", screenshot_path: shot }).eq("id", appId);
     await sb.from("jobs").update({ status: "applied" }).eq("id", job.id);
     await event("submitted", { url: page.url() });
+    await logAct(sb, { kind: "application.submitted", message: `Submitted automatically: ${job.title} at ${job.company}`, status: "submitted", application_id: appId, job_id: job.id, company: job.company, country: (job as { country?: string }).country ?? null, portal: (job as { portal?: string }).portal ?? job.apply_type, detail: { method: "automated", url: page.url(), screenshot: shot } });
     await notify(`Applied: ${job.title} at ${job.company}`);
     console.log("Submitted.");
   } catch (e) {
@@ -132,6 +143,7 @@ async function main() {
     }
     await sb.from("applications").update({ status: h.kind, error: h.message, screenshot_path: shot ?? null }).eq("id", appId);
     await event(h.kind, { message: h.message });
+    await logAct(sb, { kind: h.kind === "failed" ? "application.failed" : "application.needs_input", level: h.kind === "failed" ? "error" : "warn", message: `${h.kind === "failed" ? "Automatic submission failed" : "Needs you"}: ${h.message}`, status: h.kind, application_id: appId, job_id: job.id, company: job.company, country: (job as { country?: string }).country ?? null, portal: (job as { portal?: string }).portal ?? job.apply_type, detail: { method: "automated", message: h.message, screenshot: shot ?? null } });
     if (h.stopLinkedIn) await switchOffLinkedIn(sb);
     await notify(`${h.kind === "failed" ? "Application failed" : "Needs you"}: ${h.message}`);
     console.error(`${h.kind}: ${h.message}`);

@@ -12,7 +12,7 @@ export async function GET(request: Request) {
   const trigger = request.headers.get("authorization")?.startsWith("Bearer ") ? "schedule" : "manual";
   try {
     const res = await discoverNow({ trigger, budgetMs: 35_000 });
-    const scoring = await scoreNewJobs({ limit: 10, budgetMs: 15_000 }).catch((e) => ({ error: e instanceof Error ? e.message : String(e) }));
+    const scoring = await scoreNewJobs({ limit: 10, budgetMs: 15_000, trigger }).catch((e) => ({ error: e instanceof Error ? e.message : String(e) }));
     const scans = res.outcomes;
     return NextResponse.json({
       scans: scans.length,

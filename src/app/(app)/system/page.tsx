@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import { MIGRATIONS } from "@/lib/migrations";
 import { checkSchema, REQUIRED_SCHEMA } from "@/lib/schema";
+import { fmtDateTime } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
 
@@ -37,7 +38,7 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">Database {status.ok ? <Badge>up to date</Badge> : <Badge variant="destructive">{status.unreachable ? "check failed" : "update needed"}</Badge>}</CardTitle>
-          <CardDescription>Checked {new Date(status.checkedAt).toLocaleString("en-IN")}. {status.unreachable ? `Problem: ${status.unreachable}` : status.ok ? "Every table and column the app needs exists." : "Some tables or columns are missing."}</CardDescription>
+          <CardDescription>Checked {fmtDateTime(status.checkedAt)}. {status.unreachable ? `Problem: ${status.unreachable}` : status.ok ? "Every table and column the app needs exists." : "Some tables or columns are missing."}</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4">
           {pending.length > 0 && (

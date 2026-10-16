@@ -1,4 +1,6 @@
 import { Badge } from "@/components/ui/badge";
+import { APP_STATUS_LABEL } from "@/lib/filters";
+import { portalLabel } from "@/lib/jobs/portal";
 
 export function ScoreBadge({ score }: { score?: number }) {
   if (score === undefined) return <Badge variant="outline">unscored</Badge>;
@@ -12,5 +14,11 @@ const LABELS: Record<string, string> = {
 export const ApplyTypeBadge = ({ type }: { type: string }) => <Badge variant="secondary">{LABELS[type] ?? type}</Badge>;
 
 export const StatusBadge = ({ status }: { status: string }) => (
-  <Badge variant={status === "failed" ? "destructive" : status === "submitted" ? "default" : "outline"}>{status.replace("_", " ")}</Badge>
+  <Badge variant={status === "failed" ? "destructive" : status === "submitted" ? "default" : "outline"}>{APP_STATUS_LABEL[status] ?? status.replace("_", " ")}</Badge>
 );
+
+/** Where the posting lives. The tooltip names the integration that fetched it. */
+export function SourceBadge({ portal, source }: { portal?: string | null; source?: string | null }) {
+  const via = source?.split(":")[0];
+  return <Badge variant="outline" title={via ? `Found via ${via}` : undefined}>{portalLabel(portal ?? via)}</Badge>;
+}
