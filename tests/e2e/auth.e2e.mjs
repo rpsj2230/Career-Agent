@@ -479,7 +479,7 @@ if (process.env.PLAYWRIGHT_BROWSERS_PATH || process.env.CHROMIUM_PATH) {
   const stored = JSON.stringify(mock.settings.get("integration_keys") ?? {});
   check("the mailbox password is encrypted at rest", stored.includes("mailbox.imap_password") && !stored.includes("app-pass-SECRET") && !stored.includes("me@example.com"), "plaintext stored");
   r = await call("/api/integrations/mailbox/test", { method: "POST" }); check("Test connects and reports the alert emails and jobs found", r.json?.ok === true && /3 alert email\(s\).*6 job link\(s\)/.test(r.json.note), r.text);
-  const before = mock.rowsOf("jobs").length;
+  
   r = await call("/api/integrations/mailbox/scan", { method: "POST" }); check("Scan now imports the jobs from the alert emails", r.status === 200 && /6 jobs fetched, 6 new/.test(r.text), `${r.status} ${r.text}`);
   const mj = mock.rowsOf("jobs").filter((j) => j.source === "mailbox");
   check("each job keeps its origin portal (from the link), the mailbox as the integration, and a clean URL", mj.length === 6 && mj.filter((j) => j.portal === "naukri").length === 2 && mj.filter((j) => j.portal === "indeed").length === 2 && mj.filter((j) => j.portal === "linkedin").length === 2 && mj.every((j) => !j.url.includes("?src=") && !j.url.includes("trackingId")), JSON.stringify(mj.map((j) => [j.portal, j.url])));
@@ -506,7 +506,7 @@ if (process.env.PLAYWRIGHT_BROWSERS_PATH || process.env.CHROMIUM_PATH) {
 
 // ---- more free feeds, and stale-source reminders
 {
-  for (const [id, title] of [["arbeitnow", "Product Manager"], ["remoteok", "Product Manager"], ["jobicy", "Product Manager"]]) {
+  for (const [id] of [["arbeitnow", "Product Manager"], ["remoteok", "Product Manager"], ["jobicy", "Product Manager"]]) {
     r = await call(`/api/integrations/${id}/test`, { method: "POST" }); check(`${id}: Test reports the feed is reachable`, r.status === 200 && /reachable/.test(r.text), `${r.status} ${r.text}`);
     r = await call(`/api/integrations/${id}/scan`, { method: "POST" }); check(`${id}: Scan now keeps only jobs matching your titles`, r.status === 200 && /1 new/.test(r.text), `${r.status} ${r.text}`);
   }
