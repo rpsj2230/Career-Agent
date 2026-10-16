@@ -24,7 +24,7 @@ async function upload(path: string, buf: Buffer) {
 }
 
 /** Tailor resume + cover letter for a queued job and create the application package for review. */
-export async function prepareApplication(jobId: string): Promise<{ applicationId: string; verified: boolean }> {
+export async function prepareApplication(jobId: string, runId: string | null = null): Promise<{ applicationId: string; verified: boolean }> {
   const existing = must<{ id: string } | null>(await db().from("applications").select("id").eq("job_id", jobId).maybeSingle(), "check existing");
   if (existing) return { applicationId: existing.id, verified: true };
 
@@ -62,7 +62,7 @@ export async function prepareApplication(jobId: string): Promise<{ applicationId
     await withLegacyFallback(
       () => db().from("applications").insert({
         ...appRow, portal: job.portal ?? job.source?.split(":")[0] ?? null, country: job.country ?? null,
-        job_snapshot: buildJobSnapshot(job, scoreRow), profile_snapshot: buildProfileSnapshot(profile),
+        job_snapshot: buildJobSnapshot(job, scoreRow), profile_snapshot: buildProfileSnapshot(profile), run_id: runId,
       }).select("id").single(),
       () => db().from("applications").insert(appRow).select("id").single(),
     ),
@@ -70,7 +70,7 @@ export async function prepareApplication(jobId: string): Promise<{ applicationId
   );
   must(await db().from("jobs").update({ status: "prepared" }).eq("id", jobId).select("id"), "mark prepared");
   const verified = resume.verification.ok && cover.verification.ok;
-  const ref = { ...jobLogFields(job), application_id: app.id };
+  const ref = { ...jobLogFields(job), application_id: app.id, run_id: runId };
   await logActivity({ kind: "resume.generated", level: resume.verification.ok ? "info" : "warn", message: `Resume v${rv} for ${job.title} at ${job.company}${resume.verification.ok ? "" : ` (${resume.verification.issues.length} claim(s) failed verification)`}`, ...ref, status: resume.verification.ok ? "verified" : "unverified", detail: { version: rv, model: resume.model, attempts: resume.verification.attempts, issues: resume.verification.issues, path: resumePath } });
   await logActivity({ kind: "cover.generated", level: cover.verification.ok ? "info" : "warn", message: `Cover letter v${cv} for ${job.title} at ${job.company}${cover.verification.ok ? "" : ` (${cover.verification.issues.length} claim(s) failed verification)`}`, ...ref, status: cover.verification.ok ? "verified" : "unverified", detail: { version: cv, model: cover.model, attempts: cover.verification.attempts, issues: cover.verification.issues, path: coverPath } });
   await logActivity({ kind: "application.prepared", message: `Application prepared for ${job.title} at ${job.company}: ${verified ? "verified, awaiting your approval" : "needs your review (unverified claims)"}`, ...ref, status: "prepared", detail: { verified, answers: appRow.answers.length } });

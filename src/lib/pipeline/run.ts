@@ -16,7 +16,7 @@ export type PipelineDeps = {
   score(ctx: RunCtx, scope: { countries: string[]; budgetMs: number }): Promise<{ scored: number; queued: number; skipped: number; failed: number }>;
   queuedJobs(countries: string[]): Promise<QueuedJob[]>;
   failedPrepareAttempts(jobId: string): Promise<number>;
-  prepare(jobId: string): Promise<{ applicationId: string; verified: boolean }>;
+  prepare(jobId: string, runId: string | null): Promise<{ applicationId: string; verified: boolean }>;
   approve(applicationId: string, runId: string | null): Promise<ApproveResult>;
   loadCaps(): Promise<{ caps: Caps; state: CapState }>;
   now(): number;
@@ -91,7 +91,7 @@ export async function runPipeline(
         continue;
       }
       try {
-        const r = await deps.prepare(job.id);
+        const r = await deps.prepare(job.id, ctx.id);
         prepared.push({ ...r, job });
         ctx.stat("prepared"); out.prepared++;
       } catch (e) {

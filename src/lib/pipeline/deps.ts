@@ -29,7 +29,7 @@ export function liveDeps(): PipelineDeps {
     },
     failedPrepareAttempts: async (jobId) =>
       (await db().from("activity_log").select("id", { count: "exact", head: true }).eq("kind", "application.prepare_failed").eq("status", "failed").eq("job_id", jobId)).count ?? 0,
-    prepare: (jobId) => prepareApplication(jobId),
+    prepare: (jobId, runId) => prepareApplication(jobId, runId),
     approve: (applicationId, runId) => approveApplication(applicationId, { actor: "schedule", runId, dispatch: false }),
     loadCaps: async () => ({ caps: await getSetting("caps"), state: await loadCapState() }),
     now: () => Date.now(),

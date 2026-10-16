@@ -45,7 +45,7 @@ describe.skipIf(!executablePath)("fillForm against a Greenhouse-like fixture", (
     // every value that was entered is recorded with where it came from
     const byLabel = Object.fromEntries(r.entries.map((e) => [e.label, e]));
     expect(r.entries.length).toBe(r.filled.length);
-    expect(r.entries).toContainEqual({ label: "First name", value: "Asha", kind: "text", source: "profile" });
+    expect(r.entries).toContainEqual({ label: "First Name", value: "Asha", kind: "text", source: "profile" });
     expect(r.entries.find((e) => e.kind === "text" && e.value === "32 LPA")).toMatchObject({ source: "answers" });
     expect(r.entries.find((e) => e.kind === "file")).toMatchObject({ value: "resume.docx", source: "upload" });
     expect(Object.values(byLabel).every((e) => e.value.length > 0)).toBe(true);

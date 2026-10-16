@@ -351,6 +351,42 @@ if (process.env.PLAYWRIGHT_BROWSERS_PATH || process.env.CHROMIUM_PATH) {
   console.log("SKIP  apply worker checks (set PLAYWRIGHT_BROWSERS_PATH or CHROMIUM_PATH)");
 }
 
+// ---- application detail page: A job, B documents, C answers and submission
+{
+  const strip = (t) => t.replace(/<!-- -->/g, "");
+  r = await call(`/applications/${application.id}`);
+  let t = strip(r.text);
+  check("detail page renders all three sections with anchors", r.status === 200 && ["A. Job details", "B. Resume and documents", "C. Answers and submission"].every((x) => t.includes(x)) && t.includes('id="job"') && t.includes('id="documents"') && t.includes('id="answers"'), `${r.status}`);
+  check("A shows the job as snapshotted: posting, portal, dates, fit, statuses and the full description", t.includes("naukri.com/job-listings-pm-zeta") && t.includes("Naukri") && t.includes("Full job description") && t.includes("Own the roadmap") && /Discovered/.test(t) && /application:/.test(t) && t.includes("As it was when this application was prepared"), "missing");
+  check("B shows the tailored resume preview, the original, downloads and the change log", t.includes("Resume preview") && t.includes("Asha Rao") && t.includes("Download original resume") && t.includes("Original resume (your master profile when this was prepared)") && t.includes("Changes made for this job") && /Download DOCX/.test(t), "missing");
+  check("B shows the cover letter text", t.includes("Cover letter v1"), "missing");
+  check("the original keeps the pre-edit name, not the edited profile's", !t.includes("Changed Name"), "leaked");
+  check("C shows prepared answers and says nothing was submitted by the app (marked by you)", t.includes("Answers prepared") && t.includes("Expected CTC") || t.includes("Total years of experience"), "answers missing");
+  check("C shows the assisted submission record honestly", t.includes("Submitted by you") && t.includes("The values you entered there are not visible to this app"), "assisted record missing");
+  check("the page links to this application's activity log", t.includes(`/logs?app=${application.id}`), "link missing");
+  const worked = mock.rowsOf("applications").find((a) => a.submission?.method === "automated" && a.submission.outcome === "submitted");
+  if (worked) {
+    r = await call(`/applications/${worked.id}`); t = strip(r.text);
+    check("C shows every value the worker entered, with where it came from", r.status === 200 && t.includes("Values entered") && t.includes("32 LPA") && t.includes("answer bank") && t.includes("First Name"), `${r.status}`);
+    check("C shows the attached files with their SHA-256 and the employer's confirmation", t.includes("Files attached") && t.includes("Resume.docx") && t.includes("SHA-256") && /Thank you for applying/.test(t) && t.includes("Submitted automatically"), "missing");
+    check("the snapshot-less seeded job still renders (older applications)", t.includes("prepared before snapshots existed") && t.includes("The original resume was not captured"), "legacy note missing");
+  }
+  const stuck2 = mock.rowsOf("applications").find((a) => a.submission?.outcome === "needs_input");
+  if (stuck2) { r = await call(`/applications/${stuck2.id}`); t = strip(r.text); check("a hand-back shows what needed the user", t.includes("Needed you") && t.includes("favourite sorting algorithm"), "missing"); }
+  r = await call("/applications/00000000-0000-4000-8000-000000000000"); check("an unknown application is a 404", r.status === 404, `${r.status}`);
+}
+
+// ---- filters on applications now run against real embedded jobs in the emulator
+{
+  r = await call("/applications?country=sg"); check("applications: country filter keeps matching applications", r.text.includes("Zeta Pte"), "Zeta missing");
+  r = await call("/applications?country=in"); check("applications: country filter hides others", !r.text.includes("Zeta Pte") && r.text.includes("Nothing"), "Zeta still shown");
+  r = await call("/applications?portal=naukri"); check("applications: portal filter keeps Naukri applications", r.text.includes("Zeta Pte") && !r.text.includes("FormCo"), "wrong rows");
+  r = await call("/applications?portal=greenhouse&country=sg"); check("applications: portal and country combine", r.text.includes("FormCo") && !r.text.includes("Zeta Pte"), "wrong rows");
+  r = await call("/applications?status=submitted"); check("applications: 'Submitted' shows submitted ones only", r.text.includes("FormCo") && !r.text.includes("StuckCo"), "wrong rows");
+  r = await call("/applications?status=manual"); check("applications: 'Requires manual action' includes hand-backs", r.text.includes("StuckCo") || r.text.includes("Requires manual action"), "missing");
+  r = await call("/?country=in"); check("dashboard: another country shows zero sent", r.status === 200 && r.text.includes("Showing") , `${r.status}`);
+}
+
 // ---- models: saved keys are encrypted at rest, used for calls, and removable
 const KEY = "sk-test-key-1234567890";
 mock.modelConfigs.set("e2e-model", { id: "m1", label: "e2e-model", provider: "mock", base_url: `http://127.0.0.1:${MOCK}/v1`, model: "mock-1", api_key_env: "E2E_KEY", tasks: ["score"], priority: 1, daily_cap: null, enabled: true });

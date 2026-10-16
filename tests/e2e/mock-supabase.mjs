@@ -43,9 +43,9 @@ function parseFilters(params) {
   const out = [];
   for (const [k, v] of params) {
     if (["select", "order", "limit", "offset", "on_conflict", "columns"].includes(k)) continue;
-    if (k === "or") { // or=(a.ilike.%x%,b.ilike.%x%)
+    if (k === "or" || k.endsWith(".or")) { // or=(a.ilike.%x%,b.ilike.%x%)  /  job.or=(...) on an embedded resource
       const parts = v.replace(/^\(|\)$/g, "").split(",").map((p) => { const [col, op, ...rest] = p.split("."); return { col, op, val: rest.join(".") }; });
-      out.push({ or: parts });
+      out.push({ or: parts, ref: k.includes(".") ? k.slice(0, k.lastIndexOf(".")) : undefined });
       continue;
     }
     const dot = v.indexOf(".");
@@ -74,11 +74,52 @@ function matches(row, f) {
     default: return true;
   }
 }
-const project = (row, select) => {
+// ---- embedded relations: "alias:table!hint(cols)". Enough of PostgREST for the app's queries.
+function splitTop(str) {
+  const out = []; let depth = 0, cur = "";
+  for (const ch of str) {
+    if (ch === "(") depth++; if (ch === ")") depth--;
+    if (ch === "," && depth === 0) { out.push(cur); cur = ""; } else cur += ch;
+  }
+  if (cur.trim()) out.push(cur);
+  return out.map((x) => x.trim()).filter(Boolean);
+}
+function parseSelect(select) {
+  return splitTop(select).map((it) => {
+    const m = it.match(/^(?:(\w+):)?(\w+)(?:!(\w+))?(?:!(\w+))?\(([\s\S]*)\)$/);
+    if (!m) return { col: it };
+    const hints = [m[3], m[4]].filter(Boolean);
+    return { alias: m[1] ?? m[2], table: m[2], inner: hints.includes("inner"), hint: hints.find((h) => h !== "inner") ?? "", sub: m[5] };
+  });
+}
+// parent table + embedded table -> how rows are linked ("one": object, otherwise array)
+function link(parent, item) {
+  const t = item.table, h = item.hint;
+  if (parent === "applications" && t === "jobs") return { pk: "job_id", ck: "id", one: true };
+  if (parent === "applications" && t === "documents") return h.includes("cover") ? { pk: "cover_doc_id", ck: "id", one: true } : { pk: "resume_doc_id", ck: "id", one: true };
+  if (parent === "jobs" && t === "job_scores") return { pk: "id", ck: "job_id", one: true };
+  if (parent === "jobs" && t === "applications") return { pk: "id", ck: "job_id", one: true };
+  if (parent === "jobs" && t === "documents") return { pk: "id", ck: "job_id", one: false };
+  if (parent === "applications" && t === "apply_events") return { pk: "id", ck: "application_id", one: false };
+  throw new Error(`mock: no relation ${parent} -> ${t}`);
+}
+function embed(parent, row, item) {
+  const l = link(parent, item);
+  const hits = rowsOf(item.table).filter((c) => c[l.ck] !== undefined && c[l.ck] !== null && String(c[l.ck]) === String(row[l.pk]));
+  return l.one ? (hits[0] ? projectRow(item.table, hits[0], item.sub) : null) : hits.map((h) => projectRow(item.table, h, item.sub));
+}
+function projectRow(table, row, select) {
   if (!select || select === "*") return row;
-  const cols = select.split(",").map((c) => c.trim()).filter((c) => c && !c.includes("(") && !c.includes(":"));
-  return Object.fromEntries(cols.map((c) => [c, row[c]]));
-};
+  const out = {};
+  for (const it of parseSelect(select)) {
+    if (it.table) out[it.alias] = embed(table, row, it);
+    else if (it.col === "*") Object.assign(out, row);
+    else if (!it.col.includes(":")) out[it.col] = row[it.col];
+  }
+  return out;
+}
+const project = projectRow;
+
 const schemaError = (table, cols) => {
   const known = V1_TABLES.includes(table) || (schema.v2 && V2_TABLES.includes(table));
   if (!known) return { status: 404, body: { code: "PGRST205", message: `Could not find the table 'public.${table}' in the schema cache` } };
@@ -139,13 +180,24 @@ function rest(req, res, url, table, body) {
   if (err) return send(res, err.status, err.body);
   const rows = rowsOf(table);
   const respondRows = (list, status = 200) => {
-    const out = list.map((r) => project(r, select));
+    const out = list.map((r) => projectRow(table, r, select));
     if (wantsObject) return out.length === 1 ? send(res, status, out[0]) : send(res, 406, { code: "PGRST116", message: "JSON object requested, multiple (or no) rows returned" });
     return send(res, status, out);
   };
 
   if (req.method === "GET" || req.method === "HEAD") {
-    let list = rows.filter((r) => filters.every((f) => matches(r, f)));
+    const embeds = parseSelect(select ?? "").filter((i) => i.table);
+    const embeddedFor = (r, alias) => { const it = embeds.find((e) => e.alias === alias); return it ? { it, val: embed(table, r, { ...it, sub: "*" }) } : null; };
+    const passes = (r, f) => {
+      const ref = f.or ? f.ref : f.col.includes(".") ? f.col.slice(0, f.col.indexOf(".")) : undefined;
+      if (!ref) return matches(r, f);
+      const e = embeddedFor(r, ref);
+      if (!e || e.val === null || (Array.isArray(e.val) && e.val.length === 0)) return !e?.it.inner; // missing relation: only an !inner embed drops the row
+      const test = f.or ? f : { ...f, col: f.col.slice(f.col.indexOf(".") + 1) };
+      return (Array.isArray(e.val) ? e.val : [e.val]).some((x) => matches(x, test));
+    };
+    let list = rows.filter((r) => filters.every((f) => passes(r, f)));
+    for (const it of embeds.filter((e) => e.inner)) list = list.filter((r) => { const v = embed(table, r, { ...it, sub: "*" }); return Array.isArray(v) ? v.length > 0 : v !== null; });
     const order = url.searchParams.get("order");
     if (order) for (const spec of order.split(",").reverse()) { const [c, d] = spec.split("."); list = [...list].sort((a, b) => (a[c] > b[c] ? 1 : a[c] < b[c] ? -1 : 0) * (d === "desc" ? -1 : 1)); }
     const totalBeforePaging = list.length;
