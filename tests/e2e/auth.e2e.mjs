@@ -132,8 +132,8 @@ r = await call("/jobs?view=all&country=sg"); check("country filter keeps matchin
 r = await call("/jobs?view=all&portal=x%27%3B%20delete&view2=1"); check("a hostile portal value is ignored, not executed", r.status === 200 && r.text.includes("Gamma Pte Ltd"), `${r.status}`);
 r = await call("/jobs"); check("the default view is the review queue (nothing matched yet)", r.status === 200 && r.text.includes("Nothing here for these filters"), `${r.status}`);
 r = await call("/applications"); check("Applications list renders with its filter bar", r.status === 200 && r.text.includes("Pending approval") && r.text.includes("All portals"), `${r.status}`);
-r = await call("/?country=sg"); check("dashboard can be narrowed to one country", r.status === 200 && r.text.replace(/<!-- -->/g, "").includes("Showing Singapore only") && r.text.includes("All countries"), `${r.status}`);
-r = await call("/reports?country=sg"); check("reports can be narrowed to one country", r.status === 200 && r.text.replace(/<!-- -->/g, "").includes("Showing Singapore only"), `${r.status}`);
+r = await call("/?country=sg"); check("dashboard can be narrowed to one country", r.status === 200 && r.text.replace(/<!-- -->/g, "").includes("Singapore only") && r.text.includes("All countries"), `${r.status}`);
+r = await call("/reports?country=sg"); check("reports can be narrowed to one country", r.status === 200 && r.text.replace(/<!-- -->/g, "").includes("Singapore only"), `${r.status}`);
 r = await call("/reports?country=%27%3Bdrop"); check("a hostile country value on reports is ignored", r.status === 200 && !r.text.includes("Showing"), `${r.status}`);
 r = await call("/api/export/applications?portal=linkedin&country=sg"); check("CSV export accepts the same filters", r.status === 200 && r.text.startsWith("company,title,country,portal,found_via"), `${r.status} ${r.text.slice(0, 80)}`);
 
@@ -408,7 +408,47 @@ if (process.env.PLAYWRIGHT_BROWSERS_PATH || process.env.CHROMIUM_PATH) {
   r = await call("/applications?portal=greenhouse&country=sg"); check("applications: portal and country combine", r.text.includes("FormCo") && !r.text.includes("Zeta Pte"), "wrong rows");
   r = await call("/applications?status=submitted"); check("applications: 'Submitted' shows submitted ones only", r.text.includes("FormCo") && !r.text.includes("StuckCo"), "wrong rows");
   r = await call("/applications?status=manual"); check("applications: 'Requires manual action' includes hand-backs", r.text.includes("StuckCo") || r.text.includes("Requires manual action"), "missing");
-  r = await call("/?country=in"); check("dashboard: another country shows zero sent", r.status === 200 && r.text.includes("Showing") , `${r.status}`);
+  r = await call("/?country=in"); check("dashboard: another country is echoed", r.status === 200 && r.text.replace(/<!-- -->/g, "").includes("India only"), `${r.status}`);
+}
+
+// ---- dashboard v2
+{
+  const strip = (t) => t.replace(/<!-- -->/g, "").replace(/&amp;/g, "&");
+  r = await call("/"); let t = strip(r.text);
+  check("dashboard shows portals, activity, the current backlog, funnel, breakdowns and failures", r.status === 200 && ["Portals and sources", "What happened", "Right now", "Funnel", "By country", "By portal", "Failures and what needs you", "Latest runs"].every((x) => t.includes(x)), `${r.status}`);
+  check("dashboard names the connected portals with their status", t.includes("Adzuna") && t.includes("Remotive") && /Connected|Needs setup|Not set up|Error|Ready/i.test(t), "no portals");
+  check("tiles deep-link to the filtered lists", t.includes('href="/applications?status=pending"') && t.includes('href="/applications?status=manual"') && t.includes('href="/applications?status=failed"') && t.includes('href="/jobs?view=skipped"') && t.includes('href="/applications?status=submitted"'), "links missing");
+  check("failures are listed with their reasons", t.includes("Failures and what needs you") && (t.includes("favourite sorting algorithm") || t.includes("download")), "reasons missing");
+  check("the worker-submitted application counts as submitted", /FormCo/.test(t) || /Submitted/.test(t), "missing");
+  r = await call("/?period=today&country=sg"); t = strip(r.text);
+  check("period and country filters work together and are echoed", r.status === 200 && t.includes("Today") && t.includes("Singapore only") && t.includes('href="/applications?status=pending&country=sg"'), `${r.status}`);
+  r = await call("/?period=forever&country=%27%3Bdrop"); check("bad period and country values fall back safely", r.status === 200 && strip(r.text).includes("Last 7 days"), `${r.status}`);
+  r = await call("/?period=30d&country=in"); check("a country with no activity shows zeros and no failures", r.status === 200 && strip(r.text).includes("Nothing failed in this period"), `${r.status}`);
+}
+
+// ---- real-browser smoke test: every main page loads, hydrates without console errors; optional screenshots (E2E_SHOTS=dir)
+if (process.env.PLAYWRIGHT_BROWSERS_PATH || process.env.CHROMIUM_PATH) {
+  const { chromium } = await import("playwright");
+  const { mkdirSync } = await import("node:fs");
+  const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? `${process.env.PLAYWRIGHT_BROWSERS_PATH}/chromium` });
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  await ctx.addCookies([...jar].map(([name, value]) => ({ name, value, url: BASE })));
+  const dir = process.env.E2E_SHOTS; if (dir) mkdirSync(dir, { recursive: true });
+  const appId = mock.rowsOf("applications").find((a) => a.submission?.outcome === "submitted")?.id ?? application.id;
+  const pages = ["/", "/jobs?view=all", "/applications", `/applications/${appId}`, `/applications/${application.id}`, "/portals", "/countries", "/schedules", "/reports", "/logs", "/logs/runs", "/system", "/settings", "/profile", "/models"];
+  for (const path of pages) {
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(String(e)));
+    page.on("console", (m) => { if (m.type() === "error" && !/favicon|Failed to load resource/.test(m.text())) errors.push(m.text()); });
+    const res = await page.goto(BASE + path, { waitUntil: "networkidle" });
+    await page.waitForTimeout(200);
+    if (dir) await page.screenshot({ path: `${dir}/${path === "/" ? "dashboard" : path.replace(/[^a-z0-9]+/gi, "_").replace(/^_|_$/g, "")}.png`, fullPage: true });
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+    check(`browser: ${path.split("?")[0].replace(/[0-9a-f-]{36}/, ":id")} loads, hydrates cleanly and fits the window`, res?.status() === 200 && errors.length === 0 && !overflow, `${res?.status()} overflow=${overflow} ${errors.slice(0, 2).join(" | ")}`);
+    await page.close();
+  }
+  await browser.close();
 }
 
 // ---- models: saved keys are encrypted at rest, used for calls, and removable

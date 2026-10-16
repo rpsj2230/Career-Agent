@@ -118,7 +118,6 @@ function projectRow(table, row, select) {
   }
   return out;
 }
-const project = projectRow;
 
 const schemaError = (table, cols) => {
   const known = V1_TABLES.includes(table) || (schema.v2 && V2_TABLES.includes(table));
