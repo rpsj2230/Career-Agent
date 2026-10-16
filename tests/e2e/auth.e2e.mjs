@@ -7,7 +7,7 @@ const SECRET = "e2e-cron-secret-0123456789";
 const mock = await startMock(MOCK);
 
 const next = spawn("node_modules/.bin/next", ["start", "-p", String(APP)], {
-  env: { ...process.env, SUPABASE_URL: `http://127.0.0.1:${MOCK}`, SUPABASE_SERVICE_ROLE_KEY: "service-key", CRON_SECRET: SECRET, ALLOWED_EMAILS: "", E2E_MOCK_URL: `http://127.0.0.1:${MOCK}`, NODE_OPTIONS: "--require ./tests/e2e/redirect-fetch.cjs" },
+  env: { ...process.env, SUPABASE_URL: `http://127.0.0.1:${MOCK}`, SUPABASE_SERVICE_ROLE_KEY: "service-key", CRON_SECRET: SECRET, TELEGRAM_BOT_TOKEN: "tg-token-123", TELEGRAM_CHAT_ID: "98765", ALLOWED_EMAILS: "", E2E_MOCK_URL: `http://127.0.0.1:${MOCK}`, NODE_OPTIONS: "--require ./tests/e2e/redirect-fetch.cjs" },
   stdio: ["ignore", "pipe", "pipe"],
 });
 let log = ""; next.stdout.on("data", (d) => (log += d)); next.stderr.on("data", (d) => (log += d));
@@ -426,6 +426,33 @@ if (process.env.PLAYWRIGHT_BROWSERS_PATH || process.env.CHROMIUM_PATH) {
   r = await call("/?period=30d&country=in"); check("a country with no activity shows zeros and no failures", r.status === 200 && strip(r.text).includes("Nothing failed in this period"), `${r.status}`);
 }
 
+// ---- daily reports
+{
+  const strip = (t) => t.replace(/<!-- -->/g, "").replace(/&amp;/g, "&");
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+  r = await call("/api/reports/daily", { method: "POST", body: { date: "2026-02-31" } }); check("an impossible report date is rejected", r.status === 400, `${r.status} ${r.text}`);
+  r = await call("/api/reports/daily", { method: "POST", body: { date: "yesterday" } }); check("a non-date is rejected", r.status === 400, `${r.status}`);
+  r = await call("/api/reports/daily", { method: "POST", body: {} }); check("today's report is generated and stored", r.status === 200 && r.json?.date === today && r.json.summary.found > 0 && mock.rowsOf("daily_reports").length === 1, `${r.status} ${r.text}`);
+  const stored = mock.rowsOf("daily_reports")[0];
+  check("it records the counts, linked items and the message body", stored.status === "ok" && stored.items.length > 0 && stored.items.every((x) => x.href.startsWith("/")) && stored.body.includes("Career Agent daily report"), JSON.stringify(stored).slice(0, 300));
+  check("every item links to an existing job or application", stored.items.filter((x) => x.href.startsWith("/jobs/") || x.href.startsWith("/applications/")).every((x) => mock.rowsOf(x.href.startsWith("/jobs/") ? "jobs" : "applications").some((row) => row.id === x.href.split("/")[2])), "dangling link");
+  check("the submitted application is in the report with its link", stored.items.some((x) => x.section === "submitted" && x.href.startsWith("/applications/")), "missing");
+  check("failures carry their reasons", stored.items.some((x) => x.section === "failed" && x.detail && x.detail !== "No reason was recorded"), JSON.stringify(stored.items.filter((x) => x.section === "failed")));
+  r = await call("/api/reports/daily", { method: "POST", body: {} }); check("generating again replaces the day's report instead of adding another", r.status === 200 && mock.rowsOf("daily_reports").length === 1, `${mock.rowsOf("daily_reports").length}`);
+  r = await call(`/reports/daily/${today}`); let t = strip(r.text);
+  check("the report page shows sections with deep links", r.status === 200 && t.includes("Daily report: " + today) && t.includes("Submitted") && t.includes('href="/applications/') && t.includes("Message as sent to Telegram"), `${r.status}`);
+  r = await call("/reports"); check("the Reports page lists stored reports", strip(r.text).includes(`href="/reports/daily/${today}"`), "not listed");
+  r = await call("/reports/daily/2026-02-31"); check("an invalid report date is a 404", r.status === 404, `${r.status}`);
+  r = await call("/reports/daily/2001-01-01"); check("a day without a report is a 404", r.status === 404, `${r.status}`);
+  const before = mock.seen.telegram.length;
+  r = await call("/api/reports/daily", { method: "POST", body: { send: true } }); check("send=true delivers to Telegram and records it", r.status === 200 && r.json?.delivered === true && mock.seen.telegram.length === before + 1 && mock.rowsOf("daily_reports")[0].delivered === true, `${r.status} ${r.text}`);
+  const tg = mock.seen.telegram.at(-1);
+  check("the Telegram message uses the bot token and chat, and carries absolute-style report text", tg.path.includes("tg-token-123") && tg.body.chat_id === "98765" && /Found \d+ · matched/.test(tg.body.text), JSON.stringify(tg).slice(0, 300));
+  r = await call("/api/cron/digest", { auth: false, headers: { Authorization: `Bearer ${SECRET}` } });
+  check("the morning digest job stores and sends yesterday's report", r.status === 200 && r.json?.ok === true && mock.rowsOf("daily_reports").length === 2 && mock.seen.telegram.length === before + 2, `${r.status} ${r.text}`);
+  r = await call("/logs?kind=report.generated"); check("report generation is logged", strip(r.text).includes("Daily report for " + today), "no log");
+}
+
 // ---- real-browser smoke test: every main page loads, hydrates without console errors; optional screenshots (E2E_SHOTS=dir)
 if (process.env.PLAYWRIGHT_BROWSERS_PATH || process.env.CHROMIUM_PATH) {
   const { chromium } = await import("playwright");
@@ -435,7 +462,7 @@ if (process.env.PLAYWRIGHT_BROWSERS_PATH || process.env.CHROMIUM_PATH) {
   await ctx.addCookies([...jar].map(([name, value]) => ({ name, value, url: BASE })));
   const dir = process.env.E2E_SHOTS; if (dir) mkdirSync(dir, { recursive: true });
   const appId = mock.rowsOf("applications").find((a) => a.submission?.outcome === "submitted")?.id ?? application.id;
-  const pages = ["/", "/jobs?view=all", "/applications", `/applications/${appId}`, `/applications/${application.id}`, "/portals", "/countries", "/schedules", "/reports", "/logs", "/logs/runs", "/system", "/settings", "/profile", "/models"];
+  const pages = ["/", "/jobs?view=all", "/applications", `/applications/${appId}`, `/applications/${application.id}`, "/portals", "/countries", "/schedules", "/reports", `/reports/daily/${mock.rowsOf("daily_reports")[0].report_date}`, "/logs", "/logs/runs", "/system", "/settings", "/profile", "/models"];
   for (const path of pages) {
     const page = await ctx.newPage();
     const errors = [];

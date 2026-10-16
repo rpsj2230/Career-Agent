@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
-import { sendTelegram } from "@/lib/notify";
-import { counts } from "@/lib/queries";
-import { digestText } from "@/lib/reports";
+import { generateDailyReport } from "@/lib/daily-report-store";
+import { appTimezone, localDate } from "@/lib/time";
 
+/** Morning job: store and send the report for the day that just ended (in the display time zone). */
 export async function GET() {
-  const c = await counts();
-  const text = digestText(c, process.env.APP_URL);
-  const sent = await sendTelegram(text);
-  return NextResponse.json({ sent, counts: c, text });
+  try {
+    const r = await generateDailyReport({ date: localDate(1, appTimezone()), send: true });
+    return NextResponse.json({ ok: true, date: r.report_date, delivered: r.delivered, summary: r.summary });
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : "Report failed" }, { status: 500 });
+  }
 }

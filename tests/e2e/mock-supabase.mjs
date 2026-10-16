@@ -27,6 +27,7 @@ const DEFAULTS = {
   portal_scans: () => ({ id: randomUUID(), started_at: new Date().toISOString(), status: "running", fetched: 0, inserted: 0, duplicates: 0, stale: 0, invalid: 0, detail: {} }),
   activity_log: () => ({ id: ++n, at: new Date().toISOString(), level: "info", detail: {} }),
   integrations: () => ({ enabled: true, status: "unknown", jobs_found_total: 0 }),
+  daily_reports: () => ({ id: randomUUID(), generated_at: new Date().toISOString(), status: "ok", delivered: false, error: null }),
   schedules: () => ({ id: randomUUID(), enabled: true, paused: false, created_at: new Date().toISOString(), last_run_at: null, last_run_status: null }),
   applications: () => ({ id: randomUUID(), status: "prepared", answers: [] }),
   documents: () => ({ id: randomUUID() }),
@@ -140,7 +141,7 @@ const mapView = (table, keyCol, valCol) => ({
 const settings = mapView("settings", "key", "value");
 const modelConfigs = { set: (label, row) => { const rows = rowsOf("model_configs"); const i = rows.findIndex((r) => r.label === label); if (i >= 0) rows[i] = row; else rows.push(row); }, get: (l) => rowsOf("model_configs").find((r) => r.label === l) };
 const files = new Map(); // storage objects tests put there for the worker to download
-const seen = { lastChatAuth: null, lastChatBody: null, external: [], uploads: [] };
+const seen = { lastChatAuth: null, lastChatBody: null, external: [], uploads: [], telegram: [] };
 
 // ------------------------------------------------------------------ external provider fakes (/ext/<host>/<path>)
 export const externalFixtures = {
@@ -309,6 +310,7 @@ export function startMock(port) {
 
     // ---- external job APIs (requests are redirected here by redirect-fetch.cjs)
     const ext = url.pathname.match(/^\/ext\/([^/]+)(\/.*)$/);
+    if (ext && ext[1] === "api.telegram.org") { seen.telegram.push({ path: ext[2], body }); return send(res, 200, { ok: true }); }
     if (ext) return external(ext[1], ext[2], url, req, res);
 
     send(res, 404, { message: `mock: no route for ${req.method} ${url.pathname}` });
