@@ -79,6 +79,13 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
             <Alert><AlertTitle>Verified</AlertTitle><AlertDescription>Every sentence maps to facts in your profile; no unsupported numbers.</AlertDescription></Alert>
           )}
 
+          {app.error && ["needs_input", "failed"].includes(app.status) && (
+            <Alert variant="destructive">
+              <AlertTitle>{app.status === "needs_input" ? "The worker stopped and needs you" : "The last attempt failed"}</AlertTitle>
+              <AlertDescription>{app.error} Add missing answers on the Profile page and approve again, or use Open posting to apply by hand.</AlertDescription>
+            </Alert>
+          )}
+
           {pending && (
             <Card>
               <CardContent className="flex flex-wrap items-center gap-2 pt-6">

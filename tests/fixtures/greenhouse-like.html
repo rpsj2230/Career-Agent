@@ -1,0 +1,24 @@
+<!doctype html><html><body>
+<form id="f">
+  <label for="fn">First Name *</label><input id="fn" name="first_name" required>
+  <label for="ln">Last Name *</label><input id="ln" name="last_name" required>
+  <label for="em">Email *</label><input id="em" name="email" type="email" required>
+  <label for="ph">Phone</label><input id="ph" name="phone">
+  <label for="rs">Resume/CV *</label><input id="rs" name="resume" type="file" required>
+  <label for="li">LinkedIn Profile</label><input id="li" name="linkedin">
+  <label for="ctc">What is your expected CTC? *</label><input id="ctc" name="q1" required>
+  <label for="auth">Are you legally authorised to work in India? *</label>
+  <select id="auth" name="q2" required><option value="">Select...</option><option value="1">Yes</option><option value="0">No</option></select>
+  <fieldset><legend>Are you willing to relocate? *</legend>
+    <label><input type="radio" name="q3" value="y" required> Yes</label>
+    <label><input type="radio" name="q3" value="n"> No</label></fieldset>
+  <label for="why">Why do you want to join us?</label><textarea id="why" name="why"></textarea>
+  <div id="extra"></div>
+  <button type="submit">Submit Application</button>
+</form>
+<script>
+  document.getElementById('f').addEventListener('submit', e => { e.preventDefault(); document.body.innerHTML = '<h1>Thank you for applying!</h1>'; });
+  if (location.hash === '#consent') document.getElementById('extra').innerHTML = '<label><input type="checkbox" name="consent" required> I agree to the privacy policy *</label>';
+  if (location.hash === '#unknown') document.getElementById('extra').innerHTML = '<label for="q9">Name your favourite sorting algorithm *</label><input id="q9" name="q9" required>';
+</script>
+</body></html>
