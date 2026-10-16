@@ -37,7 +37,7 @@ export async function tailorResume(p: MasterProfile, job: JobText, run: Runner, 
   let prompt = base, last: { out: TailoredResume; model: string; v: VerifyResult } | undefined;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const { output, model } = await run({ task: "tailor", schema: TailoredResume, system, prompt, jobId: job.id });
-    const v = verifyTailored(p, output);
+    const v = verifyTailored(p, output, [job.company, job.title]);
     last = { out: output, model, v };
     if (v.ok) return { content: output, model, verification: { ...v, attempts: attempt }, diff: buildDiff(p, output) };
     prompt = base + feedback(v);
@@ -52,7 +52,7 @@ export async function writeCoverLetter(p: MasterProfile, job: JobText, run: Runn
   let prompt = base, last: { out: CoverLetter; model: string; v: VerifyResult } | undefined;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const { output, model } = await run({ task: "tailor", schema: CoverLetter, system, prompt, jobId: job.id });
-    const v = verifyCoverLetter(p, output);
+    const v = verifyCoverLetter(p, output, [job.company, job.title]);
     last = { out: output, model, v };
     if (v.ok) return { content: output, model, verification: { ...v, attempts: attempt } };
     prompt = base + feedback(v);

@@ -1,10 +1,10 @@
 import "server-only";
-import { generateText, Output } from "ai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { z } from "zod";
 import { db, must } from "@/lib/db";
 import type { Task } from "@/lib/types";
 import { DEFAULT_MODELS } from "./defaults";
+import { callStructured } from "./call";
 import { runWithFallback, selectCandidates, type ModelRow } from "./fallback";
 import { resolveKeys } from "./keys";
 
@@ -58,14 +58,7 @@ export async function runStructured<S extends z.ZodType>(opts: {
     opts.task,
     candidates,
     async (m) => {
-      const res = await generateText({
-        model: buildModel(m, keys.get(m.label)),
-        system: opts.system,
-        prompt: opts.prompt,
-        output: Output.object({ schema: opts.schema }),
-        temperature: 0.2,
-      });
-      return { output: res.output as z.infer<S>, usage: res.usage };
+      return callStructured(buildModel(m, keys.get(m.label)), { schema: opts.schema, system: opts.system, prompt: opts.prompt });
     },
     async (m, ok, ms, error) => {
       await db().from("model_usage").insert({

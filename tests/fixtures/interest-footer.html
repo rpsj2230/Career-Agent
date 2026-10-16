@@ -1,0 +1,10 @@
+<!doctype html><html><body>
+<form id="f">
+  <label for="fn">First Name *</label><input id="fn" name="first_name" required>
+  <label for="em">Email *</label><input id="em" name="email" type="email" required>
+  <label for="rs">Resume/CV *</label><input id="rs" name="resume" type="file" required>
+  <button type="submit">Submit application</button>
+</form>
+<footer>Thank you for your application interest policy. Thank you for applying to our newsletter? No: we simply say application received messages appear after you apply.</footer>
+<script>document.getElementById('f').addEventListener('submit', e => { e.preventDefault(); /* a broken form: nothing happens */ });</script>
+</body></html>

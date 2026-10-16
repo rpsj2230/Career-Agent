@@ -11,7 +11,7 @@ const executablePath = process.env.CHROMIUM_PATH ?? (process.env.PLAYWRIGHT_BROW
 let browser: Browser | undefined;
 const dir = mkdtempSync(join(tmpdir(), "ca-"));
 const resumePath = join(dir, "resume.docx");
-const fixture = (hash = "") => pathToFileURL(join(process.cwd(), "tests/fixtures/greenhouse-like.html")).href + hash;
+const fixture = (hash = "", name = "greenhouse-like") => pathToFileURL(join(process.cwd(), `tests/fixtures/${name}.html`)).href + hash;
 
 const ctx = {
   applicant: { name: "Asha Rao Nair", email: "a@x.com", phone: "+91 90000 00000", location: "Bengaluru", links: ["https://linkedin.com/in/asha"] },
@@ -71,6 +71,74 @@ describe.skipIf(!executablePath)("fillForm against a Greenhouse-like fixture", (
     const r = await fillForm(page, ctx);
     expect(r.unanswered).toEqual(["Name your favourite sorting algorithm"]);
     expect(await page.inputValue("#q9")).toBe("");
+    await page.close();
+  });
+});
+
+describe.skipIf(!executablePath)("other employers' form shapes", () => {
+  const lever = { ...ctx, applicant: { ...ctx.applicant, currentCompany: "Acme Pay" } };
+  it("fills a Lever-style form (wrapping labels, full name, hidden file input) and submits", async () => {
+    if (!browser) throw new Error("Chromium failed to launch");
+    const page = await browser.newPage();
+    await page.goto(fixture("", "lever-like"));
+    const r = await fillForm(page, lever);
+    expect(r.unanswered).toEqual([]);
+    expect(await page.inputValue('input[name="name"]')).toBe("Asha Rao Nair");
+    expect(await page.inputValue('input[name="email"]')).toBe("a@x.com");
+    expect(await page.inputValue('input[name="org"]')).toBe("Acme Pay");
+    expect(await page.inputValue('input[name="urls[LinkedIn]"]')).toBe("https://linkedin.com/in/asha");
+    expect(await page.inputValue('input[name="cards[1][field0]"]')).toBe("32 LPA");
+    expect(r.entries.some((e) => e.kind === "file")).toBe(true);
+    expect(await clickSubmit(page)).toBe(true);
+    await page.waitForFunction(() => document.body.innerText.includes("Application submitted"));
+    expect(CONFIRMATION.test(await page.innerText("body"))).toBe(true);
+    await page.close();
+  });
+
+  it("hands back a visa-sponsorship question that has no saved sponsorship answer (it must not borrow the authorisation answer)", async () => {
+    if (!browser) throw new Error("Chromium failed to launch");
+    const page = await browser.newPage();
+    await page.goto(fixture("#sponsor", "lever-like"));
+    const r = await fillForm(page, lever);
+    expect(r.unanswered.join("|")).toMatch(/visa sponsorship/);
+    expect(await page.inputValue('input[name="cards[2][field0]"]')).toBe("");
+    await page.close();
+  });
+
+  it("hands back an authorisation question about a country the saved answer was not written for", async () => {
+    if (!browser) throw new Error("Chromium failed to launch");
+    const page = await browser.newPage();
+    await page.goto(fixture("#india", "lever-like"));
+    const sg = { ...lever, answers: [...lever.answers.filter((a) => !/authori/.test(a.question)), { question: "Are you legally authorised to work in Singapore?", answer: "Yes" }] };
+    const r = await fillForm(page, sg);
+    expect(r.unanswered.join("|")).toMatch(/authorised to work in India/);
+    await page.close();
+  });
+
+  it("does not pretend to handle a custom combobox: the required field is reported", async () => {
+    if (!browser) throw new Error("Chromium failed to launch");
+    const page = await browser.newPage();
+    await page.goto(fixture("", "greenhouse-combobox"));
+    const r = await fillForm(page, ctx);
+    expect(r.unanswered.join("|")).toMatch(/Country/);
+    await page.close();
+  });
+
+  it("a job page with only an Apply button yields no fields, so the worker has nothing to submit", async () => {
+    if (!browser) throw new Error("Chromium failed to launch");
+    const page = await browser.newPage();
+    await page.goto(fixture("", "job-page-only"));
+    const r = await fillForm(page, ctx);
+    expect(r.entries).toEqual([]);
+    await page.close();
+  });
+
+  it("prefers the form's own submit button over a page-level Apply button", async () => {
+    if (!browser) throw new Error("Chromium failed to launch");
+    const page = await browser.newPage();
+    await page.setContent('<a role="button" id="cta" onclick="document.title=\'cta\'">Apply now</a><form onsubmit="event.preventDefault();document.title=\'submitted\'"><input name="a"><button type="submit">Send</button></form>');
+    expect(await clickSubmit(page)).toBe(true);
+    expect(await page.title()).toBe("submitted");
     await page.close();
   });
 });

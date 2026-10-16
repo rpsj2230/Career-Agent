@@ -338,11 +338,11 @@ r = await call(`/api/schedules/${manId}`, { method: "DELETE" });
 const { createHash, randomUUID } = await import("node:crypto");
 const { pathToFileURL } = await import("node:url");
 const RESUME_BYTES = Buffer.from("resume-bytes-v1"), COVER_BYTES = Buffer.from("cover-bytes-v1");
-const formUrl = (hash = "") => pathToFileURL(`${process.cwd()}/tests/fixtures/greenhouse-like.html`).href + hash;
-function seedApproved(company, hash, approvedAt) {
+const formUrl = (hash = "", fixture = "greenhouse-like") => pathToFileURL(`${process.cwd()}/tests/fixtures/${fixture}.html`).href + hash;
+function seedApproved(company, hash, approvedAt, fixture = "greenhouse-like") {
   const jobId = randomUUID(), resumeId = randomUUID(), coverId = randomUUID(), appId = randomUUID();
   mock.files.set(`${jobId}/resume-v1.docx`, RESUME_BYTES); mock.files.set(`${jobId}/cover-letter-v1.docx`, COVER_BYTES);
-  mock.rowsOf("jobs").push({ id: jobId, source: "manual", external_id: appId, dedupe_key: appId, title: "Product Manager", company, country: "sg", url: formUrl(hash), apply_type: "greenhouse", portal: "greenhouse", description: "d", status: "prepared", found_at: new Date().toISOString() });
+  mock.rowsOf("jobs").push({ id: jobId, source: "manual", external_id: appId, dedupe_key: appId, title: "Product Manager", company, country: "sg", url: formUrl(hash, fixture), apply_type: "greenhouse", portal: "greenhouse", description: "d", status: "prepared", found_at: new Date().toISOString() });
   mock.rowsOf("documents").push({ id: resumeId, job_id: jobId, kind: "resume", version: 1, content: {}, storage_path: `${jobId}/resume-v1.docx` }, { id: coverId, job_id: jobId, kind: "cover_letter", version: 1, content: {}, storage_path: `${jobId}/cover-letter-v1.docx` });
   mock.rowsOf("applications").push({ id: appId, job_id: jobId, resume_doc_id: resumeId, cover_doc_id: coverId, status: "approved", method: "automated", approved_at: approvedAt, answers: [{ question: "Expected CTC", answer: "32 LPA", source: "bank" }, { question: "Are you legally authorised to work in India?", answer: "Yes" }, { question: "Are you willing to relocate?", answer: "No" }], portal: "greenhouse", country: "sg", lifecycle: "none", created_at: new Date().toISOString() });
   return { jobId, appId };
@@ -358,6 +358,10 @@ const runApplyWorker = (extra = {}) => new Promise((resolve) => {
 if (process.env.PLAYWRIGHT_BROWSERS_PATH || process.env.CHROMIUM_PATH) {
   const good = seedApproved("FormCo", "", new Date(Date.now() - 20_000).toISOString());
   const stuck = seedApproved("StuckCo", "#unknown", new Date(Date.now() - 10_000).toISOString());
+  const noForm = seedApproved("NoFormCo", "", new Date(Date.now() - 9_000).toISOString(), "job-page-only");
+  const footer = seedApproved("FooterCo", "", new Date(Date.now() - 8_000).toISOString(), "interest-footer");
+  const sponsor = seedApproved("SponsorCo", "#sponsor", new Date(Date.now() - 7_000).toISOString(), "lever-like");
+  const leverOk = seedApproved("LeverCo", "", new Date(Date.now() - 6_000).toISOString(), "lever-like");
   const wk = await runApplyWorker();
   const orphan = mock.rowsOf("applications").find((a) => a.status === "failed" && /download/i.test(a.error ?? ""));
   check("an application whose files are missing is failed with the reason, and the rest of the batch still runs", wk.code === 1 && /approved application\(s\) to submit/.test(wk.text) && !!orphan, `${wk.code} ${JSON.stringify(orphan)} ${wk.text.slice(-500)}`);
@@ -372,6 +376,11 @@ if (process.env.PLAYWRIGHT_BROWSERS_PATH || process.env.CHROMIUM_PATH) {
   check("a form needing a human is handed back, not guessed", a2.status === "needs_input" && /favourite sorting algorithm/.test(a2.error ?? ""), JSON.stringify({ s: a2.status, e: a2.error }));
   check("the hand-back keeps what was filled and what was missing", a2.submission?.outcome === "needs_input" && a2.submission.unanswered.includes("Name your favourite sorting algorithm") && a2.submission.fields.length > 0 && a2.submission.confirmation === null && !!a2.submission.error, JSON.stringify(a2.submission)?.slice(0, 400));
   check("the hand-back is logged as needing the user", mock.rowsOf("activity_log").some((l) => l.kind === "application.needs_input" && l.application_id === stuck.appId), "no log");
+  const st = (x) => mock.rowsOf("applications").find((a) => a.id === x.appId);
+  check("a page with no form is handed back, and no button was pressed", st(noForm).status === "needs_input" && /No application form was found/.test(st(noForm).error ?? "") && st(noForm).submission?.fields.length === 0, JSON.stringify({ s: st(noForm).status, e: st(noForm).error }));
+  check("a page whose footer already looks like a confirmation does not count as submitted", st(footer).status === "needs_input" && /no confirmation message was detected/.test(st(footer).error ?? "") && !st(footer).submitted_at && mock.rowsOf("jobs").find((j) => j.id === footer.jobId).status !== "applied", JSON.stringify({ s: st(footer).status, e: st(footer).error }));
+  check("a visa-sponsorship question is never answered from the authorisation answer", st(sponsor).status === "needs_input" && /visa sponsorship/.test(st(sponsor).error ?? "") && !st(sponsor).submitted_at, JSON.stringify({ s: st(sponsor).status, e: st(sponsor).error }));
+  check("a Lever-style application is submitted and its record keeps the name, company and answers", st(leverOk).status === "submitted" && st(leverOk).submission?.fields.some((f) => f.label.toLowerCase().includes("full name") && f.value === "Asha Rao") && st(leverOk).submission.fields.some((f) => f.value === "32 LPA"), JSON.stringify(st(leverOk).submission?.fields ?? st(leverOk).error));
   const again = await runApplyWorker();
   check("running the worker again does nothing and never submits twice", again.code === 0 && /No approved applications/.test(again.text) && mock.rowsOf("applications").find((a) => a.id === good.appId).status === "submitted", again.text.slice(-300));
   const single = await runApplyWorker({ APPLICATION_ID: good.appId });

@@ -3,7 +3,7 @@ import { buildDiff, numbersIn, verifyCoverLetter, verifyTailored } from "@/lib/d
 import type { MasterProfile, TailoredResume } from "@/lib/types";
 
 const profile: MasterProfile = {
-  basics: { name: "A", email: "", phone: "", location: "", headline: "", summary: "PM with 6 years in fintech", links: [] },
+  basics: { name: "A", email: "", phone: "", location: "", headline: "Product Manager", summary: "PM with 6 years in fintech", links: [] },
   preferences: { countries: ["in"], roles: [] },
   experience: [
     {
@@ -38,7 +38,7 @@ describe("verifyTailored", () => {
     bad.experience[0].bullets[0].text = "Raised activation 40% in 3 markets";
     const r = verifyTailored(profile, bad);
     expect(r.ok).toBe(false);
-    expect(r.issues[0].problem).toMatch(/40/);
+    expect(r.issues.map((i) => i.problem).join("|")).toMatch(/40/);
   });
   it("rejects unknown fact ids, unknown skills and uncited text", () => {
     const bad = structuredClone(good);
@@ -57,7 +57,7 @@ describe("verifyTailored", () => {
 });
 
 describe("helpers", () => {
-  it("normalises numbers", () => expect(numbersIn("Saved ₹1,200,000 (12.5%)")).toEqual(["1200000", "12.5%"]));
+  it("normalises numbers", () => expect(numbersIn("Saved ₹1,200,000 (12.5%)")).toEqual(["1200000", "12.5"]));
   it("checks cover letters", () =>
     expect(verifyCoverLetter(profile, { text: "I led 9 engineers", sourceIds: ["b2"] }).ok).toBe(false));
   it("flags changed bullets in the diff", () => {

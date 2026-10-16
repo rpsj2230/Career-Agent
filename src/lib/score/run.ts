@@ -8,7 +8,7 @@ import { loadEffectiveCountries } from "@/lib/country-config-store";
 import { getProfile } from "@/lib/profile/store";
 import { withLegacyFallback } from "@/lib/schema";
 import { getSetting } from "@/lib/settings";
-import { JobScore } from "@/lib/types";
+import { JobScore, roundScore } from "@/lib/types";
 import { buildScorePrompt, prefilter, SCORE_SYSTEM, type JobForScoring } from "./prompt";
 
 type JobRow = JobForScoring & { id: string; portal?: string | null; source?: string | null };
@@ -60,7 +60,9 @@ export async function scoreStep(ctx: RunCtx, opts: { limit: number; budgetMs: nu
       continue;
     }
     try {
-      const { output, model } = await runStructured({ task: "score", schema: JobScore, system: SCORE_SYSTEM, prompt: buildScorePrompt(profile, job, countryRules?.find((c) => c.country === job.country?.toLowerCase())), jobId: job.id });
+      const scored = await runStructured({ task: "score", schema: JobScore, system: SCORE_SYSTEM, prompt: buildScorePrompt(profile, job, countryRules?.find((c) => c.country === job.country?.toLowerCase())), jobId: job.id });
+      const model = scored.model;
+      const output = { ...scored.output, score: roundScore(scored.output.score) };
       must(await db().from("job_scores").upsert({ job_id: job.id, score: output.score, detail: output, model }).select("job_id"), "save score");
       const queued = output.score >= threshold;
       const reasonText = queued ? null : `Fit ${output.score} below threshold ${threshold}: ${output.summary}`;
