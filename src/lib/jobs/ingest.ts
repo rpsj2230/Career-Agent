@@ -30,7 +30,8 @@ export async function ingestScan(jobs: NormalizedJob[], o: { maxAgeDays: number;
   const full = plan.rows.map((r) => ({ ...r, scan_id: o.scanId ?? null, run_id: o.runId ?? null }));
   let res = await db().from("jobs").upsert(full, { onConflict: "source,external_id", ignoreDuplicates: true }).select("id");
   if (res.error && classifySchemaError(res.error) !== "other") {
-    const legacy = plan.rows.map(({ portal: _portal, ...rest }) => rest); // eslint-disable-line @typescript-eslint/no-unused-vars
+    // the database has not been migrated: leave out every column added by migration 0002
+    const legacy = plan.rows.map((r) => { const { portal, salary_min, salary_max, salary_currency, salary_estimated, ...rest } = r; void [portal, salary_min, salary_max, salary_currency, salary_estimated]; return rest; });
     res = await db().from("jobs").upsert(legacy, { onConflict: "source,external_id", ignoreDuplicates: true }).select("id");
     counts.legacy = true;
   }

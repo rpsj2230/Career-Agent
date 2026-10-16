@@ -233,6 +233,17 @@ r = await call("/logs/runs/not-a-uuid"); check("an invalid run id is a 404", r.s
 // ---- models: saved keys are encrypted at rest, used for calls, and removable
 const KEY = "sk-test-key-1234567890";
 mock.modelConfigs.set("e2e-model", { id: "m1", label: "e2e-model", provider: "mock", base_url: `http://127.0.0.1:${MOCK}/v1`, model: "mock-1", api_key_env: "E2E_KEY", tasks: ["score"], priority: 1, daily_cap: null, enabled: true });
+// ---- per-country preferences ----
+r = await call("/countries"); check("Countries page renders", r.status === 200 && r.text.includes("Countries"), `${r.status}`);
+r = await call("/api/country-prefs", { method: "PUT", body: { country: "SINGAPORE" } }); check("a bad country code is rejected", r.status === 400, `${r.status} ${r.text}`);
+r = await call("/api/country-prefs", { method: "PUT", body: { country: "sg", currency: "sgd" } }); check("a lower-case currency code is rejected", r.status === 400, `${r.status} ${r.text}`);
+r = await call("/api/country-prefs", { method: "PUT", body: { country: "sg", titles: ["Product Manager", "product manager", "Program Lead"], locations: ["Singapore"], remote: "hybrid_ok", salary_min: 100000, currency: "SGD", work_authorisation: "needs_sponsorship" } });
+check("saving a country works", r.status === 200, `${r.status} ${r.text}`);
+r = await call("/countries"); check("the saved country is shown with its criteria", r.text.includes("Singapore") && r.text.includes("Program Lead"), "missing");
+r = await call("/logs?kind=config.changed"); check("saving a country is logged", r.text.includes("Country settings saved: Singapore"), "no log entry");
+r = await call("/api/country-prefs?country=sg", { method: "DELETE" }); check("removing a country works", r.status === 200, `${r.status}`);
+r = await call("/api/country-prefs?country=bad", { method: "DELETE" }); check("removing with a bad code is refused", r.status === 400, `${r.status}`);
+
 r = await call("/api/models/test", { method: "POST", body: { label: "e2e-model" } }); check("test without any key is refused with a clear message", r.status === 422 && /No key yet/.test(r.text), `${r.status} ${r.text}`);
 r = await call("/api/models/key", { method: "PUT", body: { label: "e2e-model", apiKey: "has spaces in it" } }); check("a key containing spaces is rejected", r.status === 400, `${r.status} ${r.text}`);
 r = await call("/api/models/key", { method: "PUT", body: { label: "nope", apiKey: KEY } }); check("saving a key for an unknown model is refused", r.status === 404, r.status);

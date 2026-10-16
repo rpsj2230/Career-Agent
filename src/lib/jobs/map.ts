@@ -1,3 +1,4 @@
+import { defaultCurrency } from "@/lib/countries";
 import { guessCountry, htmlToText, type NormalizedJob } from "./normalize";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -10,12 +11,19 @@ const money = (min?: number, max?: number, cur = "") =>
   min || max ? `${cur}${min ? Math.round(min) : ""}${min && max ? " - " : ""}${max ? Math.round(max) : ""}`.trim() : undefined;
 
 export function mapAdzuna(r: any, country: string): NormalizedJob {
+  const currency = defaultCurrency(country);
+  const estimated = String(r.salary_is_predicted) === "1"; // Adzuna's own estimate, not the employer's figure
+  const text = money(r.salary_min, r.salary_max, currency ? `${currency} ` : "");
   return {
     source: "adzuna", externalId: String(r.id), title: r.title ?? "", company: r.company?.display_name ?? "Unknown",
     country, location: r.location?.display_name, url: r.redirect_url, description: htmlToText(r.description ?? ""),
-    salaryText: money(r.salary_min, r.salary_max), postedAt: iso(r.created),
+    salaryText: text ? `${text}${estimated ? " (estimated)" : ""}` : undefined,
+    postedAt: iso(r.created),
+    salary: r.salary_min || r.salary_max ? { min: r.salary_min || undefined, max: r.salary_max || undefined, currency, period: "year", estimated } : undefined,
   };
 }
+
+const JSEARCH_PERIODS: Record<string, "year" | "month" | "week" | "day" | "hour"> = { YEAR: "year", YEARLY: "year", MONTH: "month", MONTHLY: "month", WEEK: "week", WEEKLY: "week", DAY: "day", DAILY: "day", HOUR: "hour", HOURLY: "hour" };
 
 export function mapJSearch(r: any): NormalizedJob {
   const location = [r.job_city, r.job_state, r.job_country].filter(Boolean).join(", ");
@@ -25,6 +33,7 @@ export function mapJSearch(r: any): NormalizedJob {
     location, url: r.job_apply_link ?? r.job_google_link, description: r.job_description ?? "",
     salaryText: money(r.job_min_salary, r.job_max_salary, r.job_salary_currency ? `${r.job_salary_currency} ` : ""),
     postedAt: iso(r.job_posted_at_datetime_utc), publisher: typeof r.job_publisher === "string" ? r.job_publisher : undefined,
+    salary: r.job_min_salary || r.job_max_salary ? { min: r.job_min_salary || undefined, max: r.job_max_salary || undefined, currency: r.job_salary_currency || undefined, period: JSEARCH_PERIODS[String(r.job_salary_period ?? "").toUpperCase()] ?? "year" } : undefined,
   };
 }
 

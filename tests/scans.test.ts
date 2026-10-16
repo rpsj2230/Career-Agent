@@ -133,3 +133,28 @@ describe("testIntegration", () => {
     expect((await testIntegration("manual", {}, settings)).ok).toBe(true);
   });
 });
+
+describe("per-country scan queries", () => {
+  const pc = [
+    { country: "sg", titles: ["Product Manager"], industries: [], locations: ["Singapore", "Remote"], remote: "any" as const, salary: { min: null, max: null, currency: null }, workAuthorisation: null, needsSponsorship: null, notes: null, fallback: false },
+    { country: "gb", titles: ["Program Manager"], industries: [], locations: [], remote: "onsite_only" as const, salary: { min: null, max: null, currency: null }, workAuthorisation: null, needsSponsorship: null, notes: null, fallback: false },
+  ];
+  const s2: DiscoverySettings = { ...settings, countries: ["sg", "gb"], roles: ["x"], perCountry: pc };
+  it("uses each country's own titles and locations, not the general roles", () => {
+    const specs = buildScanSpecs(s2, creds, all, { only: "jsearch" });
+    expect(specs.map((x) => `${x.country}:${x.query}`)).toEqual(["sg:Product Manager in Singapore", "sg:Product Manager in Remote", "gb:Program Manager"]);
+  });
+  it("sends the location and the remote flag to the provider", async () => {
+    const urls: string[] = [];
+    const f: FetchLike = async (u) => { urls.push(String(u)); return new Response(JSON.stringify({ results: [], data: [] })); };
+    await buildScanSpecs(s2, creds, all, { only: "adzuna", fetchImpl: f })[0].fetch();
+    expect(urls[0]).toContain("/jobs/sg/search/1");
+    expect(urls[0]).toContain("where=Singapore");
+    const r = await buildScanSpecs({ ...s2, perCountry: [{ ...pc[0], remote: "remote_only" as const }] }, creds, all, { only: "jsearch", fetchImpl: f })[0].fetch();
+    expect(r).toEqual([]);
+    expect(urls[1]).toContain("remote_jobs_only=true");
+  });
+  it("searches Remotive once per title and never for on-site-only countries", () => {
+    expect(buildScanSpecs(s2, creds, all, { only: "remotive" }).map((x) => x.query)).toEqual(["Product Manager"]);
+  });
+});

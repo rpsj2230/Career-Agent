@@ -3,20 +3,24 @@ import { finishScan, startScan, withRun } from "@/lib/activity";
 import { type IntegrationId } from "@/lib/integrations/catalog";
 import { resolveCredentials } from "@/lib/integrations/credentials";
 import { loadIntegrationStates, recordIntegrationScan } from "@/lib/integrations/state";
-import { getProfile } from "@/lib/profile/store";
 import { getSetting } from "@/lib/settings";
+import { loadEffectiveCountries } from "@/lib/country-config-store";
 import type { RunTrigger } from "@/lib/activity-types";
 import { ingestScan, loadExistingKeys } from "./ingest";
 import { runScans, type ScanDeps } from "./scans";
-import { buildScanSpecs, type DiscoverySettings } from "./sources";
+import { buildScanSpecs, searchQueries, type DiscoverySettings } from "./sources";
 
-/** Settings > Job discovery, falling back to profile preferences when countries or roles are blank. */
+/**
+ * What to search: the Countries page when configured (each country with its own titles, locations and remote
+ * preference), otherwise Settings > Job discovery / profile preferences as before.
+ */
 export async function effectiveDiscovery(): Promise<DiscoverySettings> {
-  const [settings, profile] = await Promise.all([getSetting("discovery"), getProfile()]);
+  const [settings, { countries }] = await Promise.all([getSetting("discovery"), loadEffectiveCountries()]);
   return {
     ...settings,
-    countries: settings.countries.length ? settings.countries : profile.preferences.countries,
-    roles: settings.roles.length ? settings.roles : profile.preferences.roles,
+    countries: countries.map((c) => c.country),
+    roles: [...new Set(countries.flatMap((c) => c.titles))],
+    perCountry: countries,
   };
 }
 
@@ -27,7 +31,8 @@ export async function effectiveDiscovery(): Promise<DiscoverySettings> {
 export async function discoverNow(o: { trigger: RunTrigger; only?: IntegrationId; budgetMs?: number; scheduleId?: string | null }) {
   return withRun({ trigger: o.trigger, kind: "scan", schedule_id: o.scheduleId ?? null, scope: { only: o.only ?? "all" } }, async (ctx) => {
     const settings = await effectiveDiscovery();
-    if (settings.roles.length === 0) throw new Error("No target roles set. Add roles in Settings or in your profile preferences.");
+    if (!settings.perCountry?.length) throw new Error("No countries to search. Enable a country on the Countries page, or set countries in Settings.");
+    if (searchQueries(settings).length === 0) throw new Error("No job titles to search. Add titles for a country, or roles in Settings or your profile preferences.");
     const { creds } = await resolveCredentials();
     const { states } = await loadIntegrationStates();
     const specs = buildScanSpecs(settings, creds, (id) => states.get(id)?.enabled ?? true, { only: o.only });

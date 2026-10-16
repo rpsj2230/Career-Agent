@@ -15,7 +15,7 @@ let n = 0;
 // ------------------------------------------------------------------ schema simulation
 const V1_TABLES = ["profile", "settings", "answer_bank", "jobs", "job_scores", "documents", "applications", "apply_events", "model_configs", "model_usage"];
 const V2_TABLES = ["integrations", "schedules", "automation_runs", "portal_scans", "activity_log", "country_prefs", "daily_reports"];
-const V2_COLUMNS = { jobs: ["portal", "scan_id", "run_id", "salary_min", "salary_max", "salary_currency", "decided_at"], applications: ["job_snapshot", "profile_snapshot", "submission", "portal", "country", "run_id"] };
+const V2_COLUMNS = { jobs: ["portal", "scan_id", "run_id", "salary_min", "salary_max", "salary_currency", "salary_estimated", "decided_at"], applications: ["job_snapshot", "profile_snapshot", "submission", "portal", "country", "run_id"] };
 const schema = { v2: false };
 
 // ------------------------------------------------------------------ table store

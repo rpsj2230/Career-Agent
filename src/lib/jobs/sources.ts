@@ -1,4 +1,5 @@
 import { ADZUNA_COUNTRIES, explainHttpFailure, type IntegrationId } from "@/lib/integrations/catalog";
+import { countryQueries, type EffectiveCountry } from "@/lib/country-config";
 import { mapAdzuna, mapGreenhouse, mapJSearch, mapLever, mapRemotive } from "./map";
 import type { NormalizedJob } from "./normalize";
 
@@ -8,7 +9,17 @@ export type DiscoverySettings = {
   greenhouse_boards: string[];
   lever_companies: string[];
   max_age_days: number;
+  /** When present, each country is searched with its own titles, locations and remote preference. */
+  perCountry?: EffectiveCountry[];
 };
+
+type Query = { country: string; title: string; location?: string; remote: EffectiveCountry["remote"] };
+
+/** The searches to run: per-country criteria when configured, otherwise every country with every general role. */
+export function searchQueries(s: DiscoverySettings): Query[] {
+  if (s.perCountry) return s.perCountry.flatMap(countryQueries);
+  return s.countries.flatMap((country) => s.roles.map((title) => ({ country, title, remote: "any" as const })));
+}
 
 export type IntegrationCreds = {
   adzuna?: { app_id: string; app_key: string };
@@ -46,34 +57,37 @@ export function buildScanSpecs(
   const want = (id: IntegrationId) => enabled(id) && (!opts.only || opts.only === id);
   const specs: ScanSpec[] = [];
 
+  const queries = searchQueries(s);
+  const label = (q: Query) => (q.location ? `${q.title} in ${q.location}` : q.title);
+
   if (want("adzuna") && creds.adzuna) {
     const { app_id, app_key } = creds.adzuna;
-    for (const c of s.countries.filter((c) => ADZUNA_COUNTRIES.includes(c))) {
-      for (const role of s.roles) {
-        specs.push({ integration: "adzuna", country: c, query: role, fetch: async () => {
-          const q = new URLSearchParams({ app_id, app_key, results_per_page: "30", what: role, max_days_old: String(s.max_age_days), "content-type": "application/json" });
-          const data = await get(`https://api.adzuna.com/v1/api/jobs/${c}/search/1?${q}`);
-          return (data.results ?? []).map((r: unknown) => mapAdzuna(r, c));
-        } });
-      }
+    for (const q of queries.filter((q) => ADZUNA_COUNTRIES.includes(q.country))) {
+      specs.push({ integration: "adzuna", country: q.country, query: label(q), fetch: async () => {
+        const p = new URLSearchParams({ app_id, app_key, results_per_page: "30", what: q.remote === "remote_only" ? `${q.title} remote` : q.title, max_days_old: String(s.max_age_days), "content-type": "application/json" });
+        if (q.location) p.set("where", q.location);
+        const data = await get(`https://api.adzuna.com/v1/api/jobs/${q.country}/search/1?${p}`);
+        return (data.results ?? []).map((r: unknown) => mapAdzuna(r, q.country));
+      } });
     }
   }
 
   if (want("jsearch") && creds.jsearch) {
     const { rapidapi_key } = creds.jsearch;
-    for (const c of s.countries) {
-      for (const role of s.roles) {
-        specs.push({ integration: "jsearch", country: c, query: role, fetch: async () => {
-          const q = new URLSearchParams({ query: role, country: c, date_posted: s.max_age_days <= 7 ? "week" : "month", num_pages: "1" });
-          const data = await get(`https://jsearch.p.rapidapi.com/search?${q}`, { headers: { "X-RapidAPI-Key": rapidapi_key, "X-RapidAPI-Host": "jsearch.p.rapidapi.com" } });
-          return (data.data ?? []).map(mapJSearch);
-        } });
-      }
+    for (const q of queries) {
+      specs.push({ integration: "jsearch", country: q.country, query: label(q), fetch: async () => {
+        const p = new URLSearchParams({ query: label(q), country: q.country, date_posted: s.max_age_days <= 7 ? "week" : "month", num_pages: "1" });
+        if (q.remote === "remote_only") p.set("remote_jobs_only", "true");
+        const data = await get(`https://jsearch.p.rapidapi.com/search?${p}`, { headers: { "X-RapidAPI-Key": rapidapi_key, "X-RapidAPI-Host": "jsearch.p.rapidapi.com" } });
+        return (data.data ?? []).map(mapJSearch);
+      } });
     }
   }
 
   if (want("remotive")) {
-    for (const role of s.roles) {
+    // Remotive lists only remote jobs and is not country-specific: one search per title, skipped for on-site-only countries.
+    const titles = new Set(queries.filter((q) => q.remote !== "onsite_only").map((q) => q.title));
+    for (const role of titles) {
       specs.push({ integration: "remotive", query: role, fetch: async () => {
         const data = await get(`https://remotive.com/api/remote-jobs?${new URLSearchParams({ search: role, limit: "30" })}`);
         return (data.jobs ?? []).map(mapRemotive);

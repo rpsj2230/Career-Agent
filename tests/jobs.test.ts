@@ -27,7 +27,15 @@ describe("normalize", () => {
 describe("mappers", () => {
   it("maps adzuna", () => {
     const j = mapAdzuna({ id: 9, title: "PM", company: { display_name: "Acme" }, location: { display_name: "Pune" }, redirect_url: "https://x", description: "d", salary_min: 1000000, salary_max: 1500000.4, created: "2026-10-01T00:00:00Z" }, "in");
-    expect(j).toMatchObject({ source: "adzuna", externalId: "9", country: "in", salaryText: "1000000 - 1500000" });
+    expect(j).toMatchObject({ source: "adzuna", externalId: "9", country: "in", salaryText: "INR 1000000 - 1500000" });
+  });
+  it("keeps structured pay, marks Adzuna estimates, and converts JSearch periods", () => {
+    const a = mapAdzuna({ id: 1, title: "PM", company: { display_name: "A" }, location: { display_name: "x" }, redirect_url: "https://x", description: "d", salary_min: 90000, salary_max: 110000, salary_is_predicted: "1" }, "sg");
+    expect(a.salary).toEqual({ min: 90000, max: 110000, currency: "SGD", period: "year", estimated: true });
+    expect(a.salaryText).toBe("SGD 90000 - 110000 (estimated)");
+    expect(mapAdzuna({ id: 2, title: "PM", company: {}, redirect_url: "https://x", description: "d" }, "sg").salary).toBeUndefined();
+    const j = mapJSearch({ job_id: "a", job_title: "PM", employer_name: "A", job_country: "SG", job_apply_link: "https://x", job_description: "d", job_min_salary: 8000, job_max_salary: 10000, job_salary_currency: "SGD", job_salary_period: "MONTH" });
+    expect(j.salary).toEqual({ min: 8000, max: 10000, currency: "SGD", period: "month" });
   });
   it("maps jsearch with 2-letter country", () => {
     expect(mapJSearch({ job_id: "a", job_title: "PM", employer_name: "Acme", job_country: "IN", job_city: "Delhi", job_apply_link: "https://x", job_description: "d" }).country).toBe("in");

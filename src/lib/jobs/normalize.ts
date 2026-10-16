@@ -12,6 +12,8 @@ export type NormalizedJob = {
   salaryText?: string;
   postedAt?: string; // ISO
   publisher?: string; // site the posting was published on, when an aggregator tells us (JSearch)
+  /** Structured pay when the source gives numbers. `estimated` = the job site's own guess, not the employer's. */
+  salary?: { min?: number; max?: number; currency?: string; period?: "year" | "month" | "week" | "day" | "hour"; estimated?: boolean };
 };
 
 const PORTALS = ["naukri.com", "foundit.in", "monsterindia.com", "shine.com", "indeed.", "instahyre.com", "cutshort.io", "wellfound.com", "internshala.com", "timesjobs.com", "apna.co", "glassdoor."];

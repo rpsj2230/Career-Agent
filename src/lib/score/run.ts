@@ -4,6 +4,7 @@ import { jobLogFields } from "@/lib/activity-helpers";
 import type { RunTrigger } from "@/lib/activity-types";
 import { db, must } from "@/lib/db";
 import { runStructured } from "@/lib/llm/registry";
+import { loadEffectiveCountries } from "@/lib/country-config-store";
 import { getProfile } from "@/lib/profile/store";
 import { withLegacyFallback } from "@/lib/schema";
 import { getSetting } from "@/lib/settings";
@@ -22,6 +23,8 @@ export async function scoreNewJobs(opts: { limit: number; budgetMs: number; trig
     const profile = await getProfile();
     if (profile.experience.length === 0) throw new Error("Profile is empty: import and confirm your resume first");
     const { threshold } = await getSetting("scoring");
+    const { countries, configured } = await loadEffectiveCountries();
+    const countryRules = configured ? countries : undefined;
 
     const jobs = must<JobRow[]>(
       await db().from("jobs").select("*").eq("status", "new").order("found_at", { ascending: false }).limit(opts.limit),
@@ -43,7 +46,7 @@ export async function scoreNewJobs(opts: { limit: number; budgetMs: number; trig
     for (const job of jobs) {
       if (Date.now() - started > opts.budgetMs) break;
       const ref = { ...jobLogFields(job), run_id: ctx.id };
-      const reason = prefilter(job, profile);
+      const reason = prefilter(job, profile, countryRules);
       if (reason) {
         await decide(job, "skipped", reason);
         await ctx.log({ kind: "job.rejected", message: `Rejected before scoring: ${reason}`, status: "rejected", ...ref, detail: { stage: "prefilter", title: job.title, reason } });
@@ -51,7 +54,7 @@ export async function scoreNewJobs(opts: { limit: number; budgetMs: number; trig
         continue;
       }
       try {
-        const { output, model } = await runStructured({ task: "score", schema: JobScore, system: SCORE_SYSTEM, prompt: buildScorePrompt(profile, job), jobId: job.id });
+        const { output, model } = await runStructured({ task: "score", schema: JobScore, system: SCORE_SYSTEM, prompt: buildScorePrompt(profile, job, countryRules?.find((c) => c.country === job.country?.toLowerCase())), jobId: job.id });
         must(await db().from("job_scores").upsert({ job_id: job.id, score: output.score, detail: output, model }).select("job_id"), "save score");
         const queued = output.score >= threshold;
         const reasonText = queued ? null : `Fit ${output.score} below threshold ${threshold}: ${output.summary}`;

@@ -91,6 +91,7 @@ alter table jobs add column if not exists run_id uuid references automation_runs
 alter table jobs add column if not exists salary_min numeric;
 alter table jobs add column if not exists salary_max numeric;
 alter table jobs add column if not exists salary_currency text;
+alter table jobs add column if not exists salary_estimated boolean not null default false;   -- true when the job site (not the employer) estimated it
 alter table jobs add column if not exists decided_at timestamptz;     -- when the match decision was made
 create index if not exists jobs_portal_idx on jobs (portal);
 create index if not exists jobs_country_idx on jobs (country);

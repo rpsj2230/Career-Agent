@@ -27,3 +27,20 @@ describe("planInsert", () => {
     expect(planInsert([job({})], new Set([first]), 14, now).rows).toHaveLength(0);
   });
 });
+
+describe("salary on inserted rows", () => {
+  const now2 = new Date("2026-10-16T00:00:00Z");
+  const j = (o: Partial<NormalizedJob>): NormalizedJob => ({ source: "x", externalId: "1", title: "PM", company: "Acme", country: "sg", url: "https://x.com/1", description: "d", postedAt: "2026-10-10T00:00:00Z", ...o });
+  it("annualises structured pay and keeps the estimate flag", () => {
+    const r = planInsert([j({ salary: { min: 8000, max: 10000, currency: "SGD", period: "month", estimated: true } })], new Set(), 14, now2).rows[0];
+    expect(r).toMatchObject({ salary_min: 96000, salary_max: 120000, salary_currency: "SGD", salary_estimated: true });
+  });
+  it("parses free-text pay with the country's currency as the fallback", () => {
+    const r = planInsert([j({ country: "in", salaryText: "24-32 LPA", externalId: "2", company: "B" })], new Set(), 14, now2).rows[0];
+    expect(r).toMatchObject({ salary_min: 2_400_000, salary_max: 3_200_000, salary_currency: "INR", salary_estimated: false });
+  });
+  it("stores nulls when there is no usable pay", () => {
+    const r = planInsert([j({ salaryText: "Competitive", externalId: "3", company: "C" })], new Set(), 14, now2).rows[0];
+    expect(r).toMatchObject({ salary_min: null, salary_max: null, salary_currency: null });
+  });
+});
