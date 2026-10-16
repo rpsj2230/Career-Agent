@@ -13,6 +13,11 @@ import { clickSubmit, fillForm } from "./form";
 import { CONFIRMATION, detectBlock, type Answer } from "./match";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+async function notify(text: string) {
+  const token = process.env.TELEGRAM_BOT_TOKEN, chat = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chat) return;
+  await fetch(`https://api.telegram.org/bot${token}/sendMessage`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: chat, text }) }).catch(() => undefined);
+}
 const need = (k: string) => { const v = process.env[k]; if (!v) throw new Error(`${k} is not set`); return v; };
 
 class Handback extends Error {
@@ -116,6 +121,7 @@ async function main() {
     await sb.from("applications").update({ status: "submitted", submitted_at: now, lifecycle: "applied", screenshot_path: shot }).eq("id", appId);
     await sb.from("jobs").update({ status: "applied" }).eq("id", job.id);
     await event("submitted", { url: page.url() });
+    await notify(`Applied: ${job.title} at ${job.company}`);
     console.log("Submitted.");
   } catch (e) {
     const h = e instanceof Handback ? e : new Handback("failed", e instanceof Error ? e.message : String(e));
@@ -127,6 +133,7 @@ async function main() {
     await sb.from("applications").update({ status: h.kind, error: h.message, screenshot_path: shot ?? null }).eq("id", appId);
     await event(h.kind, { message: h.message });
     if (h.stopLinkedIn) await switchOffLinkedIn(sb);
+    await notify(`${h.kind === "failed" ? "Application failed" : "Needs you"}: ${h.message}`);
     console.error(`${h.kind}: ${h.message}`);
     process.exitCode = h.kind === "failed" ? 1 : 0;
   } finally {

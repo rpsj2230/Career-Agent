@@ -17,9 +17,14 @@ jobs:
         env:
           APP_URL: ${{ secrets.APP_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          SCHEDULE: ${{ github.event.schedule }}
+          EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          for path in discover score; do
+          paths="discover score"
+          # one digest a day: on the morning run, or when started by hand
+          if [ "$SCHEDULE" = "30 2 * * *" ] || [ "$EVENT" = "workflow_dispatch" ]; then paths="$paths digest"; fi
+          for path in $paths; do
             echo "== $path"
             curl --fail-with-body -sS -m 120 -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/$path" | head -c 2000
             echo
