@@ -6,7 +6,7 @@ export const LOG_KINDS = [
   "job.matched", "job.rejected", "job.duplicate", "job.score_failed",
   "resume.generated", "cover.generated",
   "application.prepared", "application.approved", "application.submitted", "application.skipped",
-  "application.failed", "application.needs_input", "application.manual", "application.lifecycle", "application.blocked",
+  "application.prepare_failed", "application.failed", "application.needs_input", "application.manual", "application.lifecycle", "application.blocked",
   "auth.login", "auth.login_failed", "auth.signup", "auth.logout",
   "config.changed", "schedule.changed", "report.generated", "report.failed",
 ] as const;

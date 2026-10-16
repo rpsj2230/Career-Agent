@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { discoverNow } from "@/lib/jobs/discover";
 import { scoreNewJobs } from "@/lib/score/run";
+import { hasActiveSchedules } from "@/lib/schedule-store";
 
 export const maxDuration = 60;
 
@@ -10,6 +11,7 @@ export const maxDuration = 60;
  */
 export async function GET(request: Request) {
   const trigger = request.headers.get("authorization")?.startsWith("Bearer ") ? "schedule" : "manual";
+  if (trigger === "schedule" && (await hasActiveSchedules())) return NextResponse.json({ skipped: "Your schedules (Schedules page) handle searching now." });
   try {
     const res = await discoverNow({ trigger, budgetMs: 35_000 });
     const scoring = await scoreNewJobs({ limit: 10, budgetMs: 15_000, trigger }).catch((e) => ({ error: e instanceof Error ? e.message : String(e) }));

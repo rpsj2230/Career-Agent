@@ -1,5 +1,5 @@
 /**
- * Apply worker: runs on GitHub Actions (see .github/workflows/apply.yml), one application per run.
+ * Apply worker: runs on GitHub Actions (.github/workflows/apply.yml for one application, pipeline.yml for a batch).
  * It only submits when the application was explicitly approved in the dashboard, never touches CAPTCHAs,
  * checkpoints or consent checkboxes, and hands the application back to you whenever it is unsure.
  */
@@ -34,10 +34,8 @@ class Handback extends Error {
   constructor(public kind: "needs_input" | "failed", message: string, public stopLinkedIn = false) { super(message); }
 }
 
-async function main() {
-  const appId = need("APPLICATION_ID");
-  if (!UUID.test(appId)) throw new Error("APPLICATION_ID is not a uuid");
-  const sb = createClient(need("SUPABASE_URL"), need("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false } });
+/** Submit one approved application. Never throws for an application-level problem: it hands the application back instead. */
+async function processOne(sb: SupabaseClient, appId: string) {
   const event = async (kind: string, detail: Record<string, unknown> = {}) => { await sb.from("apply_events").insert({ application_id: appId, kind, detail }); };
 
   // Atomic claim: if another run already took it, or it is not approved, do nothing.
@@ -76,6 +74,8 @@ async function main() {
   let storageStatePath: string | undefined;
   if (linkedin) {
     const state = process.env.LINKEDIN_STORAGE_STATE;
+    const { data: capsRow } = await sb.from("settings").select("value").eq("key", "caps").maybeSingle();
+    if (capsRow && (capsRow.value as { linkedin_automation_enabled?: boolean }).linkedin_automation_enabled === false) throw new Handback("needs_input", "LinkedIn automation is switched off; apply manually");
     if (!state) throw new Handback("needs_input", "LinkedIn automation needs LINKEDIN_STORAGE_STATE (your own signed-in session); apply manually instead");
     storageStatePath = join(dir, "li-state.json");
     writeFileSync(storageStatePath, state);
@@ -147,7 +147,7 @@ async function main() {
     if (h.stopLinkedIn) await switchOffLinkedIn(sb);
     await notify(`${h.kind === "failed" ? "Application failed" : "Needs you"}: ${h.message}`);
     console.error(`${h.kind}: ${h.message}`);
-    process.exitCode = h.kind === "failed" ? 1 : 0;
+    if (h.kind === "failed") process.exitCode = 1;
   } finally {
     await browser.close();
   }
@@ -156,6 +156,32 @@ async function main() {
 async function switchOffLinkedIn(sb: SupabaseClient) {
   const { data } = await sb.from("settings").select("value").eq("key", "caps").maybeSingle();
   await sb.from("settings").upsert({ key: "caps", value: { ...(data?.value ?? {}), linkedin_automation_enabled: false }, updated_at: new Date().toISOString() });
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * With APPLICATION_ID: submit that one application (the Approve button).
+ * Without it: submit every approved automated application, oldest first, up to MAX_APPLY (default 10), with a pause
+ * between them so the pace looks like a person and each portal sees at most one request stream.
+ */
+async function main() {
+  const sb = createClient(need("SUPABASE_URL"), need("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false } });
+  const single = process.env.APPLICATION_ID?.trim();
+  if (single) {
+    if (!UUID.test(single)) throw new Error("APPLICATION_ID is not a uuid");
+    await processOne(sb, single);
+    return;
+  }
+  const limit = Math.max(1, Math.min(50, Number(process.env.MAX_APPLY ?? 10) || 10));
+  const { data, error } = await sb.from("applications").select("id").eq("status", "approved").eq("method", "automated").order("approved_at", { ascending: true }).limit(limit);
+  if (error) throw error;
+  const ids = (data ?? []).map((r) => r.id as string);
+  console.log(ids.length ? `${ids.length} approved application(s) to submit.` : "No approved applications are waiting.");
+  for (const [i, id] of ids.entries()) {
+    if (i > 0) await sleep(Number(process.env.APPLY_PAUSE_MS ?? 20_000 + Math.random() * 40_000));
+    await processOne(sb, id);
+  }
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

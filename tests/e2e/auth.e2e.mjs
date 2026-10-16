@@ -233,6 +233,69 @@ const badRun = mock.rowsOf("automation_runs").find((x) => x.status === "partial"
 r = await call(`/logs/runs/${badRun.id}`); check("a partial run explains what went wrong", r.text.includes("What went wrong") && /scans failed|quota/.test(r.text), "reason missing");
 r = await call("/logs/runs/not-a-uuid"); check("an invalid run id is a 404", r.status === 404, r.status);
 
+// ---- the scheduled pipeline, run by the real worker process (worker/pipeline.ts) against the emulator
+const runWorker = (extra = {}) => new Promise((resolve) => {
+  const out = `${process.env.TMPDIR ?? "/tmp"}/gh-output-${Date.now()}`;
+  const p = spawn("node_modules/.bin/tsx", ["worker/pipeline.ts"], {
+    env: { ...process.env, SUPABASE_URL: `http://127.0.0.1:${MOCK}`, SUPABASE_SERVICE_ROLE_KEY: "service-key", E2E_MOCK_URL: `http://127.0.0.1:${MOCK}`, GITHUB_OUTPUT: out, NODE_OPTIONS: "--conditions=react-server --require ./tests/e2e/redirect-fetch.cjs", ...extra },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let text = ""; p.stdout.on("data", (d) => (text += d)); p.stderr.on("data", (d) => (text += d));
+  p.on("close", async (code) => { const { readFile } = await import("node:fs/promises"); resolve({ code, text, output: await readFile(out, "utf8").catch(() => "") }); });
+});
+const ghJob = (slug, company) => call("/api/jobs/manual", { method: "POST", body: { url: `https://boards.greenhouse.io/${slug}/jobs/1234`, title: "Product Manager", company, description: longDesc, country: "sg" } });
+const dueNow = (id) => { const row = mock.rowsOf("schedules").find((x) => x.id === id); row.next_run_at = new Date(Date.now() - 60_000).toISOString(); };
+
+r = await ghJob("autoco", "AutoCo"); check("a Greenhouse job is added for the pipeline", r.status === 200, `${r.status} ${r.text}`);
+r = await call("/api/schedules", { method: "POST", body: { name: "Auto", frequency: "daily", timezone: "Asia/Singapore", countries: ["sg"], integrations: ["remotive"], mode: "scan_prepare_apply", require_approval: false, max_prepare: 20, max_apply: 5 } });
+const autoId = JSON.parse(r.text).id; check("an auto-applying schedule is created", r.status === 200 && !!autoId, `${r.status} ${r.text}`);
+r = await call("/api/cron/due", { auth: false, headers: { Authorization: `Bearer ${SECRET}` } }); check("the tick endpoint reports nothing due yet", r.status === 200 && r.json?.due === 0 && r.json?.total === 1, `${r.status} ${r.text}`);
+r = await call("/api/cron/due", { auth: false }); check("the tick endpoint is not open to the public", r.status === 401 || r.status === 307, r.status);
+dueNow(autoId);
+r = await call("/api/cron/due", { auth: false, headers: { Authorization: `Bearer ${SECRET}` } }); check("the tick endpoint sees the due schedule", r.json?.due === 1 && r.json.schedules[0] === "Auto", `${r.text}`);
+r = await call("/api/cron/discover", { auth: false, headers: { Authorization: `Bearer ${SECRET}` } }); check("the old fixed-time job stands down once a schedule is active", r.json?.skipped !== undefined, r.text);
+
+let w = await runWorker();
+check("the pipeline worker exits cleanly", w.code === 0, `${w.code} ${w.text.slice(-800)}`);
+const sch1 = mock.rowsOf("schedules").find((x) => x.id === autoId);
+check("the due schedule was claimed: next run moved into the future and the result recorded", new Date(sch1.next_run_at) > new Date() && !!sch1.last_run_at && ["succeeded", "partial"].includes(sch1.last_run_status), JSON.stringify(sch1));
+const pipeRun = mock.rowsOf("automation_runs").filter((x) => x.kind === "pipeline").at(-1);
+check("a pipeline run is recorded for the schedule and finalised", pipeRun?.schedule_id === autoId && pipeRun.trigger === "schedule" && ["succeeded", "partial"].includes(pipeRun.status) && !!pipeRun.finished_at, JSON.stringify(pipeRun));
+check("the run counted scoring, preparation and automatic approval", pipeRun.stats.prepared >= 1 && pipeRun.stats.auto_approved >= 1, JSON.stringify(pipeRun.stats));
+const autoJob = mock.rowsOf("jobs").find((j) => j.company === "AutoCo");
+const autoApp = mock.rowsOf("applications").find((a) => a.job_id === autoJob.id);
+check("the Greenhouse application was prepared and approved for automatic submission", autoApp?.status === "approved" && autoApp.method === "automated", JSON.stringify(autoApp));
+const approvedLog = mock.rowsOf("activity_log").find((l) => l.kind === "application.approved" && l.application_id === autoApp.id);
+check("the approval is logged as made by a schedule, inside the run", approvedLog?.run_id === pipeRun.id && approvedLog.detail.actor === "schedule" && /automatically by a schedule/.test(approvedLog.message), JSON.stringify(approvedLog));
+check("the worker told GitHub how many applications are ready to submit", /ready_to_submit=[1-9]/.test(w.output), w.output);
+check("no GitHub dispatch was attempted for each application", !w.text.includes("dispatch failed"), w.text.slice(-300));
+
+w = await runWorker();
+check("running the worker again finds nothing due and creates no second run", w.code === 0 && /Nothing is due/.test(w.text) && mock.rowsOf("automation_runs").filter((x) => x.kind === "pipeline").length === 1 && /ready_to_submit=0/.test(w.output), `${w.code} ${w.text.slice(-300)}`);
+
+r = await call(`/api/schedules/${autoId}`, { method: "PATCH", body: { paused: true } }); dueNow(autoId);
+w = await runWorker(); check("a paused schedule is never run, even if its time has passed", /Nothing is due/.test(w.text), w.text.slice(-300));
+r = await call(`/api/schedules/${autoId}`, { method: "DELETE" });
+
+r = await ghJob("askco", "AskCo");
+r = await call("/api/schedules", { method: "POST", body: { name: "Ask first", frequency: "daily", timezone: "Asia/Singapore", countries: ["sg"], integrations: ["remotive"], mode: "scan_prepare_apply", require_approval: true, max_prepare: 20, max_apply: 5 } });
+const askId = JSON.parse(r.text).id; dueNow(askId);
+w = await runWorker();
+const askApp = mock.rowsOf("applications").find((a) => a.job_id === mock.rowsOf("jobs").find((j) => j.company === "AskCo").id);
+check("a schedule that asks first prepares the application and leaves it pending approval", w.code === 0 && askApp?.status === "prepared", `${w.code} ${JSON.stringify(askApp)} ${w.text.slice(-300)}`);
+check("nothing was approved by that run", !mock.rowsOf("activity_log").some((l) => l.kind === "application.approved" && l.application_id === askApp.id), "approved");
+r = await call("/schedules"); check("the Schedules page shows the last run and its outcome", /Last run: <!-- -->[^<]*\d{4}/.test(r.text.replace(/\s+/g, " ")) || r.text.includes("(succeeded)") || r.text.includes("(partial)"), "no last-run info");
+r = await call(`/logs/runs/${mock.rowsOf("automation_runs").filter((x) => x.kind === "pipeline").at(-1).id}`); check("the pipeline run has a detail page with its log", r.status === 200 && r.text.includes("pipeline run"), `${r.status}`);
+r = await call(`/api/schedules/${askId}`, { method: "DELETE" });
+
+// "Run now" with no GitHub connection runs the search and scoring part inline and says what was left out
+r = await call("/api/schedules", { method: "POST", body: { name: "Manual", frequency: "daily", timezone: "Asia/Singapore", countries: ["sg"], integrations: ["remotive"], mode: "scan_prepare" } });
+const manId = JSON.parse(r.text).id;
+r = await call(`/api/schedules/${manId}/run`, { method: "POST" }); check("Run now works without the GitHub worker and says what was not run", r.status === 200 && r.json?.where === "inline" && /need the GitHub worker/.test(r.json.note), `${r.status} ${r.text}`);
+r = await call(`/api/schedules/${manId}/run`, { method: "POST" }); check("Run now twice is safe", r.status === 200, `${r.status} ${r.text}`);
+r = await call(`/api/schedules/not-a-uuid/run`, { method: "POST" }); check("Run now with a bad id is a 404", r.status === 404, r.status);
+r = await call(`/api/schedules/${manId}`, { method: "DELETE" });
+
 // ---- models: saved keys are encrypted at rest, used for calls, and removable
 const KEY = "sk-test-key-1234567890";
 mock.modelConfigs.set("e2e-model", { id: "m1", label: "e2e-model", provider: "mock", base_url: `http://127.0.0.1:${MOCK}/v1`, model: "mock-1", api_key_env: "E2E_KEY", tasks: ["score"], priority: 1, daily_cap: null, enabled: true });
@@ -246,6 +309,23 @@ r = await call("/countries"); check("the saved country is shown with its criteri
 r = await call("/logs?kind=config.changed"); check("saving a country is logged", r.text.includes("Country settings saved: Singapore"), "no log entry");
 r = await call("/api/country-prefs?country=sg", { method: "DELETE" }); check("removing a country works", r.status === 200, `${r.status}`);
 r = await call("/api/country-prefs?country=bad", { method: "DELETE" }); check("removing with a bad code is refused", r.status === 400, `${r.status}`);
+
+// ---- schedules
+r = await call("/schedules"); check("Schedules page renders with an empty state", r.status === 200 && r.text.includes("No schedules yet"), `${r.status}`);
+r = await call("/api/schedules", { method: "POST", body: { name: "x", timezone: "Mars/Base" } }); check("an unknown time zone is rejected", r.status === 400 && /time zone/i.test(r.text), `${r.status} ${r.text}`);
+r = await call("/api/schedules", { method: "POST", body: { name: "Weekly", frequency: "weekly" } }); check("a weekly schedule without days is rejected", r.status === 400 && /day/i.test(r.text), `${r.status} ${r.text}`);
+r = await call("/api/schedules", { method: "POST", body: { name: "Morning", frequency: "daily", time_of_day: "08:30", timezone: "Asia/Singapore", mode: "scan_prepare_apply", max_apply: 3, require_approval: false } });
+check("a valid schedule is created with a next run", r.status === 200 && !!JSON.parse(r.text).next_run_at, `${r.status} ${r.text}`);
+const sch = mock.rowsOf("schedules")[0];
+check("the next run is 08:30 in the schedule's own time zone", sch && new Date(sch.next_run_at).toISOString().slice(11, 16) === "00:30", String(sch?.next_run_at));
+r = await call("/schedules"); check("the schedule is listed with its plain-English timing", r.text.includes("Morning") && r.text.includes("Every day at 08:30 (Asia/Singapore)") && r.text.includes("Active"), "missing");
+r = await call(`/api/schedules/${sch.id}`, { method: "PATCH", body: { paused: true } }); check("a schedule can be paused", r.status === 200 && mock.rowsOf("schedules")[0].paused === true && mock.rowsOf("schedules")[0].next_run_at === null, `${r.status} ${r.text}`);
+r = await call("/schedules"); check("a paused schedule shows as Paused with no next run", r.text.includes("Paused") && r.text.includes("not scheduled"), "wrong state");
+r = await call(`/api/schedules/${sch.id}`, { method: "PATCH", body: { paused: false } }); check("a schedule can be resumed", r.status === 200 && !!mock.rowsOf("schedules")[0].next_run_at, `${r.status} ${r.text}`);
+r = await call(`/api/schedules/${sch.id}`, { method: "PUT", body: { name: "Evening", frequency: "weekdays", time_of_day: "18:00", timezone: "Europe/London" } }); check("a schedule can be edited", r.status === 200 && mock.rowsOf("schedules")[0].name === "Evening", `${r.status} ${r.text}`);
+r = await call("/api/schedules/not-a-uuid", { method: "PATCH", body: { paused: true } }); check("an invalid schedule id is a 404", r.status === 404, r.status);
+r = await call("/logs?kind=schedule.changed"); check("schedule changes are logged", r.text.includes("Schedule created: Morning") && r.text.includes("Schedule paused: Morning") && r.text.includes("Schedule edited: Evening"), "log missing");
+r = await call(`/api/schedules/${sch.id}`, { method: "DELETE" }); check("a schedule can be deleted", r.status === 200 && mock.rowsOf("schedules").length === 0, `${r.status}`);
 
 r = await call("/api/models/test", { method: "POST", body: { label: "e2e-model" } }); check("test without any key is refused with a clear message", r.status === 422 && /No key yet/.test(r.text), `${r.status} ${r.text}`);
 r = await call("/api/models/key", { method: "PUT", body: { label: "e2e-model", apiKey: "has spaces in it" } }); check("a key containing spaces is rejected", r.status === 400, `${r.status} ${r.text}`);

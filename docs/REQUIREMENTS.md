@@ -93,3 +93,16 @@ Verified working today and not part of this plan: accounts and owner lock-out, e
 | GitHub token to start workflows (`GITHUB_DISPATCH_TOKEN`, already used for apply) | pipeline, run now | exists |
 | GitHub Actions minutes | hourly tick + pipeline + apply | free tier; hourly tick is about 720 min/month |
 | File storage for documents | resumes, snapshots | Supabase Storage `documents` bucket (exists) |
+
+## 6. Delivery log
+
+| Phase | State | Verified by |
+|---|---|---|
+| 1 Foundation and visibility | Done | migration tests on real Postgres (PGlite), unit tests, end-to-end run against the emulator |
+| 2 Multi-country | Done | per-country queries, remote/sponsorship/salary rules, country filters on jobs, applications, logs, reports, dashboard |
+| 3 Scheduling and automation | Done | schedule logic incl. time-zone/DST tests; the real `worker/pipeline.ts` run end to end against the emulator (claim, run record, prepare, auto-approve vs ask-first, pause, idempotent second run); policy and orchestration unit tests; mutation check on the approval rule |
+| 4 Application records | Next | |
+| 5 Dashboard and daily reports | Planned | |
+| 6 More portal reach | Planned | |
+
+Not exercised against live services: Adzuna/JSearch/Remotive responses, GitHub Actions itself (workflow files are syntax-checked only), Telegram delivery, real employer forms.

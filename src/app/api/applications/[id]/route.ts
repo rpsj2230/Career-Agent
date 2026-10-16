@@ -4,12 +4,8 @@ import { logActivity } from "@/lib/activity";
 import { jobLogFields, type JobRef } from "@/lib/activity-helpers";
 import type { LogEntry } from "@/lib/activity-types";
 import { db, must } from "@/lib/db";
-import { decideApply } from "@/lib/apply/caps";
-import { dispatchApply } from "@/lib/apply/dispatch";
+import { approveApplication } from "@/lib/apply/approve";
 import { logEvent } from "@/lib/apply/events";
-import { loadCapState } from "@/lib/apply/state";
-import { getSetting } from "@/lib/settings";
-import type { ApplyType } from "@/lib/jobs/normalize";
 
 const Body = z.discriminatedUnion("action", [
   z.object({ action: z.literal("approve"), override: z.boolean().optional() }),
@@ -38,38 +34,9 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
 
   switch (body.action) {
     case "approve": {
-      if (!["prepared", "needs_input", "failed"].includes(app.status)) return NextResponse.json({ error: `Already ${app.status}` }, { status: 409 });
-      const docs = must<{ verification: { ok: boolean; issues: unknown[] } | null }[]>(
-        await db().from("documents").select("verification").in("id", [app.resume_doc_id, app.cover_doc_id].filter(Boolean) as string[]), "load documents",
-      );
-      const unverified = docs.filter((d) => d.verification && !d.verification.ok);
-      if (unverified.length && !body.override) {
-        await log({ kind: "application.blocked", level: "warn", message: "Approval blocked: the documents contain claims that are not in your profile", status: "blocked", detail: { issues: unverified.flatMap((d) => d.verification?.issues ?? []) } });
-        return NextResponse.json({ error: "Verification found claims that are not in your profile. Review them or approve with override.", issues: unverified.flatMap((d) => d.verification?.issues ?? []) }, { status: 409 });
-      }
-      const job = must<{ apply_type: ApplyType }>(await db().from("jobs").select("apply_type").eq("id", app.job_id).single(), "load job");
-      const decision = decideApply(job.apply_type, await getSetting("caps"), await loadCapState());
-      if (!decision.allowed) {
-        await log({ kind: "application.blocked", level: "warn", message: `Approval blocked: ${decision.reason}`, status: "blocked", detail: { reason: decision.reason } });
-        return NextResponse.json({ error: decision.reason }, { status: 429 });
-      }
-      const automated = decision.mode === "automated";
-      // Atomic claim: only one concurrent request can move the application out of its pending states.
-      const claimed = must<{ id: string }[]>(
-        await db().from("applications")
-          .update({ status: automated ? "approved" : "assisted_pending", method: decision.mode, approved_at: new Date().toISOString(), error: null })
-          .eq("id", id).in("status", ["prepared", "needs_input", "failed"]).select("id"),
-        "claim application",
-      );
-      if (claimed.length === 0) return NextResponse.json({ error: "Already being processed" }, { status: 409 });
-      await log({ kind: "application.approved", message: `Approved (${decision.mode})${body.override ? " with override of unverified claims" : ""}${decision.reason ? `: ${decision.reason}` : ""}`, status: automated ? "approved" : "assisted_pending", detail: { mode: decision.mode, override: !!body.override, note: decision.reason ?? null } });
-      await logEvent(id, "approved", { mode: decision.mode, override: !!body.override, note: decision.reason ?? null });
-      if (automated) {
-        const err = await dispatchApply(id);
-        if (err) { await logEvent(id, "dispatch_failed", { error: err }); await log({ kind: "application.failed", level: "error", message: `Could not start the apply worker: ${err}`, status: "approved", detail: { error: err } }); }
-        return NextResponse.json({ ok: true, mode: "automated", warning: err });
-      }
-      return NextResponse.json({ ok: true, mode: "assisted", note: decision.reason ?? null });
+      const r = await approveApplication(id, { override: body.override, actor: "user", dispatch: true });
+      if (!r.ok) return NextResponse.json({ error: r.error, issues: r.issues }, { status: r.status });
+      return NextResponse.json(r.mode === "automated" ? { ok: true, mode: "automated", warning: r.warning } : { ok: true, mode: "assisted", note: r.note });
     }
     case "mark_submitted":
       await setApp({ status: "submitted", method: "assisted", submitted_at: new Date().toISOString(), lifecycle: "applied" });
