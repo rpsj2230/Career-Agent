@@ -22,3 +22,14 @@ describe("local model as the final fallback", () => {
     expect(timeoutFor({ provider: "google" })).toBeUndefined();
   });
 });
+
+describe("runner-only model", () => {
+  it("is flagged when the website would call a localhost address", async () => {
+    const { isRunnerOnlyModel } = await import("@/lib/llm/fallback");
+    expect(isRunnerOnlyModel({ provider: "ollama", base_url: "http://127.0.0.1:11434/v1" }, {})).toBe(true);
+    expect(isRunnerOnlyModel({ provider: "ollama", base_url: "" }, {})).toBe(true);
+    expect(isRunnerOnlyModel({ provider: "ollama", base_url: "http://127.0.0.1:11434/v1" }, { LOCAL_MODEL: "qwen2.5:3b" })).toBe(false);
+    expect(isRunnerOnlyModel({ provider: "ollama", base_url: "https://ollama.example.com/v1" }, {})).toBe(false);
+    expect(isRunnerOnlyModel({ provider: "google", base_url: "" }, {})).toBe(false);
+  });
+});
