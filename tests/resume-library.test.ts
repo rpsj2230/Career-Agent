@@ -48,3 +48,10 @@ describe("master resume file types", () => {
     expect(masterExt("resume.doc")).toBeNull();
   });
 });
+
+describe("incomplete rows", () => {
+  it("a document without a date does not break the list", () => {
+    const rows = buildLibrary([{ id: "x", job_id: "j", version: 1, storage_path: "j/r.docx", created_at: undefined as unknown as string, verification: null, job: null }], new Map());
+    expect(rows).toHaveLength(1);
+  });
+});

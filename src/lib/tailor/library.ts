@@ -11,7 +11,7 @@ type Doc = { id: string; job_id: string; version: number; storage_path: string; 
 /** Newest resume per job, with how it was made and how many later resumes were built on it. Newest first. */
 export function buildLibrary(docs: Doc[], lifecycleByJob: Map<string, string>): LibraryRow[] {
   const newest = new Map<string, Doc>();
-  for (const d of [...docs].sort((a, b) => b.created_at.localeCompare(a.created_at))) if (!newest.has(d.job_id)) newest.set(d.job_id, d);
+  for (const d of [...docs].sort((a, b) => String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")))) if (!newest.has(d.job_id)) newest.set(d.job_id, d);
   const usedAgain = new Map<string, number>();
   for (const d of newest.values()) {
     const from = d.verification?.reuse?.from?.jobId;
@@ -21,12 +21,12 @@ export function buildLibrary(docs: Doc[], lifecycleByJob: Map<string, string>): 
     const r = d.verification?.reuse;
     const mode: LibraryRow["mode"] = d.verification?.fallback ? "master" : r?.mode === "reused" ? "reused" : r?.mode === "adapted" ? "adapted" : "fresh";
     return {
-      documentId: d.id, jobId: d.job_id, title: d.job?.title ?? "Job", company: d.job?.company ?? "", country: d.job?.country ?? null, createdAt: d.created_at, version: d.version, storagePath: d.storage_path,
+      documentId: d.id, jobId: d.job_id, title: d.job?.title ?? "Job", company: d.job?.company ?? "", country: d.job?.country ?? null, createdAt: d.created_at ?? "", version: d.version, storagePath: d.storage_path,
       verified: d.verification?.ok === true, style: d.verification?.style ?? null,
       mode,
       sourceTitle: r?.from?.title ?? null, lifecycle: lifecycleByJob.get(d.job_id) ?? "none", usedAgain: usedAgain.get(d.job_id) ?? 0,
     };
-  }).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }).sort((a, b) => String(b.createdAt ?? "").localeCompare(String(a.createdAt ?? "")));
 }
 
 const MODE_TAG: Record<LibraryRow["mode"], string> = { fresh: "written for this job", reused: "reused", adapted: "adapted", master: "master resume" };
