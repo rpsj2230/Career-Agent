@@ -56,6 +56,8 @@ export async function runStructured<S extends z.ZodType>(opts: {
   jobId?: string;
   /** which tier to try first (default: fast for scoring, strong for writing) */
   prefer?: Tier;
+  /** total time allowed across all attempts (for a web request that the host cuts off); each attempt gets what is left */
+  budgetMs?: number;
 }): Promise<{ output: z.infer<S>; model: string; tier: Tier }> {
   const loaded = await loadCandidates(opts.task);
   const keys = loaded.keys;
@@ -64,8 +66,9 @@ export async function runStructured<S extends z.ZodType>(opts: {
   const { value, used } = await runWithFallback(
     opts.task,
     candidates,
-    async (m) => {
-      return callStructured(buildModel(m, keys.get(m.label)), { schema: opts.schema, system: opts.system, prompt: opts.prompt, timeoutMs: timeoutFor(m) });
+    async (m, remaining) => {
+      const own = timeoutFor(m);
+      return callStructured(buildModel(m, keys.get(m.label)), { schema: opts.schema, system: opts.system, prompt: opts.prompt, timeoutMs: remaining === undefined ? own : Math.min(own ?? Infinity, remaining) });
     },
     async (m, ok, ms, error) => {
       await db().from("model_usage").insert({
@@ -78,6 +81,7 @@ export async function runStructured<S extends z.ZodType>(opts: {
         error: error ?? null,
       });
     },
+    opts.budgetMs === undefined ? undefined : Date.now() + opts.budgetMs,
   );
   return { output: value.output, model: used.label, tier: tierOf(used) };
 }

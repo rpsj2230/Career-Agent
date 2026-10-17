@@ -21,9 +21,13 @@ export function ImportBox() {
     setBusy(true);
     try {
       const res = await fetch("/api/profile/import", { method: "POST", body: form });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) toast.error(data.error ?? "Import failed");
+      const raw = await res.text();
+      let data: { error?: string; model?: string } = {};
+      try { data = JSON.parse(raw); } catch { /* the host answered with a plain page, not JSON */ }
+      if (!res.ok) toast.error(data.error ?? (res.status === 413 ? "The files are too large to upload here (the limit is about 4 MB in total). Upload your resume alone, or paste your LinkedIn text instead." : res.status === 504 || res.status === 408 ? "The import took too long and was cut off. Try again, or paste less text." : `Import failed (HTTP ${res.status}): ${raw.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 200) || "no details"}`));
       else { toast.success(`Draft ready (model ${data.model}). Review it below before confirming.`); router.refresh(); }
+    } catch (err) {
+      toast.error(`Import failed: the server could not be reached (${err instanceof Error ? err.message : "network error"}). Check your connection and try again.`);
     } finally { setBusy(false); }
   }
   return (
