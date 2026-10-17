@@ -1,7 +1,9 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { isMissingSchemaError } from "@/lib/schema";
-import { computeNextRun, isDue, ScheduleInput, type ScheduleConfig, type ScheduleRow } from "./schedule";
+import { logConfig } from "./activity-helpers";
+import { BLANK_SCHEDULE, computeNextRun, isDue, ScheduleInput, type ScheduleConfig, type ScheduleRow } from "./schedule";
+import { appTimezone } from "./time";
 
 const fromDb = (r: Record<string, unknown>): ScheduleRow | null => {
   const p = ScheduleInput.safeParse(r);
@@ -84,4 +86,19 @@ export async function recordScheduleRun(id: string, status: string, at = new Dat
 /** True once you have at least one active schedule; the old fixed-time jobs then stand down so nothing runs twice. */
 export async function hasActiveSchedules(): Promise<boolean> {
   try { return (await listSchedules()).rows.some((s) => s.enabled && !s.paused); } catch { return false; }
+}
+
+/**
+ * First-run setup: when no schedule has ever existed, create the recommended one (daily at 09:00, find + score + prepare,
+ * wait for your approval). It happens once: a flag is stored, so deleting the schedule later is respected and it is never
+ * recreated. Nothing is submitted by it: sending needs your approval, or the Auto-Apply switch.
+ */
+export async function seedRecommendedSchedule(existing: number, now = new Date()): Promise<ScheduleRow | null> {
+  if (existing > 0) return null;
+  const flag = await db().from("settings").select("key").eq("key", "schedule_seeded").maybeSingle();
+  if (flag.error || flag.data) return null;
+  const row = await createSchedule({ ...BLANK_SCHEDULE, name: "Daily search and prepare", time_of_day: "09:00", timezone: appTimezone() }, now);
+  await db().from("settings").upsert({ key: "schedule_seeded", value: { at: now.toISOString() }, updated_at: now.toISOString() });
+  await logConfig("Recommended schedule created automatically (first run): daily at 09:00, find, score and prepare; nothing is sent without your approval", { schedule_id: row.id });
+  return row;
 }

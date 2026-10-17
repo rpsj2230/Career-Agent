@@ -345,6 +345,12 @@ const runWorker = (extra = {}) => new Promise((resolve) => {
 const ghJob = (slug, company) => call("/api/jobs/manual", { method: "POST", body: { url: `https://boards.greenhouse.io/${slug}/jobs/1234`, title: "Product Manager", company, description: longDesc, country: "sg" } });
 const dueNow = (id) => { const row = mock.rowsOf("schedules").find((x) => x.id === id); row.next_run_at = new Date(Date.now() - 60_000).toISOString(); };
 
+// first run: the tick creates the recommended schedule once, and a deleted one is not brought back
+r = await call("/api/cron/due", { auth: false, headers: { Authorization: `Bearer ${SECRET}` } }); check("the first tick creates the recommended schedule automatically", r.json?.seeded === true && r.json?.total === 1, r.text);
+const seededRow = mock.rowsOf("schedules")[0];
+check("the automatic schedule only finds, scores and prepares, and asks first", seededRow?.mode === "scan_prepare" && seededRow.require_approval === true && seededRow.time_of_day === "09:00", JSON.stringify(seededRow));
+r = await call(`/api/schedules/${seededRow.id}`, { method: "DELETE" }); check("the automatic schedule can be deleted", r.status === 200, `${r.status} ${r.text}`);
+r = await call("/api/cron/due", { auth: false, headers: { Authorization: `Bearer ${SECRET}` } }); check("a deleted schedule is not recreated", r.json?.seeded === false && r.json?.total === 0, r.text);
 r = await ghJob("autoco", "AutoCo"); check("a Greenhouse job is added for the pipeline", r.status === 200, `${r.status} ${r.text}`);
 r = await call("/api/schedules", { method: "POST", body: { name: "Auto", frequency: "daily", timezone: "Asia/Singapore", countries: ["sg"], integrations: ["remotive"], mode: "scan_prepare_apply", require_approval: false, max_prepare: 20, max_apply: 5 } });
 const autoId = JSON.parse(r.text).id; check("an auto-applying schedule is created", r.status === 200 && !!autoId, `${r.status} ${r.text}`);

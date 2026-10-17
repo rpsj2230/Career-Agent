@@ -3,7 +3,7 @@ import { failStaleRuns } from "@/lib/activity";
 import { checkAssistant } from "@/lib/apply/assistant-health";
 import { checkStaleSources } from "@/lib/integrations/health-check";
 import { isDue } from "@/lib/schedule";
-import { listSchedules } from "@/lib/schedule-store";
+import { listSchedules, seedRecommendedSchedule } from "@/lib/schedule-store";
 
 /**
  * The hourly GitHub Actions tick asks this first, so the heavy job (install, models, browser) only starts when a
@@ -13,8 +13,11 @@ export async function GET() {
   const swept = await failStaleRuns(30);
   const stale = await checkStaleSources();
   const assistantAlerted = await checkAssistant();
-  const { rows, missing } = await listSchedules();
+  const listed = await listSchedules();
+  const { missing } = listed;
+  const seeded = missing ? null : await seedRecommendedSchedule(listed.rows.length).catch(() => null);
+  const rows = seeded ? [...listed.rows, seeded] : listed.rows;
   const now = new Date();
   const due = rows.filter((s) => isDue(s, now));
-  return NextResponse.json({ due: due.length, schedules: due.map((s) => s.name), total: rows.length, missing, swept, staleSources: stale.length, assistantAlerted });
+  return NextResponse.json({ due: due.length, schedules: due.map((s) => s.name), total: rows.length, missing, seeded: !!seeded, swept, staleSources: stale.length, assistantAlerted });
 }
