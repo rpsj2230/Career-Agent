@@ -1,6 +1,6 @@
-import { AlignmentType, BorderStyle, Document, Packer, Paragraph, TabStopType, TextRun } from "docx";
+import { AlignmentType, BorderStyle, Document, HeadingLevel, Packer, Paragraph, TabStopType, TextRun } from "docx";
 import type { CoverLetter, MasterProfile, TailoredResume } from "@/lib/types";
-import { resumeView } from "./sections";
+import { experienceTitle, resumeView } from "./sections";
 import { STYLES, type ResumeStyle, type SectionId } from "./template";
 
 const FONT = "Calibri";
@@ -15,6 +15,7 @@ const run = (text: string, o: { bold?: boolean; italics?: boolean; size?: number
 
 const heading = (text: string) =>
   new Paragraph({
+    heading: HeadingLevel.HEADING_2, // a real heading, so parsers and screen readers find the section
     keepNext: true,
     spacing: { before: 200, after: 80 },
     border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: "9CA3AF", space: 2 } },
@@ -33,13 +34,12 @@ export function resumeParagraphs(p: MasterProfile, t: TailoredResume, style: Res
   ];
   const blocks: Record<SectionId, () => Paragraph[]> = {
     summary: () => (v.summary ? [heading(style.summaryLabel), body(v.summary)] : []),
-    skills: () => (v.skills.length ? [heading("Skills"), body(v.skills.join("  •  "))] : []),
+    skills: () => (v.skills.length ? [heading("Skills"), body(v.skills.join(", "))] : []),
     experience: () => {
-      const out: Paragraph[] = [heading("Experience")];
+      const out: Paragraph[] = [heading("Work Experience")];
       for (const e of v.experience) {
         out.push(
-          new Paragraph({ keepNext: true, spacing: { before: 110, after: 10 }, tabStops: [{ type: TabStopType.RIGHT, position: width }], children: [run(e.title, { bold: true }), run(`  ·  ${e.company}`, { bold: true }), run(`\t${e.dates}`, { color: MUTED })] }),
-          ...(e.location ? [new Paragraph({ keepNext: true, spacing: { after: 30 }, children: [run(e.location, { italics: true, size: 19, color: MUTED })] })] : []),
+          new Paragraph({ keepNext: true, spacing: { before: 110, after: 30 }, tabStops: [{ type: TabStopType.RIGHT, position: width }], children: [run(experienceTitle(e), { bold: true }), run(`\t${e.dates}`, { color: MUTED })] }),
           ...e.bullets.map(bullet),
         );
       }

@@ -27,17 +27,20 @@ export async function scoreStep(ctx: RunCtx, opts: { limit: number; budgetMs: nu
   const started = Date.now();
   const profile = await getProfile();
   if (profile.experience.length === 0) throw new Error("Profile is empty: import and confirm your resume first");
-  const { threshold } = await getSetting("scoring");
+  const { threshold, min_evidence: minEvidence } = await getSetting("scoring");
   const { countries, configured } = await loadEffectiveCountries();
   const countryRules = configured ? countries : undefined;
 
-  const jobs = must<JobRow[]>(
+  // The pool: far more jobs than the model will see. Everything in it is judged by free rules first; only the most promising
+  // few go to the model, best first, so a flood of postings can never burn the model quota and nothing waits behind newer noise.
+  const pool = Math.max(opts.limit * 8, 400);
+  const loaded = must<JobRow[]>(
     await (opts.countries?.length
-      ? db().from("jobs").select("*").eq("status", "new").in("country", opts.countries).order("found_at", { ascending: false }).limit(opts.limit)
-      : db().from("jobs").select("*").eq("status", "new").order("found_at", { ascending: false }).limit(opts.limit)),
+      ? db().from("jobs").select("*").eq("status", "new").in("country", opts.countries).order("found_at", { ascending: false }).limit(pool)
+      : db().from("jobs").select("*").eq("status", "new").order("found_at", { ascending: false }).limit(pool)),
     "load new jobs",
   );
-  const out = { scored: 0, queued: 0, skipped: 0, failed: [] as { id: string; error: string }[], remaining: Math.max(0, jobs.length) };
+  const out = { scored: 0, queued: 0, skipped: 0, failed: [] as { id: string; error: string }[], remaining: Math.max(0, loaded.length) };
 
   const decide = async (job: JobRow, status: "queued" | "skipped", reason: string | null) => {
     const now = new Date().toISOString();
@@ -50,7 +53,9 @@ export async function scoreStep(ctx: RunCtx, opts: { limit: number; budgetMs: nu
     );
   };
 
-  for (const job of jobs) {
+  // 1. free rules: country/remote/pay/visa prefilter, then the evidence check against your profile
+  const candidates: { job: JobRow; evidence: ReturnType<typeof gatherEvidence> }[] = [];
+  for (const job of loaded) {
     if (Date.now() - started > opts.budgetMs) break;
     const ref = { ...jobLogFields(job), run_id: ctx.id };
     const reason = prefilter(job, profile, countryRules);
@@ -61,7 +66,7 @@ export async function scoreStep(ctx: RunCtx, opts: { limit: number; budgetMs: nu
       continue;
     }
     const evidence = gatherEvidence(profile, job);
-    const irrelevant = irrelevantReason(evidence);
+    const irrelevant = irrelevantReason(evidence) ?? (evidence.score < minEvidence ? `Weak match on the rules (${evidence.score}, below your minimum of ${minEvidence}): the title and key terms barely overlap your profile` : null);
     if (irrelevant) {
       // no model quota is spent on a posting that has nothing to do with the profile; the reason and numbers are kept
       const detail = { score: evidence.score, matchedSkills: [], gaps: evidence.missingTerms.slice(0, 8), seniorityFit: "unknown", locationVisaFit: "unknown", salarySignal: "unknown", summary: irrelevant };
@@ -71,6 +76,17 @@ export async function scoreStep(ctx: RunCtx, opts: { limit: number; budgetMs: nu
       ctx.stat("rejected"); ctx.stat("rejected_by_rules"); out.skipped++; out.remaining--;
       continue;
     }
+    candidates.push({ job, evidence });
+  }
+
+  // 2. the model sees the best candidates first, at most `limit` per run; the rest wait (still "new") for the next run
+  candidates.sort((x, y) => y.evidence.score - x.evidence.score);
+  let modelCalls = 0;
+  for (const { job, evidence } of candidates) {
+    if (Date.now() - started > opts.budgetMs) break;
+    if (modelCalls >= opts.limit) break;
+    const ref = { ...jobLogFields(job), run_id: ctx.id };
+    modelCalls++;
     try {
       const scored = await runStructured({ task: "score", schema: JobScore, system: SCORE_SYSTEM, prompt: buildScorePrompt(profile, job, countryRules?.find((c) => c.country === job.country?.toLowerCase()), evidenceText(evidence)), jobId: job.id });
       const model = scored.model;

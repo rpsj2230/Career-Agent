@@ -39,13 +39,16 @@ export function masterAsTailored(p: MasterProfile): TailoredResume {
   };
 }
 
+/** "Job title, Company, Location": the order applicant-tracking parsers expect. */
+export const experienceTitle = (e: { title: string; company: string; location: string | null }) => [e.title, e.company, e.location].filter(Boolean).join(", ");
+
 /** Plain text of a resume, for the preview and for tests. Follows the same section order and labels as the DOCX. */
 export function resumeText(v: ResumeView, style: ResumeStyle = STYLES[0]): string[] {
   const out: string[] = [v.name, ...(v.headline ? [v.headline] : []), v.contact];
   const blocks: Record<SectionId, () => string[]> = {
     summary: () => (v.summary ? [style.summaryLabel.toUpperCase(), v.summary] : []),
-    skills: () => (v.skills.length ? ["SKILLS", v.skills.join("  •  ")] : []),
-    experience: () => ["EXPERIENCE", ...v.experience.flatMap((e) => [`${e.title}  ·  ${e.company}\t${e.dates}`, ...(e.location ? [e.location] : []), ...e.bullets])],
+    skills: () => (v.skills.length ? ["SKILLS", v.skills.join(", ")] : []),
+    experience: () => ["WORK EXPERIENCE", ...v.experience.flatMap((e) => [`${experienceTitle(e)}\t${e.dates}`, ...e.bullets])],
     education: () => (v.education.length ? ["EDUCATION", ...v.education] : []),
     certifications: () => (v.certifications.length ? ["CERTIFICATIONS", ...v.certifications] : []),
   };

@@ -10,7 +10,7 @@ const Schemas = {
     countries: z.array(z.string().length(2).transform((c) => c.toLowerCase())).max(30),
     roles: list, greenhouse_boards: list, lever_companies: list, max_age_days: z.number().int().min(1).max(90),
   }),
-  scoring: z.object({ threshold: z.number().int().min(0).max(100) }),
+  scoring: z.object({ threshold: z.number().int().min(0).max(100), min_evidence: z.number().int().min(0).max(60).default(20) }),
   tailoring: z.object({ reuse_enabled: z.boolean(), reuse_similarity: z.number().min(0.5).max(1), adapt_similarity: z.number().min(0.1).max(0.9) })
     .refine((t) => t.adapt_similarity < t.reuse_similarity, "The adapt level must be lower than the reuse level"),
   retention: z.object({ skipped_days: z.number().int().min(0).max(3650), log_days: z.number().int().min(0).max(3650) }),
