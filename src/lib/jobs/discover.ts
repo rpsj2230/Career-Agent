@@ -1,4 +1,5 @@
 import "server-only";
+import { db } from "@/lib/db";
 import { finishScan, startScan, withRun, type RunCtx } from "@/lib/activity";
 import { type IntegrationId } from "@/lib/integrations/catalog";
 import { resolveCredentials } from "@/lib/integrations/credentials";
@@ -27,7 +28,21 @@ export async function effectiveDiscovery(): Promise<DiscoverySettings> {
   };
 }
 
-export type ScanScope = { only?: IntegrationId; integrations?: string[]; countries?: string[]; budgetMs?: number };
+export type ScanScope = { only?: IntegrationId; integrations?: string[]; countries?: string[]; budgetMs?: number; /** search even if it ran a moment ago (the Scan now button) */ force?: boolean };
+
+const scanKey = (integration: string, country?: string | null, query?: string | null) => `${integration}|${country ?? ""}|${query ?? ""}`;
+
+/** When each search (integration + country + query) last finished successfully, newest first. Tolerates a missing table. */
+async function lastSuccessfulScans(): Promise<Map<string, Date>> {
+  const res = await db().from("portal_scans").select("integration,country,query,started_at").eq("status", "ok").order("started_at", { ascending: false }).limit(4000);
+  const out = new Map<string, Date>();
+  if (res.error) return out;
+  for (const r of res.data as { integration: string; country: string | null; query: string | null; started_at: string }[]) {
+    const k = scanKey(r.integration, r.country, r.query);
+    if (!out.has(k)) out.set(k, new Date(r.started_at));
+  }
+  return out;
+}
 
 /** One scan step inside an existing run (a schedule's pipeline, or the standalone "Find jobs" run). */
 export async function scanStep(ctx: RunCtx, o: ScanScope) {
@@ -40,9 +55,23 @@ export async function scanStep(ctx: RunCtx, o: ScanScope) {
   const { creds } = await resolveCredentials();
   const { states } = await loadIntegrationStates();
   const allowed = o.integrations?.length ? new Set(o.integrations) : null;
-  const specs = buildScanSpecs(settings, creds, (id) => (states.get(id)?.enabled ?? true) && (!allowed || allowed.has(id)), { only: o.only });
+  const last = await lastSuccessfulScans();
+  settings.since = (i, c, q) => last.get(scanKey(i, c, q)) ?? null;
+  let specs = buildScanSpecs(settings, creds, (id) => (states.get(id)?.enabled ?? true) && (!allowed || allowed.has(id)), { only: o.only });
+  // a search that ran moments ago would only find the same jobs: skip it (saves time and free-plan quota)
+  const minHours = settings.min_rescan_hours ?? 6;
+  let recentlySearched = 0;
+  if (!o.force && minHours > 0) {
+    const fresh = specs.filter((sp) => { const at = last.get(scanKey(sp.integration, sp.country, sp.query)); return at && Date.now() - at.getTime() < minHours * 3_600_000; });
+    if (fresh.length) {
+      specs = specs.filter((sp) => !fresh.includes(sp));
+      recentlySearched = fresh.length;
+      ctx.stat("recently_searched", fresh.length);
+    }
+  }
   if (specs.length === 0) {
-    ctx.markPartial("Nothing to scan: no connected integration is ready. Connect one on the Portals page.");
+    // everything was searched within the last few hours: that is a success, not a problem
+    if (recentlySearched === 0) ctx.markPartial("Nothing to scan: no connected integration is ready. Connect one on the Portals page.");
     return { outcomes: [], skipped: 0, legacy: false, settings };
   }
   const known = await loadKnownJobs();
@@ -71,6 +100,6 @@ export async function scanStep(ctx: RunCtx, o: ScanScope) {
  * Scan the connected integrations inside a recorded run. Every scan, its counts and its errors are stored;
  * a failing source marks the run partial rather than losing the others; the run is always finalised.
  */
-export async function discoverNow(o: { trigger: RunTrigger; only?: IntegrationId; budgetMs?: number; scheduleId?: string | null }) {
-  return withRun({ trigger: o.trigger, kind: "scan", schedule_id: o.scheduleId ?? null, scope: { only: o.only ?? "all" } }, (ctx) => scanStep(ctx, { only: o.only, budgetMs: o.budgetMs }));
+export async function discoverNow(o: { trigger: RunTrigger; only?: IntegrationId; budgetMs?: number; scheduleId?: string | null; force?: boolean }) {
+  return withRun({ trigger: o.trigger, kind: "scan", schedule_id: o.scheduleId ?? null, scope: { only: o.only ?? "all" } }, (ctx) => scanStep(ctx, { only: o.only, budgetMs: o.budgetMs, force: o.force }));
 }

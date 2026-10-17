@@ -9,7 +9,7 @@ const list = z.array(z.string().trim().min(1).max(80)).max(50);
 const Schemas = {
   discovery: z.object({
     countries: z.array(z.string().length(2).transform((c) => c.toLowerCase())).max(30),
-    roles: list, greenhouse_boards: list, lever_companies: list, max_age_days: z.number().int().min(1).max(90),
+    roles: list, greenhouse_boards: list, lever_companies: list, max_age_days: z.number().int().min(1).max(90), min_rescan_hours: z.number().int().min(0).max(168).default(6),
   }),
   scoring: z.object({ threshold: z.number().int().min(0).max(100), min_evidence: z.number().int().min(0).max(60).default(20) }),
   tailoring: z.object({ reuse_enabled: z.boolean(), reuse_similarity: z.number().min(0.5).max(1), adapt_similarity: z.number().min(0.1).max(0.9) })

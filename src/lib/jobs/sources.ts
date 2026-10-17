@@ -15,6 +15,10 @@ export type DiscoverySettings = {
   perCountry?: EffectiveCountry[];
   /** hosted scrapers to run (Settings: Portals > Hosted scrapers) */
   apify_actors?: ApifyActor[];
+  /** when this search last succeeded (a search only needs jobs newer than that); absent = first run, use the full window */
+  since?: (integration: IntegrationId, country: string | undefined, query: string | undefined) => Date | null;
+  /** searches that ran within this many hours are skipped by the caller (see discover.ts) */
+  min_rescan_hours?: number;
   /** monthly job budget for hosted scrapers (see apify-usage.ts); absent = unlimited */
   apify_budget?: { remaining: () => Promise<number>; record: (n: number) => Promise<void> };
 };
@@ -68,6 +72,16 @@ export function jsonFetcher(fetchImpl: FetchLike = fetch) {
 }
 
 /**
+ * How many days back one search needs to look: since its last successful run (plus a day of overlap for time zones and late
+ * postings), never more than the configured maximum age. The first run of a search looks back the full window.
+ */
+export function windowDays(s: DiscoverySettings, spec: { integration: IntegrationId; country?: string; query?: string }, now = Date.now()): number {
+  const since = s.since?.(spec.integration, spec.country, spec.query);
+  if (!since) return s.max_age_days;
+  return Math.max(1, Math.min(s.max_age_days, Math.ceil((now - since.getTime()) / 86_400_000) + 1));
+}
+
+/**
  * Expand settings into the individual scans to run. An integration is included only if it is enabled and has what
  * it needs (credentials, boards). `only` limits the list to one integration (the "Scan now" button).
  */
@@ -88,7 +102,7 @@ export function buildScanSpecs(
     const { app_id, app_key } = creds.adzuna;
     for (const q of queries.filter((q) => ADZUNA_COUNTRIES.includes(q.country))) {
       specs.push({ integration: "adzuna", country: q.country, query: label(q), fetch: async () => {
-        const p = new URLSearchParams({ app_id, app_key, results_per_page: "30", what: q.remote === "remote_only" ? `${q.title} remote` : q.title, max_days_old: String(s.max_age_days), "content-type": "application/json" });
+        const p = new URLSearchParams({ app_id, app_key, results_per_page: "30", what: q.remote === "remote_only" ? `${q.title} remote` : q.title, max_days_old: String(windowDays(s, { integration: "adzuna", country: q.country, query: label(q) })), "content-type": "application/json" });
         if (q.location) p.set("where", q.location);
         const data = await get(`https://api.adzuna.com/v1/api/jobs/${q.country}/search/1?${p}`);
         return (data.results ?? []).map((r: unknown) => mapAdzuna(r, q.country));
@@ -100,7 +114,7 @@ export function buildScanSpecs(
     const { rapidapi_key } = creds.jsearch;
     for (const q of queries) {
       specs.push({ integration: "jsearch", country: q.country, query: label(q), fetch: async () => {
-        const p = new URLSearchParams({ query: label(q), country: q.country, date_posted: s.max_age_days <= 7 ? "week" : "month", num_pages: "1" });
+        const p = new URLSearchParams({ query: label(q), country: q.country, date_posted: ((d) => (d <= 1 ? "today" : d <= 3 ? "3days" : d <= 7 ? "week" : "month"))(windowDays(s, { integration: "jsearch", country: q.country, query: label(q) })), num_pages: "1" });
         if (q.remote === "remote_only") p.set("remote_jobs_only", "true");
         const data = await get(`https://jsearch.p.rapidapi.com/search?${p}`, { headers: { "X-RapidAPI-Key": rapidapi_key, "X-RapidAPI-Host": "jsearch.p.rapidapi.com" } });
         return (data.data ?? []).map(mapJSearch);
@@ -148,7 +162,7 @@ export function buildScanSpecs(
           const left = s.apify_budget ? await s.apify_budget.remaining() : Number.MAX_SAFE_INTEGER;
           if (left <= 0) throw new Error("The monthly Apify job budget is used up (see Scrapers on the Portals page). It resets next month, or raise the budget if your Apify plan allows.");
           const max = Math.min(actor.max_items, left);
-          const items = await runActor(token, { ...actor, max_items: max }, templateVars(q, s.max_age_days, max), opts.apifyFetch);
+          const items = await runActor(token, { ...actor, max_items: max }, templateVars(q, windowDays(s, { integration: "apify", country: q.country, query: `${actor.portal}: ${label(q)}` }), max), opts.apifyFetch);
           await s.apify_budget?.record(items.length);
           return items.map((i) => mapApifyItem(i, actor, q.country)).filter((j): j is NormalizedJob => j !== null);
         } });
@@ -168,7 +182,7 @@ export function buildScanSpecs(
 
   if (want("mailbox") && creds.mailbox) {
     const cfg = creds.mailbox;
-    specs.push({ integration: "mailbox", query: `${cfg.folder || "INBOX"} (alert emails)`, fetch: async () => (await scanMailbox((opts.mailSource ?? imapSource)(cfg), { sinceDays: Math.min(s.max_age_days, 30) })).jobs });
+    specs.push({ integration: "mailbox", query: `${cfg.folder || "INBOX"} (alert emails)`, fetch: async () => (await scanMailbox((opts.mailSource ?? imapSource)(cfg), { sinceDays: Math.min(windowDays(s, { integration: "mailbox", query: `${cfg.folder || "INBOX"} (alert emails)` }), 30) })).jobs });
   }
 
   if (want("greenhouse")) {
@@ -187,7 +201,15 @@ export function buildScanSpecs(
       } });
     }
   }
-  return specs;
+  // whatever a source returns, only jobs inside this search's window go on to be stored
+  return specs.map((spec) => {
+    const days = windowDays(s, spec);
+    if (days >= s.max_age_days) return spec;
+    return { ...spec, fetch: async () => {
+      const cutoff = Date.now() - days * 86_400_000;
+      return (await spec.fetch()).filter((j) => !j.postedAt || new Date(j.postedAt).getTime() >= cutoff);
+    } };
+  });
 }
 
 /** A minimal real request per integration, so "Test" proves the credentials and the endpoint work. */
