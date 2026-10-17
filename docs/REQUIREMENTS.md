@@ -193,3 +193,9 @@ Verified by an end-to-end run with a sloppy model (fenced JSON, invented first d
 - **Apply-success dashboard.** The dashboard shows, for the last 30 days, per channel (Greenhouse, Lever, Ashby, Workable, assistant on your computer, by hand): attempts, submitted, needing you, failed, success rate and the top reasons.
 - **Assistant heartbeat.** The assistant on your computer reports in at every batch. If applications are waiting for it (hands-free or watching) and it has not been seen for about 3 hours outside the working hours you set, you get one alert (at most twice a day). The dashboard shows when it was last seen.
 - **Weekly live dry run.** A weekly workflow (`canary.yml`, or `npm run canary`) opens a few recent real postings on each automatic apply system, fills the form with made-up details and **never submits**. If a system's forms can no longer be opened and filled, you are alerted before real applications fail. Healthy runs are silent apart from the activity log.
+
+## Approve from your phone
+
+- After each scheduled run, the best newly prepared applications (up to five, highest fit first, each only once) are sent to Telegram with **Approve** and **Skip** buttons. Approve goes through exactly the same checks as the button in the app (verification, daily caps, atomic claim, activity log); Skip records the decision.
+- Connect once with **Settings → Connect Telegram buttons** (needs `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, and `APP_URL` set to the https address). This registers `/api/telegram/webhook` with Telegram.
+- Security: the webhook is the only public endpoint added. It requires Telegram's secret header (derived from the bot token, compared in constant time) and ignores any press that does not come from your configured chat. Button data holds only an action and an application id; unknown or malformed data is rejected.

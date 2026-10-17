@@ -99,6 +99,11 @@ export function SettingsForm({ discovery, scoring, caps, tailoring, blocklist, r
       </Card>
 
       <Card>
+        <CardHeader><CardTitle>Approve from your phone</CardTitle><CardDescription>New prepared applications are sent to your Telegram with Approve and Skip buttons. Needs TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID on the deployed app and APP_URL set to its https address. Only button presses from your own chat are accepted.</CardDescription></CardHeader>
+        <CardContent><Button variant="outline" onClick={async () => { await call("/api/telegram/setup", "POST", {}, "Telegram buttons are connected"); }}>Connect Telegram buttons</Button></CardContent>
+      </Card>
+
+      <Card>
         <CardHeader><CardTitle>Blocklist</CardTitle><CardDescription>Jobs matching any of these are skipped for free, before anything else, with the reason kept.</CardDescription></CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-2">
           <div className="grid gap-1"><Label htmlFor="blc">Companies (part of the name is enough)</Label><Input id="blc" value={bl.companies} placeholder="acme staffing, globex" onChange={(e) => setBl({ ...bl, companies: e.target.value })} /></div>

@@ -8,6 +8,7 @@ import { db, must } from "@/lib/db";
 import { withLegacyFallback } from "@/lib/schema";
 import { approveApplication } from "@/lib/apply/approve";
 import { logEvent } from "@/lib/apply/events";
+import { skipApplication } from "@/lib/apply/skip";
 
 const Body = z.discriminatedUnion("action", [
   z.object({ action: z.literal("approve"), override: z.boolean().optional() }),
@@ -56,9 +57,7 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
       return NextResponse.json({ ok: true });
     }
     case "skip":
-      await setJob({ status: "skipped", skip_reason: "Skipped by you" });
-      await logEvent(id, "skipped");
-      await log({ kind: "application.skipped", message: "Skipped by you", status: "skipped" });
+      await skipApplication(id);
       return NextResponse.json({ ok: true });
     case "save":
       await setJob({ status: "saved" });
