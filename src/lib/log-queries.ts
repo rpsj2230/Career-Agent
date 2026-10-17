@@ -52,16 +52,17 @@ export type ScanRow2 = {
   started_at: string; finished_at: string | null; fetched: number; inserted: number; duplicates: number; stale: number; invalid: number; error: string | null; detail: Record<string, unknown> | null;
 };
 
-export async function listRuns(o: { status?: string; kind?: string; from?: string; to?: string; tz?: string; limit?: number }): Promise<{ rows: RunRow[]; missing: boolean }> {
-  let q = db().from("automation_runs").select("*");
+export async function listRuns(o: { status?: string; kind?: string; from?: string; to?: string; tz?: string; limit?: number; page?: number }): Promise<{ rows: RunRow[]; missing: boolean; total: number }> {
+  let q = db().from("automation_runs").select("*", { count: "exact" });
   if (o.status) q = q.eq("status", o.status);
   if (o.kind) q = q.eq("kind", o.kind);
   const from = o.from ? localDayBounds(o.from, o.tz) : null, to = o.to ? localDayBounds(o.to, o.tz) : null;
   if (from) q = q.gte("started_at", from.from);
   if (to) q = q.lte("started_at", to.to);
-  const res = await q.order("started_at", { ascending: false }).limit(o.limit ?? 100);
-  if (res.error) { if (isMissingSchemaError(res.error.message)) return { rows: [], missing: true }; throw new Error(`load runs: ${res.error.message}`); }
-  return { rows: res.data as RunRow[], missing: false };
+  const size = o.limit ?? 100, start = (Math.max(1, o.page ?? 1) - 1) * size;
+  const res = await q.order("started_at", { ascending: false }).range(start, start + size - 1);
+  if (res.error) { if (isMissingSchemaError(res.error.message)) return { rows: [], missing: true, total: 0 }; throw new Error(`load runs: ${res.error.message}`); }
+  return { rows: res.data as RunRow[], missing: false, total: res.count ?? (res.data as RunRow[]).length };
 }
 
 export async function getRun(id: string): Promise<{ run: RunRow | null; scans: ScanRow2[] }> {

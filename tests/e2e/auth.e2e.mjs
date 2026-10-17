@@ -255,6 +255,10 @@ const zeta = mock.rowsOf("jobs").find((j) => j.company === "Zeta Pte");
 check("the job's status and decision time are saved", zeta?.status === "queued" && !!zeta.decided_at, JSON.stringify(zeta));
 check("the rejected job keeps its reason on the job", /outside your target countries|not enabled on your Countries page/.test(mock.rowsOf("jobs").find((j) => j.company === "US Co")?.skip_reason ?? ""), "no reason");
 r = await call("/jobs?view=skipped"); check("the Rejected view shows why each job was rejected", /outside your target countries|not enabled on your Countries page/.test(r.text) && r.text.includes("below threshold"), `${r.status}`);
+r = await call("/jobs?view=skipped&size=25&page=1"); check("the job list shows a page with its count", r.status === 200 && /Showing 1-\d+ of \d+/.test(r.text.replace(/<[^>]+>/g, "")), `${r.status}`);
+r = await call("/jobs?view=skipped&page=999"); check("a page number past the end still renders (the last page)", r.status === 200, `${r.status}`);
+r = await call("/applications?page=2&size=50"); check("the applications list paginates without error", r.status === 200, `${r.status}`);
+r = await call("/logs/runs?page=1&size=25"); check("the runs list paginates without error", r.status === 200, `${r.status}`);
 
 // prepare, approve (assisted: Naukri), submit
 r = await call(`/api/jobs/${zeta.id}/prepare`, { method: "POST" }); check("prepare tailors a resume and cover letter", r.status === 200 && r.json?.verified === true, `${r.status} ${r.text}`);

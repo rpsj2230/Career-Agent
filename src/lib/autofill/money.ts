@@ -70,3 +70,9 @@ export function convertAmount(a: Amount, to: string): Amount | null {
   const f = (n: number) => roundNice((n / PER_USD[a.currency]) * PER_USD[to]);
   return { min: f(a.min), max: a.max === null ? null : f(a.max), currency: to };
 }
+
+/** Value in US dollars at the approximate rates, or null for an unknown currency. */
+export const toUsd = (n: number, currency: string): number | null => (knownCurrency(currency) ? n / PER_USD[currency] : null);
+/** US dollars to another currency (unrounded), or null for an unknown currency. */
+export const fromUsd = (usd: number, currency: string): number | null => (knownCurrency(currency) ? usd * PER_USD[currency] : null);
+export const roundMoney = roundNice;

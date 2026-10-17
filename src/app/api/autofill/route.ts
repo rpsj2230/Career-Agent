@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { logConfig } from "@/lib/activity-helpers";
-import { fillEmpty, suggestCountry } from "@/lib/autofill/countries";
+import { autoOf, fillEmpty, suggestCountry } from "@/lib/autofill/countries";
 import { fillPreferences } from "@/lib/autofill/preferences";
 import { COUNTRY_NAME_MAP } from "@/lib/countries";
-import { ensureCountryDefaults, listCountryPrefs, saveCountryPref } from "@/lib/country-prefs-store";
+import { ensureCountryDefaults, listCountryPrefs, loadAutofillSnapshots, saveAutofillSnapshots, saveCountryPref } from "@/lib/country-prefs-store";
 import { getProfile, saveProfile } from "@/lib/profile/store";
 
 const Body = z.object({ scope: z.enum(["country", "countries", "preferences"]), country: z.string().regex(/^[a-z]{2}$/).optional() });
@@ -30,10 +30,13 @@ export async function POST(request: Request) {
     const created = await ensureCountryDefaults(profile, true);
     const { rows } = await listCountryPrefs();
     const touched: string[] = [];
+    const snaps = await loadAutofillSnapshots();
     for (const r of rows) {
-      const { pref, changed } = fillEmpty(r, suggestCountry(profile, r.country));
+      const { pref, changed, snapshot } = fillEmpty(r, suggestCountry(profile, r.country), snaps[r.country]);
+      snaps[r.country] = snapshot;
       if (changed.length) { await saveCountryPref(pref); touched.push(r.country); }
     }
+    await saveAutofillSnapshots(snaps);
     await logConfig("Countries filled from your profile", { created, filled: touched });
     return NextResponse.json({ ok: true, created, filled: touched, note: created.length + touched.length ? "Countries filled from your profile" : "Nothing was empty" });
   }
@@ -43,7 +46,9 @@ export async function POST(request: Request) {
   const { rows } = await listCountryPrefs();
   const existing = rows.find((r) => r.country === country);
   const s = suggestCountry(profile, country);
-  const { pref, changed } = existing ? fillEmpty(existing, s) : { pref: s.pref, changed: s.filled };
+  const snaps = await loadAutofillSnapshots();
+  const { pref, changed, snapshot } = existing ? fillEmpty(existing, s, snaps[country]) : { pref: s.pref, changed: s.filled, snapshot: autoOf(s.pref) };
+  snaps[country] = snapshot; await saveAutofillSnapshots(snaps);
   if (changed.length) { await saveCountryPref(pref); await logConfig(`Country filled from your profile: ${COUNTRY_NAME_MAP[country] ?? country}`, { country, filled: changed }); }
   return NextResponse.json({ ok: true, filled: changed, note: changed.length ? `Filled: ${changed.join(", ")}` : "Nothing was empty to fill" });
 }

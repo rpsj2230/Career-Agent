@@ -9,12 +9,16 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { APP_STATUSES, countryLabel, parseAppFilters } from "@/lib/filters";
 import { filterOptions, listApplications } from "@/lib/queries";
 import { fmtDateTime } from "@/lib/time";
+import { Pagination } from "@/components/app/pagination";
+import { parsePaging } from "@/lib/pagination";
 
 export const dynamic = "force-dynamic";
 
 export default async function ApplicationsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  const f = parseAppFilters(await searchParams);
-  const [{ rows, portalUnavailable }, opts] = await Promise.all([listApplications(f), filterOptions()]);
+  const sp = await searchParams;
+  const f = parseAppFilters(sp);
+  const paging = parsePaging(sp);
+  const [{ rows, total, page, pages, shownFrom, shownTo, portalUnavailable }, opts] = await Promise.all([listApplications(f, paging), filterOptions()]);
   const fmt = (d: string | null) => fmtDateTime(d);
   const exportQuery = new URLSearchParams(Object.entries({ portal: f.portal, country: f.country }).filter(([, v]) => v) as [string, string][]).toString();
   return (
@@ -30,7 +34,7 @@ export default async function ApplicationsPage({ searchParams }: { searchParams:
       />
       {portalUnavailable && <Alert><AlertDescription>Portal filters are not available until the database update is applied (see System).</AlertDescription></Alert>}
       <Card>
-        <CardHeader><CardTitle>{rows.length} application{rows.length === 1 ? "" : "s"} · {APP_STATUSES[f.status].label}</CardTitle></CardHeader>
+        <CardHeader><CardTitle>{total} application{total === 1 ? "" : "s"} · {APP_STATUSES[f.status].label}{pages > 1 ? ` · page ${page} of ${pages}` : ""}</CardTitle></CardHeader>
         <CardContent>
           {rows.length === 0 ? <p className="text-sm text-muted-foreground">Nothing here for these filters. Open a job from the review queue and prepare it.</p> : (
             <Table>
@@ -51,6 +55,7 @@ export default async function ApplicationsPage({ searchParams }: { searchParams:
               </TableBody>
             </Table>
           )}
+          <Pagination basePath="/applications" sp={sp} page={page} pages={pages} size={paging.size} total={total} shownFrom={shownFrom} shownTo={shownTo} />
         </CardContent>
       </Card>
     </div>

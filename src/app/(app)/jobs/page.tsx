@@ -9,12 +9,16 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { countryLabel, JOB_VIEWS, parseJobFilters } from "@/lib/filters";
 import { filterOptions, listJobs, scoreOf } from "@/lib/queries";
 import { fmtDate } from "@/lib/time";
+import { Pagination } from "@/components/app/pagination";
+import { parsePaging } from "@/lib/pagination";
 
 export const dynamic = "force-dynamic";
 
 export default async function JobsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  const f = parseJobFilters(await searchParams);
-  const [{ rows: jobs, portalUnavailable }, opts] = await Promise.all([listJobs(f), filterOptions()]);
+  const sp = await searchParams;
+  const f = parseJobFilters(sp);
+  const paging = parsePaging(sp);
+  const [{ rows: jobs, total, page, pages, shownFrom, shownTo, portalUnavailable }, opts] = await Promise.all([listJobs(f, paging), filterOptions()]);
   const showReasons = f.view === "skipped";
   return (
     <div className="grid gap-4">
@@ -33,7 +37,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
       />
       {portalUnavailable && <Alert><AlertDescription>Portal details are not available until the database update is applied (see System).</AlertDescription></Alert>}
       <Card>
-        <CardHeader><CardTitle>{jobs.length} job{jobs.length === 1 ? "" : "s"} · {JOB_VIEWS[f.view].label}</CardTitle></CardHeader>
+        <CardHeader><CardTitle>{total} job{total === 1 ? "" : "s"} · {JOB_VIEWS[f.view].label}{pages > 1 ? ` · page ${page} of ${pages}` : ""}</CardTitle></CardHeader>
         <CardContent>
           {jobs.length === 0 ? (
             <p className="text-sm text-muted-foreground">Nothing here for these filters. Run discovery, add a job you found yourself, or change the filters.</p>
@@ -59,6 +63,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
               </TableBody>
             </Table>
           )}
+          <Pagination basePath="/jobs" sp={sp} page={page} pages={pages} size={paging.size} total={total} shownFrom={shownFrom} shownTo={shownTo} />
         </CardContent>
       </Card>
     </div>
