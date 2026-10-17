@@ -217,6 +217,13 @@ r = await call("/api/integrations/adzuna/scan", { method: "POST" }); check("with
 // ---- the whole pipeline: profile -> scoring decisions -> prepare -> approve -> submit, with everything logged
 const PROFILE = { basics: { name: "Asha Rao", email: "asha@example.com", phone: "+65 8000 0000", location: "Singapore", headline: "Product Manager", summary: "PM with 6 years", links: [] }, preferences: { countries: ["sg"], roles: ["Product Manager"] }, experience: [{ id: "exp1", company: "Acme", title: "Product Manager", start: "2020", end: "Present", bullets: [{ id: "exp1.b1", text: "Grew activation by 24%" }] }], education: [], skills: [{ id: "skill1", name: "SQL" }], certifications: [] };
 r = await call("/api/profile/confirm", { method: "POST", body: PROFILE }); check("profile confirmed", r.status === 200, `${r.status} ${r.text}`);
+{
+  const cp = mock.rowsOf("country_prefs");
+  check("confirming the profile creates an entry for each of its countries, filled from the profile", cp.length >= 1 && cp.every((c) => c.titles.length > 0), JSON.stringify(cp));
+  r = await call("/api/autofill", { method: "POST", body: { scope: "countries" } }); check("'Fill from my profile' runs and reports", r.status === 200 && r.json?.ok === true, `${r.status} ${r.text}`);
+  r = await call("/api/autofill", { method: "POST", body: { scope: "nonsense" } }); check("an unknown autofill scope is refused", r.status === 400, `${r.status}`);
+  r = await call("/api/autofill", { method: "POST", auth: false, body: { scope: "countries" } }); check("autofill is not open to the public", r.status === 401 || r.status === 307, r.status);
+}
 const PIPE_KEY = "pipe-key-1234567890";
 mock.modelConfigs.set("e2e-pipeline", { id: "m2", label: "e2e-pipeline", provider: "mock", base_url: `http://127.0.0.1:${MOCK}/v1`, model: "mock-2", api_key_env: "E2E_PIPE_KEY", tasks: ["score", "tailor", "extract"], priority: 0, daily_cap: null, enabled: true });
 r = await call("/api/models/key", { method: "PUT", body: { label: "e2e-pipeline", apiKey: PIPE_KEY } }); check("pipeline model key saved", r.status === 200, r.status);
@@ -239,15 +246,15 @@ const scoreRun = mock.rowsOf("automation_runs").filter((x) => x.kind === "score"
 check("scoring is a recorded run with counters", scoreRun?.status === "succeeded" && scoreRun.stats.matched >= 4 && scoreRun.stats.rejected >= 2, JSON.stringify(scoreRun));
 const logs = () => mock.rowsOf("activity_log");
 const usRej = logs().find((l) => l.kind === "job.rejected" && l.company === "US Co");
-check("a country rejection is logged with its reason, portal and country", usRej?.detail?.stage === "prefilter" && /outside your target countries/.test(usRej.message) && usRej.country === "us" && usRej.portal === "naukri" && usRej.run_id === scoreRun.id, JSON.stringify(usRej));
+check("a country rejection is logged with its reason, portal and country", usRej?.detail?.stage === "prefilter" && /outside your target countries|not enabled on your Countries page/.test(usRej.message) && usRej.country === "us" && usRej.portal === "naukri" && usRej.run_id === scoreRun.id, JSON.stringify(usRej));
 const fitRej = logs().find((l) => l.kind === "job.rejected" && l.company === "Gamma Pte Ltd");
 check("a fit rejection is logged with score, threshold and the model's reason", fitRej?.detail?.stage === "fit" && fitRej.detail.score === 43 && fitRej.detail.adjustments?.length === 1 && /raised/.test(fitRej.detail.adjustments[0]) && /below threshold 65/.test(fitRej.message) && /Too senior/.test(fitRej.message), JSON.stringify(fitRej));
 const matched = logs().find((l) => l.kind === "job.matched" && l.company === "Zeta Pte");
 check("a match is logged with its score and the matched skills", matched?.detail?.score === 82 && matched.detail.matchedSkills?.includes("SQL") && matched.status === "matched", JSON.stringify(matched));
 const zeta = mock.rowsOf("jobs").find((j) => j.company === "Zeta Pte");
 check("the job's status and decision time are saved", zeta?.status === "queued" && !!zeta.decided_at, JSON.stringify(zeta));
-check("the rejected job keeps its reason on the job", /outside your target countries/.test(mock.rowsOf("jobs").find((j) => j.company === "US Co")?.skip_reason ?? ""), "no reason");
-r = await call("/jobs?view=skipped"); check("the Rejected view shows why each job was rejected", r.text.includes("outside your target countries") && r.text.includes("below threshold"), `${r.status}`);
+check("the rejected job keeps its reason on the job", /outside your target countries|not enabled on your Countries page/.test(mock.rowsOf("jobs").find((j) => j.company === "US Co")?.skip_reason ?? ""), "no reason");
+r = await call("/jobs?view=skipped"); check("the Rejected view shows why each job was rejected", /outside your target countries|not enabled on your Countries page/.test(r.text) && r.text.includes("below threshold"), `${r.status}`);
 
 // prepare, approve (assisted: Naukri), submit
 r = await call(`/api/jobs/${zeta.id}/prepare`, { method: "POST" }); check("prepare tailors a resume and cover letter", r.status === 200 && r.json?.verified === true, `${r.status} ${r.text}`);
@@ -317,7 +324,7 @@ r = await call("/logs?category=job"); check("type filter shows job events only",
 r = await call("/logs?country=us"); check("country filter shows only that country", r.text.includes("US Co") && !r.text.includes("Zeta Pte"), "wrong rows");
 r = await call("/logs?company=zeta"); check("company filter matches part of the name, case-insensitively", r.text.includes("Zeta Pte") && !r.text.includes("US Co"), "wrong rows");
 r = await call("/logs?portal=naukri&status=rejected"); check("portal and status filters combine", r.text.includes("US Co") && !r.text.includes("Zeta Pte"), "wrong rows");
-r = await call("/logs?q=outside+your+target"); check("text search finds the rejection reason", r.text.includes("US Co") && !r.text.includes("Zeta Pte"), "wrong rows");
+r = await call("/logs?q=Countries+page"); check("text search finds the rejection reason", r.text.includes("US Co") && !r.text.includes("Zeta Pte"), "wrong rows");
 r = await call(`/logs?run=${scoreRun.id}`); check("run filter shows what happened in that run", r.text.includes("Matched (fit") && r.text.includes("score run succeeded") && !r.text.includes("Application prepared for"), "wrong rows");
 r = await call(`/logs?job=${zeta.id}`); check("job filter follows one job through its history", r.text.includes("Matched (fit") && r.text.includes("Application prepared for") && !r.text.includes("US Co") && !r.text.includes("Gamma Pte"), "wrong rows");
 r = await call(`/logs?from=${istToday}&to=${istToday}`); check("a date range in the display time zone includes today's events", r.text.includes("job.matched"), "missing");
