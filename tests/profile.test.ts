@@ -61,3 +61,26 @@ describe("cleanPastedProfile", () => {
     expect(out).not.toMatch(/\n{3,}/);
   });
 });
+
+describe("sloppy extraction output is read as meant", () => {
+  it("accepts nulls, missing fields, numbers as text, single items and {name} objects", async () => {
+    const { ExtractedProfile } = await import("@/lib/profile/ids");
+    const r = ExtractedProfile.parse({
+      basics: { name: "A B", email: null, phone: 12345, links: "https://linkedin.com/in/ab" },
+      experience: [{ company: "Acme", title: "PM", start: 2019, end: null, bullets: ["Did x"] }, { company: "Beta", title: "Lead" }],
+      education: { school: "Uni", degree: "BTech" },
+      skills: [{ name: "SQL" }, "Python", ""],
+    });
+    expect(r.basics).toMatchObject({ name: "A B", email: "", phone: "12345", links: ["https://linkedin.com/in/ab"] });
+    expect(r.experience[0]).toMatchObject({ start: "2019", end: undefined });
+    expect(r.experience[1].bullets).toEqual([]);
+    expect(r.education).toHaveLength(1);
+    expect(r.skills).toEqual(["SQL", "Python"]);
+    expect(r.certifications).toEqual([]);
+    expect(r.conflicts).toEqual([]);
+  });
+  it("accepts an empty object", async () => {
+    const { ExtractedProfile } = await import("@/lib/profile/ids");
+    expect(ExtractedProfile.safeParse({}).success).toBe(true);
+  });
+});
