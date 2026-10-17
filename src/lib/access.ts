@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 
-/** Pages and endpoints reachable without a session. Everything else needs an allowed signed-in user. */
-export const PUBLIC_PATHS = ["/login", "/api/auth/signup", "/api/auth/login", "/api/auth/logout"];
+/** Pages and endpoints reachable without a session. (The Telegram webhook is public but verifies Telegram's secret header and your chat id itself.) Everything else needs an allowed signed-in user. */
+export const PUBLIC_PATHS = ["/login", "/api/auth/signup", "/api/auth/login", "/api/auth/logout", "/api/telegram/webhook"];
 
 export const isPublic = (pathname: string) => PUBLIC_PATHS.includes(pathname);
 

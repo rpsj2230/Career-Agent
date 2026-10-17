@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 // End-to-end: real built Next app + mock Supabase. Run with: npm run build && npm run test:e2e
 import { spawn } from "node:child_process";
 import { readFileSync, readdirSync, statSync } from "node:fs";
@@ -48,7 +49,7 @@ const apiRoutes = [];
     }
   }
 })("src/app/api");
-const PUBLIC_API = new Set(["/api/auth/login", "/api/auth/signup", "/api/auth/logout"]);
+const PUBLIC_API = new Set(["/api/auth/login", "/api/auth/signup", "/api/auth/logout", "/api/telegram/webhook"]);
 const PW = "correct horse battery";
 let r;
 r = await call("/", { auth: false });             check("signed-out page redirects to /login", r.status === 307 && r.location?.endsWith("/login"), `${r.status} ${r.location}`);
@@ -345,6 +346,8 @@ r = await ghJob("autoco", "AutoCo"); check("a Greenhouse job is added for the pi
 r = await call("/api/schedules", { method: "POST", body: { name: "Auto", frequency: "daily", timezone: "Asia/Singapore", countries: ["sg"], integrations: ["remotive"], mode: "scan_prepare_apply", require_approval: false, max_prepare: 20, max_apply: 5 } });
 const autoId = JSON.parse(r.text).id; check("an auto-applying schedule is created", r.status === 200 && !!autoId, `${r.status} ${r.text}`);
 r = await call("/api/cron/due", { auth: false, headers: { Authorization: `Bearer ${SECRET}` } }); check("the tick endpoint reports nothing due yet", r.status === 200 && r.json?.due === 0 && r.json?.total === 1, `${r.status} ${r.text}`);
+r = await call("/api/telegram/webhook", { method: "POST", auth: false, body: {} }); check("the Telegram webhook refuses calls without Telegram's secret", r.status === 403, r.status);
+r = await call("/api/telegram/webhook", { method: "POST", auth: false, headers: { "X-Telegram-Bot-Api-Secret-Token": createHmac("sha256", "career-agent-telegram-webhook").update("tg-token-123").digest("hex") }, body: { callback_query: { id: "1", data: "a:00000000-0000-4000-8000-000000000000", message: { chat: { id: 11111 }, message_id: 1 } } } }); check("a button press from another chat is ignored without any action", r.status === 200, `${r.status} ${r.text}`);
 r = await call("/api/cron/due", { auth: false }); check("the tick endpoint is not open to the public", r.status === 401 || r.status === 307, r.status);
 dueNow(autoId);
 r = await call("/api/cron/due", { auth: false, headers: { Authorization: `Bearer ${SECRET}` } }); check("the tick endpoint sees the due schedule", r.json?.due === 1 && r.json.schedules[0] === "Auto", `${r.text}`);

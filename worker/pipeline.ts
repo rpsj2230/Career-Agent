@@ -9,6 +9,7 @@ import { appendFileSync } from "node:fs";
 import { failStaleRuns } from "../src/lib/activity";
 import { sendTelegram as notifyTelegram } from "../src/lib/notify";
 import { reapStuckApplications } from "../src/lib/apply/reaper";
+import { promptPrepared } from "../src/lib/telegram-prompts";
 import { trackReplies } from "../src/lib/mail/track";
 import { applyRetention } from "../src/lib/jobs/retention";
 import { liveDeps } from "../src/lib/pipeline/deps";
@@ -52,6 +53,8 @@ async function main() {
   console.log(list.length ? `${list.length} schedule(s) to run.` : "Nothing is due.");
   let ready = 0;
   for (const s of list) ready += (await runOne(s, id ? "manual" : "schedule"))?.readyToSubmit ?? 0;
+  const prompted = await promptPrepared();
+  if (prompted) console.log(`Sent ${prompted} application(s) to Telegram for one-tap approval.`);
   await applyRetention().then((r) => { if (r.trimmed || r.logsDeleted) console.log(`Housekeeping: cleared ${r.trimmed} old skipped description(s), deleted ${r.logsDeleted} old rejection log line(s).`); }).catch((e) => console.error("housekeeping failed (not fatal):", e instanceof Error ? e.message : e));
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `ready_to_submit=${ready}\n`);
 }
