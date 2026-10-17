@@ -205,3 +205,8 @@ Verified by an end-to-end run with a sloppy model (fenced JSON, invented first d
 - Every scan now records the posting dates it asked the source for (for example "1 Jan to 3 Jan"), shown on the Runs and scans page and inside each run.
 - A run opens with a one-sentence summary (fetched N jobs from N sources, how many new, skipped by your rules, scored, prepared, approved automatically, handed to you) and a per-source table.
 - **Runs and scans** has a "How applying went" report for the chosen period: submitted (automatically or with you), approved by a schedule or by you, handed back, failed, by portal and by country.
+
+## Run-now button and autostart for the local assistant
+
+- The dashboard has an **Apply assistant** card (running / not running, applications waiting) with a **Run assistant now** button. The button leaves a request; the watcher on the computer checks every 30 seconds, answers it immediately regardless of working hours, and records the result. The watcher reports in every 30 seconds, so "running" means it reported within 3 minutes.
+- `scripts/autostart/install.sh` (macOS launchd, Linux systemd user service) and `install.ps1` (Windows Task Scheduler) start the watcher at sign-in, so no command needs typing. See `docs/ASSISTANT_AUTOSTART.md`.

@@ -24,6 +24,7 @@ import { chromium, type BrowserContext, type Page } from "playwright";
 import { confirmationSnippet, type FieldEntry, type SubmissionRecord } from "../src/lib/apply/submission";
 import { MasterProfile } from "../src/lib/types";
 import { finalStepVisible, nextStep, openApplyForm } from "./assist-lib";
+import { requestPending, type AssistantRequest } from "../src/lib/apply/assistant-request";
 import { autoDecision, humanPause, withinHours, type AutoCaps, type AutoState } from "./assist-policy";
 import { clickSubmit, fillForm } from "./form";
 import { CONFIRMATION, detectBlock, type Answer } from "./match";
@@ -303,13 +304,21 @@ async function main() {
     if (!AUTO) throw new Error("Watch mode needs hands-free mode: use `npm run assist:watch` (and switch hands-free on in Settings).");
     const pollMs = Math.max(1, Number(process.env.ASSIST_POLL_MINUTES ?? 20)) * 60_000;
     say(`Watching for approved applications every ${pollMs / 60_000} minute(s)${process.env.ASSIST_HOURS ? `, working hours ${process.env.ASSIST_HOURS}` : ""}. Press Ctrl+C to stop.`);
+    let nextRound = 0;
+    setInterval(() => { void heartbeat(sb); }, 30_000); // keeps beating while a long round is running
     for (;;) {
       await heartbeat(sb);
-      if (withinHours(new Date(), process.env.ASSIST_HOURS)) {
-        try { const n = await batch(sb); if (n) say(`${new Date().toLocaleTimeString()}  ${n} application(s) submitted this round.`); }
-        catch (e) { console.error(`round failed (will try again): ${e instanceof Error ? e.message : e}`); }
+      // the "Run assistant now" button leaves a request; answer it straight away, whatever the working hours
+      const req = (await sb.from("settings").select("value").eq("key", "assistant_request").maybeSingle()).data?.value as AssistantRequest | undefined;
+      const requested = requestPending(req);
+      if (requested || (Date.now() >= nextRound && withinHours(new Date(), process.env.ASSIST_HOURS))) {
+        let n = 0, note = "";
+        try { n = await batch(sb); if (n) say(`${new Date().toLocaleTimeString()}  ${n} application(s) submitted this round.`); note = `${n} submitted`; }
+        catch (e) { note = `failed: ${e instanceof Error ? e.message : e}`; console.error(`round failed (will try again): ${note}`); }
+        if (requested) await sb.from("settings").upsert({ key: "assistant_request", value: { at: req!.at, handled_at: new Date().toISOString(), done: n, note }, updated_at: new Date().toISOString() });
+        nextRound = Date.now() + pollMs;
       }
-      await sleep(pollMs);
+      await sleep(30_000);
     }
   }
   const done = await batch(sb);

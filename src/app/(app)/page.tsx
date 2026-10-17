@@ -8,7 +8,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { loadDashboard } from "@/lib/dashboard-store";
 import { loadApplyStats } from "@/lib/apply/stats-store";
-import { assistantStatus } from "@/lib/apply/assistant-health";
+import { assistantPanelData, assistantStatus } from "@/lib/apply/assistant-health";
+import { AssistantPanel } from "@/components/app/assistant-panel";
 import { parsePeriod, PERIODS, type Breakdown } from "@/lib/dashboard";
 import { db, must } from "@/lib/db";
 import { countryLabel, parseCountry } from "@/lib/filters";
@@ -29,7 +30,7 @@ export default async function Dashboard({ searchParams }: { searchParams: SP }) 
   const sp = await searchParams;
   const country = parseCountry(sp);
   const period = parsePeriod(Array.isArray(sp.period) ? sp.period[0] : sp.period);
-  const [dash, portals, profile, discovery, opts, applyStats, assistant] = await Promise.all([loadDashboard({ period, country }), loadPortalsView(), getProfile(), getSetting("discovery"), filterOptions(), loadApplyStats(30).catch(() => []), assistantStatus().catch(() => null)]);
+  const [dash, portals, profile, discovery, opts, applyStats, assistant, panel] = await Promise.all([loadDashboard({ period, country }), loadPortalsView(), getProfile(), getSetting("discovery"), filterOptions(), loadApplyStats(30).catch(() => []), assistantStatus().catch(() => null), assistantPanelData().catch(() => null)]);
   const { summary: s, runs, limited } = dash;
   const models = must<{ label: string; enabled: boolean; api_key_env: string | null }[]>(await db().from("model_configs").select("label,enabled,api_key_env"), "models");
   const stored = await storedKeyLabels();
@@ -178,6 +179,8 @@ export default async function Dashboard({ searchParams }: { searchParams: SP }) 
           </ul></CardContent>
         )}
       </Card>
+
+      {panel && <AssistantPanel {...panel} />}
 
       {(applyStats.length > 0 || assistant) && (
         <Card>
