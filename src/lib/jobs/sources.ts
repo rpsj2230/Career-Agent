@@ -74,7 +74,8 @@ export function jsonFetcher(fetchImpl: FetchLike = fetch) {
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       let said = body.trim();
-      try { const j = JSON.parse(body); said = String(j.message ?? j.error ?? j.detail ?? said); } catch { /* not JSON: use the text */ }
+      try { const j = JSON.parse(body); said = typeof j === "object" && j ? String(j.message ?? j.error ?? j.detail ?? "") : String(j); } catch { /* not JSON: use the text */ }
+      if (/^[[{]/.test(said)) said = ""; // raw JSON with no message is noise
       throw new Error(explainHttpFailure(res.status, host, said.replace(/\s+/g, " ").slice(0, 160) || undefined));
     }
     return res.json();
