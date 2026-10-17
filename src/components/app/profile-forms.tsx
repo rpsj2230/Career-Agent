@@ -9,7 +9,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { rowsToSave, type AnswerRow } from "@/lib/standard-questions";
+import { Badge } from "@/components/ui/badge";
+import { ROLE_PRESETS, rowsToSave, toggleCsv, type AnswerRow } from "@/lib/standard-questions";
 import { call } from "./api";
 
 export function ImportBox() {
@@ -89,7 +90,7 @@ export function DraftReview({ initial, conflicts }: { initial: unknown; conflict
 type Prefs = { countries: string[]; roles: string[]; payCountry?: string; currentCtc?: string; expectedCtc?: string; noticePeriod?: string; visaStatus?: string; relocate?: boolean };
 const csv = (s: string) => s.split(",").map((x) => x.trim()).filter(Boolean);
 
-export function PreferencesForm({ prefs, searching }: { prefs: Prefs; searching: { names: string[]; configured: boolean } }) {
+export function PreferencesForm({ prefs, searching, profileTitles }: { prefs: Prefs; searching: { names: string[]; configured: boolean }; profileTitles: string[] }) {
   const router = useRouter();
   const [p, setP] = useState({ ...prefs, countries: prefs.countries.join(", "), roles: prefs.roles.join(", ") });
   const set = (k: string, v: unknown) => setP((o) => ({ ...o, [k]: v }));
@@ -104,7 +105,23 @@ export function PreferencesForm({ prefs, searching }: { prefs: Prefs; searching:
     <div className="grid gap-3 md:grid-cols-2">
       <div className="grid gap-1"><Label>Target countries</Label>
         <p className="rounded-md border bg-muted/40 p-3 text-sm">{searching.names.length > 0 ? <>Searching: <b>{searching.names.join(", ")}</b>.</> : "None yet."} Managed on the <Link className="underline" href="/countries">Countries page</Link>.</p></div>
-      {field("roles", "Target roles", "Product Manager, Program Manager")}
+      <div className="grid gap-1 md:col-span-2">
+        <Label htmlFor="roles">Target roles (the one place to set them; used for every search and for scoring)</Label>
+        <Input id="roles" value={p.roles} placeholder="Product Manager, Program Manager" onChange={(e) => set("roles", e.target.value)} />
+        <div className="flex flex-wrap gap-1">
+          {profileTitles.length > 0 && <span className="self-center text-xs text-muted-foreground">From your profile:</span>}
+          {profileTitles.map((r) => (
+            <button type="button" key={`p-${r}`} onClick={() => set("roles", toggleCsv(p.roles, r))}>
+              <Badge variant={csv(p.roles).map((x) => x.toLowerCase()).includes(r.toLowerCase()) ? "default" : "secondary"}>{r}</Badge>
+            </button>
+          ))}
+          {ROLE_PRESETS.map((r) => (
+            <button type="button" key={r} onClick={() => set("roles", toggleCsv(p.roles, r))}>
+              <Badge variant={csv(p.roles).map((x) => x.toLowerCase()).includes(r.toLowerCase()) ? "default" : "outline"}>{r}</Badge>
+            </button>
+          ))}
+        </div>
+      </div>
       {field("payCountry", "Country your pay figures below are in", "in")}
       <p className="self-end pb-2 text-xs text-muted-foreground">Pay and visa answers are only sent to forms in this country. For any other country, set that country&apos;s expected salary and work authorisation on the Countries page, or answer once when an application is handed back (choose &quot;only for this country&quot;).</p>
       {field("currentCtc", "Current CTC (in that country's terms)", "24 LPA")}

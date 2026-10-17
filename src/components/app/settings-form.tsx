@@ -9,8 +9,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Badge } from "@/components/ui/badge";
-import { ROLE_PRESETS, toggleCsv } from "@/lib/standard-questions";
 import { call } from "./api";
 
 type Discovery = { countries: string[]; roles: string[]; greenhouse_boards: string[]; lever_companies: string[]; ashby_orgs?: string[]; workable_accounts?: string[]; recruitee_companies?: string[]; max_age_days: number; min_rescan_hours?: number };
@@ -18,7 +16,7 @@ type Scoring = { threshold: number; min_evidence: number; batch_size: number; ro
 type Caps = { daily_total: number; daily_linkedin: number; weekly_linkedin: number; linkedin_automation_enabled: boolean; local_auto_enabled?: boolean; company_cooldown_days?: number };
 const csv = (s: string) => s.split(",").map((x) => x.trim()).filter(Boolean);
 
-export function SettingsForm({ searching, discovery, scoring, caps, tailoring, blocklist, replies, profileTitles }: { searching: { names: string[]; configured: boolean }; discovery: Discovery; scoring: Scoring; caps: Caps; blocklist: { companies: string[]; keywords: string[]; skip_agencies: boolean }; replies: { enabled: boolean }; tailoring: { reuse_enabled: boolean; reuse_similarity: number; adapt_similarity: number }; profileTitles: string[] }) {
+export function SettingsForm({ searching, discovery, scoring, caps, tailoring, blocklist, replies, roles }: { searching: { names: string[]; configured: boolean }; discovery: Discovery; scoring: Scoring; caps: Caps; blocklist: { companies: string[]; keywords: string[]; skip_agencies: boolean }; replies: { enabled: boolean }; tailoring: { reuse_enabled: boolean; reuse_similarity: number; adapt_similarity: number }; roles: string[] }) {
   const router = useRouter();
   const [d, setD] = useState({ ...discovery, countries: discovery.countries.join(", "), roles: discovery.roles.join(", "), greenhouse_boards: discovery.greenhouse_boards.join(", "), lever_companies: discovery.lever_companies.join(", "), ashby_orgs: (discovery.ashby_orgs ?? []).join(", "), workable_accounts: (discovery.workable_accounts ?? []).join(", "), recruitee_companies: (discovery.recruitee_companies ?? []).join(", ") });
   const [t, setT] = useState(scoring.threshold);
@@ -40,7 +38,7 @@ export function SettingsForm({ searching, discovery, scoring, caps, tailoring, b
   return (
     <div className="grid gap-4">
       <Card>
-        <CardHeader><CardTitle>Job discovery</CardTitle><CardDescription>Tap the chips to add or remove, or type your own. Blank countries or roles fall back to your profile preferences. Greenhouse board tokens and Lever company slugs come from the careers-page URL (boards.greenhouse.io/<b>token</b>, jobs.lever.co/<b>slug</b>).</CardDescription></CardHeader>
+        <CardHeader><CardTitle>Job discovery</CardTitle><CardDescription>Greenhouse board tokens and Lever company slugs come from the careers-page URL (boards.greenhouse.io/<b>token</b>, jobs.lever.co/<b>slug</b>).</CardDescription></CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-2">
           <div className="grid gap-2">
             <Label>Countries</Label>
@@ -50,21 +48,11 @@ export function SettingsForm({ searching, discovery, scoring, caps, tailoring, b
             </p>
           </div>
           <div className="grid gap-2">
-            <Label htmlFor="r">Roles</Label>
-            <Input id="r" value={d.roles} placeholder="Product Manager, Business Analyst" onChange={(e) => setD({ ...d, roles: e.target.value })} />
-            <div className="flex flex-wrap gap-1">
-              {profileTitles.length > 0 && <span className="self-center text-xs text-muted-foreground">From your profile:</span>}
-              {profileTitles.map((r) => (
-                <button type="button" key={`p-${r}`} onClick={() => setD({ ...d, roles: toggleCsv(d.roles, r) })}>
-                  <Badge variant={csv(d.roles).map((x) => x.toLowerCase()).includes(r.toLowerCase()) ? "default" : "secondary"}>{r}</Badge>
-                </button>
-              ))}
-              {ROLE_PRESETS.map((r) => (
-                <button type="button" key={r} onClick={() => setD({ ...d, roles: toggleCsv(d.roles, r) })}>
-                  <Badge variant={csv(d.roles).map((x) => x.toLowerCase()).includes(r.toLowerCase()) ? "default" : "outline"}>{r}</Badge>
-                </button>
-              ))}
-            </div>
+            <Label>Roles</Label>
+            <p className="rounded-md border bg-muted/40 p-3 text-sm">
+              {roles.length > 0 ? <>Searching for: <b>{roles.join(", ")}</b>.</> : "No target role is set yet."}{" "}
+              Target roles are set in one place, on the <Link className="underline" href="/profile">Profile page</Link>; per-country job titles are on the <Link className="underline" href="/countries">Countries page</Link>.
+            </p>
           </div>
           <div className="grid gap-1"><Label htmlFor="g">Greenhouse boards</Label><Input id="g" value={d.greenhouse_boards} placeholder="razorpay, postman" onChange={(e) => setD({ ...d, greenhouse_boards: e.target.value })} /></div>
           <div className="grid gap-1"><Label htmlFor="l">Lever companies</Label><Input id="l" value={d.lever_companies} placeholder="cred, meesho" onChange={(e) => setD({ ...d, lever_companies: e.target.value })} /></div>
