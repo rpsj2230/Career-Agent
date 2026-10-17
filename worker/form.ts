@@ -114,7 +114,8 @@ export async function fillForm(page: Page, ctx: FillContext): Promise<FillResult
         continue;
       }
       if (f.hasValue) continue;
-      const std = standardValue(probe, ctx.applicant);
+      // the visible label decides first (a field named "_systemfield_name" labelled "Name"); the field's own name is the fallback
+      const std = standardValue(label, ctx.applicant) ?? standardValue(probe, ctx.applicant);
       const value = std ?? matchAnswer(label, ctx.answers);
       const source: FieldEntry["source"] = std != null ? "profile" : "answers";
 

@@ -1,5 +1,7 @@
 import "server-only";
 import { logActivity } from "@/lib/activity";
+import { loadEffectiveCountries } from "@/lib/country-config-store";
+import { preflight } from "./preflight";
 import { upgradeApplyTarget } from "@/lib/jobs/resolve-url";
 import type { ApplyType } from "@/lib/jobs/normalize";
 import { jobLogFields } from "@/lib/activity-helpers";
@@ -56,6 +58,8 @@ export async function prepareApplication(jobId: string, runId: string | null = n
     await logActivity({ kind: "job.link_resolved", message: `Found the employer's ${upgraded.apply_type === "greenhouse" ? "Greenhouse" : "Lever"} page for ${job.title} at ${job.company}: it can be applied for automatically`, ...jobLogFields(job), status: "resolved", detail: { from, to: upgraded.url, apply_type: upgraded.apply_type } });
   }
   const profile = await getProfile();
+  if (profile.experience.length === 0) throw new Error("Profile is empty: import and confirm your resume first");
+  await preflight(job as Parameters<typeof preflight>[0], { profile, countryRules: (await loadEffectiveCountries().catch(() => null))?.countries, blocklist: await getSetting("blocklist") });
   if (profile.experience.length === 0) throw new Error("Profile is empty: import and confirm your resume first");
   const bank = must<{ question: string; answer: string }[]>(await db().from("answer_bank").select("question,answer"), "load answer bank");
   const countryPref = job.country ? (await listCountryPrefs().catch(() => ({ rows: [] as CountryPref[] }))).rows.find((c) => c.country === job.country!.toLowerCase()) : undefined;

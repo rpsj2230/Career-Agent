@@ -556,6 +556,16 @@ if (process.env.PLAYWRIGHT_BROWSERS_PATH || process.env.CHROMIUM_PATH) {
   const single = await runApplyWorker({ APPLICATION_ID: good.appId });
   check("targeting an application that is already submitted is a no-op", single.code === 0 && /nothing to do/i.test(single.text) && mock.rowsOf("applications").find((a) => a.id === good.appId).submission.outcome === "submitted", single.text.slice(-300));
 
+  // ---- learning from hand-backs: answer a blocking question once, and the waiting application returns to the queue with it
+  r = await call("/profile"); check("the profile page lists the questions that stopped applications", r.text.includes("Questions the agent could not answer") && r.text.includes("favourite sorting algorithm"), "section missing");
+  r = await call("/api/answers/learn", { method: "POST", body: { question: "Name your favourite sorting algorithm", answer: "Merge sort", appIds: [stuck.appId] } });
+  check("answering it saves the answer and re-queues the application", r.status === 200 && r.json?.requeued === 1, `${r.status} ${r.text}`);
+  const stuckRow = mock.rowsOf("applications").find((a) => a.id === stuck.appId);
+  check("the application is back in the queue with the answer filled in, and the event is recorded", stuckRow.status === "prepared" && stuckRow.error === null && stuckRow.answers.some((a) => /sorting algorithm/i.test(a.question) && a.answer === "Merge sort") && mock.rowsOf("apply_events").some((e) => e.application_id === stuck.appId && e.kind === "answer_added"), JSON.stringify(stuckRow));
+  check("the answer is in the answer bank for every later application", mock.rowsOf("answer_bank").some((b) => /sorting algorithm/i.test(b.question) && b.answer === "Merge sort"), "not in bank");
+  r = await call("/api/answers/learn", { method: "POST", body: { question: "Visa?", answer: "", appIds: [] } }); check("an empty answer is refused", r.status === 400, r.status);
+  r = await call("/profile"); check("the answered question no longer blocks anything", !r.text.includes("favourite sorting algorithm</b>") || !r.text.includes("stopped 1 application"), "still listed");
+
   // ---- the apply assistant (worker/assist.ts): fills a portal-style multi-step form and waits for the person to press Submit
   const asst = seedApproved("PortalCo", "", new Date(Date.now() - 5_000).toISOString(), "portal-multistep");
   const asstRow = mock.rowsOf("applications").find((a) => a.id === asst.appId);

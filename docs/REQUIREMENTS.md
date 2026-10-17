@@ -179,3 +179,10 @@ Verified by an end-to-end run with a sloppy model (fenced JSON, invented first d
 - **Blocklist:** companies, words and (optionally) recruitment agencies, applied first and free.
 - **Adaptive search:** searches that repeatedly find nothing new back off up to a day; titles that appear in your matches but are not searched are suggested per country; a source that silently returns nothing for searches that always found something raises one alert a day.
 - **Tokens:** several jobs of one country are scored per model call (default 5), scoring prefers fast models and writing prefers strong ones, scores within 8 points of the threshold are re-checked by a strong model, and your interviews, rejections and manual skips nudge scores by at most 8 points (always shown on the score).
+
+## Quality pass: applying
+
+- **Learn from hand-backs:** the Profile page lists the questions that stopped applications, grouped across all of them. One answer (optionally for one country only) goes into the answer bank and returns every waiting application to the queue with the answer filled in; a schedule then approves it under the usual rules. Consent boxes are never offered for answering.
+- **Pre-flight:** before an application is prepared the posting is checked to be still open (employer and ATS pages only, never a job portal), the rules are re-run on the full description, and an earlier application to the same role through another listing stops it. The job is closed out with the reason; this is a result, not a failure. Matches are ranked by fit plus a small freshness bonus.
+- **Company cool-down:** automatic approval waits 14 days (setting) after an application to the same company; approving by hand is always possible.
+- **Ashby and Workable** forms are applied for automatically under the same safety rules as Greenhouse and Lever (hand back on any unknown question, never press submit without a form, require a confirmation). An ATS whose last five meaningful attempts all failed technically is paused (prepared for you instead) and retried once a day; a question the agent had no answer for does not count as a failure.

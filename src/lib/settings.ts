@@ -9,6 +9,8 @@ export type Caps = {
   linkedin_automation_enabled: boolean;
   /** let the apply assistant on your computer press Submit by itself (within the caps); otherwise it stops for you */
   local_auto_enabled?: boolean;
+  /** automatic approval waits this many days after an application to the same company (0 = no wait); you can still approve by hand */
+  company_cooldown_days?: number;
 };
 
 export const DEFAULTS = {
@@ -27,7 +29,7 @@ export const DEFAULTS = {
   watchlist: { enabled: true, boards: { greenhouse: [], lever: [], ashby: [], workable: [], recruitee: [] } as Record<string, string[]>, added: {} as Record<string, string> },
   /** hosted scrapers (Apify) for the portals without an API */
   apify: { actors: [] as ApifyActor[], monthly_item_budget: 2500 },
-  caps: { daily_total: 15, daily_linkedin: 10, weekly_linkedin: 40, linkedin_automation_enabled: false, local_auto_enabled: false } as Caps,
+  caps: { daily_total: 15, daily_linkedin: 10, weekly_linkedin: 40, linkedin_automation_enabled: false, local_auto_enabled: false, company_cooldown_days: 14 } as Caps,
 };
 
 export async function getSetting<K extends keyof typeof DEFAULTS>(key: K): Promise<(typeof DEFAULTS)[K]> {

@@ -1,0 +1,19 @@
+<!doctype html><html><body>
+<h1>Product Manager</h1>
+<form data-ui="application-form" id="form">
+  <fieldset><legend>Personal information</legend>
+    <div><label for="firstname">First name *</label><input id="firstname" name="firstname" type="text" required></div>
+    <div><label for="lastname">Last name *</label><input id="lastname" name="lastname" type="text" required></div>
+    <div><label for="email">Email *</label><input id="email" name="email" type="email" required></div>
+    <div><label for="phone">Phone</label><input id="phone" name="phone" type="tel"></div>
+  </fieldset>
+  <fieldset><legend>Profile</legend>
+    <div><label for="cv">Resume *</label><input id="cv" name="resume" type="file" required></div>
+    <div><label for="cover">Cover letter</label><textarea id="cover" name="cover_letter"></textarea></div>
+  </fieldset>
+  <button type="submit" data-ui="apply-button">Submit application</button>
+</form>
+<script>
+  document.getElementById('form').addEventListener('submit', e => { e.preventDefault(); document.body.innerHTML = '<h2>Thank you for applying</h2><p>We have received your application.</p>'; });
+</script>
+</body></html>
