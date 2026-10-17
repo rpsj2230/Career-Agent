@@ -65,6 +65,20 @@ export function titleMatches(jobTitle: string, wanted: string[]): boolean {
 }
 
 /** GET JSON with a timeout; failures become messages that say what to do. */
+/** JSearch moved its search from /search to /search-v2; ask the new one first and fall back to the old one if it is gone. */
+export async function jsearchSearch(get: ReturnType<typeof jsonFetcher>, key: string, params: URLSearchParams): Promise<unknown[]> {
+  const init = { headers: { "X-RapidAPI-Key": key, "X-RapidAPI-Host": "jsearch.p.rapidapi.com" } };
+  let data;
+  try { data = await get(`https://jsearch.p.rapidapi.com/search-v2?${params}`, init); }
+  catch (e) {
+    if (!/HTTP 404/.test(e instanceof Error ? e.message : "")) throw e;
+    data = await get(`https://jsearch.p.rapidapi.com/search?${params}`, init);
+  }
+  const inner = data?.data;
+  const list = [inner, inner?.jobs, inner?.results, data?.jobs, data?.results].find(Array.isArray);
+  return list ?? [];
+}
+
 export function jsonFetcher(fetchImpl: FetchLike = fetch) {
   return async (url: string, init?: RequestInit): Promise<any> => { // eslint-disable-line @typescript-eslint/no-explicit-any
     const host = new URL(url).hostname;
@@ -127,8 +141,7 @@ export function buildScanSpecs(
       specs.push({ integration: "jsearch", country: q.country, query: label(q), fetch: async () => {
         const p = new URLSearchParams({ query: label(q), country: q.country, date_posted: ((d) => (d <= 1 ? "today" : d <= 3 ? "3days" : d <= 7 ? "week" : "month"))(windowDays(s, { integration: "jsearch", country: q.country, query: label(q) })), num_pages: "1" });
         if (q.remote === "remote_only") p.set("remote_jobs_only", "true");
-        const data = await get(`https://jsearch.p.rapidapi.com/search?${p}`, { headers: { "X-RapidAPI-Key": rapidapi_key, "X-RapidAPI-Host": "jsearch.p.rapidapi.com" } });
-        return (data.data ?? []).map(mapJSearch);
+        return (await jsearchSearch(get, rapidapi_key, p)).map(mapJSearch);
       } });
     }
   }
@@ -251,8 +264,8 @@ export async function testIntegration(id: IntegrationId, creds: IntegrationCreds
       }
       case "jsearch": {
         if (!creds.jsearch) return { ok: false, message: "Enter your RapidAPI key first." };
-        const d = await get(`https://jsearch.p.rapidapi.com/search?${new URLSearchParams({ query: "engineer in london", num_pages: "1" })}`, { headers: { "X-RapidAPI-Key": creds.jsearch.rapidapi_key, "X-RapidAPI-Host": "jsearch.p.rapidapi.com" } });
-        return { ok: true, message: `JSearch accepted the key (${(d.data ?? []).length} results for the test query; this used 1 request of your plan).` };
+        const found = await jsearchSearch(get, creds.jsearch.rapidapi_key, new URLSearchParams({ query: "engineer in london", num_pages: "1" }));
+        return { ok: true, message: `JSearch accepted the key (${found.length} results for the test query; this used 1 request of your plan).` };
       }
       case "remotive": {
         const d = await get("https://remotive.com/api/remote-jobs?limit=1");
