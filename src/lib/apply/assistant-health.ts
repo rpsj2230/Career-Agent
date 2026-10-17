@@ -3,6 +3,7 @@ import { DateTime } from "luxon";
 import { alertOnce } from "@/lib/alerts";
 import { db } from "@/lib/db";
 import { getSetting } from "@/lib/settings";
+import { panelText, type AssistantRequest } from "./assistant-request";
 import { assistantVerdict, type Heartbeat } from "./assistant-verdict";
 
 export async function loadHeartbeat(): Promise<Heartbeat | null> {
@@ -34,4 +35,9 @@ export async function checkAssistant(now = new Date()): Promise<boolean> {
     console.error(`[assistant] health check failed: ${e instanceof Error ? e.message : e}`);
     return false;
   }
+}
+
+export async function assistantPanelData(now = new Date()) {
+  const [hb, w, reqRow] = await Promise.all([loadHeartbeat(), waiting(), db().from("settings").select("value").eq("key", "assistant_request").maybeSingle()]);
+  return panelText({ hb, req: (reqRow.data as { value: AssistantRequest } | null)?.value ?? null, waiting: w.count, now });
 }
