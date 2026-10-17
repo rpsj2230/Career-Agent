@@ -9,6 +9,7 @@ import { getProfile } from "@/lib/profile/store";
 import { withLegacyFallback } from "@/lib/schema";
 import { getSetting } from "@/lib/settings";
 import { JobScore, roundScore } from "@/lib/types";
+import { evidenceText, gatherEvidence, irrelevantReason, judge } from "./rules";
 import { buildScorePrompt, prefilter, SCORE_SYSTEM, type JobForScoring } from "./prompt";
 
 type JobRow = JobForScoring & { id: string; portal?: string | null; source?: string | null };
@@ -59,17 +60,30 @@ export async function scoreStep(ctx: RunCtx, opts: { limit: number; budgetMs: nu
       ctx.stat("rejected"); out.skipped++; out.remaining--;
       continue;
     }
+    const evidence = gatherEvidence(profile, job);
+    const irrelevant = irrelevantReason(evidence);
+    if (irrelevant) {
+      // no model quota is spent on a posting that has nothing to do with the profile; the reason and numbers are kept
+      const detail = { score: evidence.score, matchedSkills: [], gaps: evidence.missingTerms.slice(0, 8), seniorityFit: "unknown", locationVisaFit: "unknown", salarySignal: "unknown", summary: irrelevant };
+      must(await db().from("job_scores").upsert({ job_id: job.id, score: evidence.score, detail, model: "rules" }).select("job_id"), "save score");
+      await decide(job, "skipped", `Fit ${evidence.score}: ${irrelevant}`);
+      await ctx.log({ kind: "job.rejected", message: `Fit ${evidence.score}: ${irrelevant}`, status: "rejected", ...ref, detail: { stage: "evidence", score: evidence.score, evidence, title: job.title } });
+      ctx.stat("rejected"); ctx.stat("rejected_by_rules"); out.skipped++; out.remaining--;
+      continue;
+    }
     try {
-      const scored = await runStructured({ task: "score", schema: JobScore, system: SCORE_SYSTEM, prompt: buildScorePrompt(profile, job, countryRules?.find((c) => c.country === job.country?.toLowerCase())), jobId: job.id });
+      const scored = await runStructured({ task: "score", schema: JobScore, system: SCORE_SYSTEM, prompt: buildScorePrompt(profile, job, countryRules?.find((c) => c.country === job.country?.toLowerCase()), evidenceText(evidence)), jobId: job.id });
       const model = scored.model;
-      const output = { ...scored.output, score: roundScore(scored.output.score) };
-      must(await db().from("job_scores").upsert({ job_id: job.id, score: output.score, detail: output, model }).select("job_id"), "save score");
+      const judged = judge({ ...scored.output, score: roundScore(scored.output.score) }, evidence, profile);
+      const output = { ...judged.output, score: roundScore(judged.score) };
+      const stored = judged.adjusted ? { ...output, adjustments: judged.notes, modelScore: roundScore(scored.output.score), evidenceScore: evidence.score } : output;
+      must(await db().from("job_scores").upsert({ job_id: job.id, score: output.score, detail: stored, model }).select("job_id"), "save score");
       const queued = output.score >= threshold;
       const reasonText = queued ? null : `Fit ${output.score} below threshold ${threshold}: ${output.summary}`;
       await decide(job, queued ? "queued" : "skipped", reasonText);
       await ctx.log(queued
-        ? { kind: "job.matched", message: `Matched (fit ${output.score}): ${job.title}`, status: "matched", ...ref, detail: { stage: "fit", score: output.score, threshold, summary: output.summary, matchedSkills: output.matchedSkills, gaps: output.gaps, model, title: job.title } }
-        : { kind: "job.rejected", message: reasonText!, status: "rejected", ...ref, detail: { stage: "fit", score: output.score, threshold, summary: output.summary, gaps: output.gaps, model, title: job.title } });
+        ? { kind: "job.matched", message: `Matched (fit ${output.score}): ${job.title}`, status: "matched", ...ref, detail: { stage: "fit", score: output.score, threshold, summary: output.summary, matchedSkills: output.matchedSkills, gaps: output.gaps, model, title: job.title, adjustments: judged.notes, evidenceScore: evidence.score } }
+        : { kind: "job.rejected", message: reasonText!, status: "rejected", ...ref, detail: { stage: "fit", score: output.score, threshold, summary: output.summary, gaps: output.gaps, model, title: job.title, adjustments: judged.notes, evidenceScore: evidence.score } });
       ctx.stat("scored"); ctx.stat(queued ? "matched" : "rejected");
       out.scored++; out.remaining--;
       if (queued) out.queued++; else out.skipped++;

@@ -13,6 +13,8 @@ export const DEFAULTS = {
   scoring: { threshold: 65 },
   /** reuse or adapt resumes made for similar jobs instead of writing each from scratch */
   tailoring: { reuse_enabled: true, reuse_similarity: 0.85, adapt_similarity: 0.4 },
+  /** keep the database small: clear the description of skipped jobs after N days; delete per-job rejection log lines after N days (0 = never) */
+  retention: { skipped_days: 30, log_days: 90 },
   caps: { daily_total: 15, daily_linkedin: 10, weekly_linkedin: 40, linkedin_automation_enabled: false } as Caps,
 };
 

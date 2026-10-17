@@ -218,7 +218,7 @@ const logs = () => mock.rowsOf("activity_log");
 const usRej = logs().find((l) => l.kind === "job.rejected" && l.company === "US Co");
 check("a country rejection is logged with its reason, portal and country", usRej?.detail?.stage === "prefilter" && /outside your target countries/.test(usRej.message) && usRej.country === "us" && usRej.portal === "naukri" && usRej.run_id === scoreRun.id, JSON.stringify(usRej));
 const fitRej = logs().find((l) => l.kind === "job.rejected" && l.company === "Gamma Pte Ltd");
-check("a fit rejection is logged with score, threshold and the model's reason", fitRej?.detail?.stage === "fit" && fitRej.detail.score === 40 && /below threshold 65/.test(fitRej.message) && /Too senior/.test(fitRej.message), JSON.stringify(fitRej));
+check("a fit rejection is logged with score, threshold and the model's reason", fitRej?.detail?.stage === "fit" && fitRej.detail.score === 43 && fitRej.detail.adjustments?.length === 1 && /raised/.test(fitRej.detail.adjustments[0]) && /below threshold 65/.test(fitRej.message) && /Too senior/.test(fitRej.message), JSON.stringify(fitRej));
 const matched = logs().find((l) => l.kind === "job.matched" && l.company === "Zeta Pte");
 check("a match is logged with its score and the matched skills", matched?.detail?.score === 82 && matched.detail.matchedSkills?.includes("SQL") && matched.status === "matched", JSON.stringify(matched));
 const zeta = mock.rowsOf("jobs").find((j) => j.company === "Zeta Pte");
@@ -399,6 +399,18 @@ r = await call(`/api/schedules/${askId}`, { method: "DELETE" });
   check("and the ready-to-submit count told to GitHub excludes it", !/ready_to_submit=[1-9]/.test(w2.output) || mock.rowsOf("applications").filter((a) => a.status === "approved" && a.id === baApp?.id).length === 0, w2.output);
   r = await call(`/api/schedules/${autoBadId}`, { method: "DELETE" });
   mock.fixtures.chatMode = "normal";
+}
+
+// ---- scoring: an unrelated posting is rejected by the rules without spending a model call
+{
+  const nurse = "Registered nurse needed for our hospital ward. Provide patient care, administer medication, maintain clinical records, collaborate with doctors and ensure infection control protocols. Nursing licence and two years of clinical experience required. Shift work including nights and weekends. ".repeat(2);
+  r = await call("/api/jobs/manual", { method: "POST", body: { url: "https://boards.greenhouse.io/hospitalco/jobs/93", title: "Registered Nurse", company: "HospitalCo", description: nurse, country: "sg" } });
+  const scoreCalls = () => (mock.seen.chatPrompts ?? []).filter((c) => c.task === "score").length;
+  const before = scoreCalls();
+  r = await call("/api/cron/score?limit=40");
+  const nj = mock.rowsOf("jobs").find((j) => j.company === "HospitalCo");
+  check("an unrelated job is rejected by the rules, with the reason, and no model call is made for it", nj?.status === "skipped" && /No overlap/.test(nj.skip_reason ?? "") && scoreCalls() === before && mock.rowsOf("job_scores").find((x) => x.job_id === nj.id)?.model === "rules", JSON.stringify({ st: nj?.status, why: nj?.skip_reason, calls: scoreCalls() - before }));
+  check("and the rejection log says why", mock.rowsOf("activity_log").some((l) => l.kind === "job.rejected" && l.job_id === nj.id && l.detail?.stage === "evidence"), "log missing");
 }
 
 // ---- resume memory: a near-identical job reuses a verified resume with no model call; an unrelated one is written fresh
