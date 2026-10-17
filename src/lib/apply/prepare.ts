@@ -16,7 +16,10 @@ import { getSetting } from "@/lib/settings";
 import { renderCoverLetterDocx, renderResumeDocx } from "@/lib/tailor/docx";
 import { loadLibrary } from "@/lib/tailor/memory-store";
 import { DEFAULT_THRESHOLDS, type Library } from "@/lib/tailor/memory";
-import { tailorResumeSmart, writeCoverLetterSmart, type Runner } from "@/lib/tailor/tailor";
+import { tailorResumeSmart, writeCoverLetterSmart, type Runner, type SmartOutcome } from "@/lib/tailor/tailor";
+import { buildDiff } from "@/lib/docs/verify";
+import { masterAsTailored } from "@/lib/tailor/sections";
+import { loadMasterFile } from "@/lib/tailor/master-store";
 import { buildAnswers } from "./answers";
 import { buildJobSnapshot, buildProfileSnapshot } from "./snapshot";
 import { logEvent } from "./events";
@@ -28,8 +31,9 @@ async function nextVersion(jobId: string, kind: string): Promise<number> {
   return rows.reduce((m, r) => Math.max(m, r.version), 0) + 1;
 }
 
-async function upload(path: string, buf: Buffer) {
-  const { error } = await db().storage.from("documents").upload(path, buf, { contentType: DOCX, upsert: true });
+const PDF = "application/pdf";
+async function upload(path: string, buf: Buffer, contentType = DOCX) {
+  const { error } = await db().storage.from("documents").upload(path, buf, { contentType, upsert: true });
   if (error) throw new Error(`upload ${path}: ${error.message}`);
 }
 
@@ -68,37 +72,53 @@ export async function prepareApplication(jobId: string, runId: string | null = n
 
   // memory: reuse or adapt a resume made for a similar job before spending tokens on a fresh one
   const library: Library = await loadLibrary(jobId).catch(() => ({ past: [], enabled: false }));
-  const resume = await tailorResumeSmart(profile, { ...job, style }, run, library);
+  let resume: SmartOutcome;
+  let cover: Awaited<ReturnType<typeof writeCoverLetterSmart>> | null;
+  // when no model can write a tailored resume, your own master resume is used instead of leaving the application undone
+  let master: { reason: string; file: { bytes: Buffer; ext: string } | null } | null = null;
+  try {
+    resume = await tailorResumeSmart(profile, { ...job, style }, run, library);
+    const prov0 = resume.provenance;
+    // a cover letter is about one company: it is only carried over when the old job was near-identical
+    const carryFrom = prov0.mode === "reused" && prov0.from && prov0.from.similarity >= (library.thresholds?.reuse ?? DEFAULT_THRESHOLDS.reuse) ? library.past.find((p) => p.jobId === prov0.from!.jobId) : undefined;
+    cover = await writeCoverLetterSmart(profile, { ...job, style }, run, carryFrom?.cover ? { text: carryFrom.cover.text, sourceIds: carryFrom.cover.sourceIds, fromCompany: carryFrom.company, fromTitle: carryFrom.title } : null);
+  } catch (e) {
+    const file = await loadMasterFile().catch(() => null);
+    master = { reason: (e instanceof Error ? e.message : String(e)).slice(0, 300), file: file ? { bytes: file.bytes, ext: file.ext } : null };
+    const content = masterAsTailored(profile);
+    resume = { content, model: "master", verification: { ok: true, issues: [], attempts: 0 }, diff: buildDiff(profile, content), provenance: { mode: "fresh", modelCalls: 0, tokensSavedEstimate: 0 } } as unknown as SmartOutcome;
+    cover = null;
+  }
   const prov = resume.provenance;
-  // a cover letter is about one company: it is only carried over when the old job was near-identical
-  const carryFrom = prov.mode === "reused" && prov.from && prov.from.similarity >= (library.thresholds?.reuse ?? DEFAULT_THRESHOLDS.reuse) ? library.past.find((p) => p.jobId === prov.from!.jobId) : undefined;
-  const cover = await writeCoverLetterSmart(profile, { ...job, style }, run, carryFrom?.cover ? { text: carryFrom.cover.text, sourceIds: carryFrom.cover.sourceIds, fromCompany: carryFrom.company, fromTitle: carryFrom.title } : null);
 
   // Two requests can prepare the same job at once (a double click, or the pipeline and a button). The database allows one
   // application per job; the loser finds the winner's application and returns it instead of failing.
   let app: { id: string };
   let rv: number, cv: number, resumePath: string, coverPath: string;
-  let appRow: { job_id: string; resume_doc_id: string; cover_doc_id: string; answers: unknown[]; status: string };
+  let appRow: { job_id: string; resume_doc_id: string; cover_doc_id: string | null; answers: unknown[]; status: string };
   try {
     rv = await nextVersion(jobId, "resume");
     cv = await nextVersion(jobId, "cover_letter");
-    resumePath = `${jobId}/resume-v${rv}.docx`;
+    const ext = master?.file?.ext ?? "docx";
+    resumePath = `${jobId}/resume-v${rv}.${ext}`;
     coverPath = `${jobId}/cover-letter-v${cv}.docx`;
-    await upload(resumePath, await renderResumeDocx(profile, resume.content, style));
-    await upload(coverPath, await renderCoverLetterDocx(profile, cover.content, job.company, style));
+    // the master file is sent exactly as you uploaded it; otherwise the resume is laid out from the template
+    if (master?.file) await upload(resumePath, master.file.bytes, ext === "pdf" ? PDF : DOCX);
+    else await upload(resumePath, await renderResumeDocx(profile, resume.content, style));
+    if (cover) await upload(coverPath, await renderCoverLetterDocx(profile, cover.content, job.company, style));
 
     const resumeDoc = must<{ id: string }>(
-      await db().from("documents").insert({ job_id: jobId, kind: "resume", version: rv, content: resume.content, diff: resume.diff, verification: { ...resume.verification, reuse: prov, style: style.id }, storage_path: resumePath, model: resume.model }).select("id").single(),
+      await db().from("documents").insert({ job_id: jobId, kind: "resume", version: rv, content: resume.content, diff: resume.diff, verification: { ...resume.verification, reuse: prov, style: style.id, ...(master ? { fallback: master.file ? "master_original" : "master_profile", reason: master.reason } : {}) }, storage_path: resumePath, model: resume.model }).select("id").single(),
       "save resume doc",
     );
-    const coverDoc = must<{ id: string }>(
+    const coverDoc = !cover ? null : must<{ id: string }>(
       await db().from("documents").insert({ job_id: jobId, kind: "cover_letter", version: cv, content: cover.content, verification: { ...cover.verification, reuse: cover.carried ? { mode: "reused", modelCalls: 0, tokensSavedEstimate: 1500 } : { mode: "fresh", modelCalls: cover.verification.attempts, tokensSavedEstimate: 0 } }, storage_path: coverPath, model: cover.model }).select("id").single(),
       "save cover doc",
     );
     const scoreRow = must<{ score: number; model: string | null; detail: { summary?: string; matchedSkills?: string[]; gaps?: string[] } } | null>(
       await db().from("job_scores").select("score,model,detail").eq("job_id", jobId).maybeSingle(), "load score",
     );
-    appRow = { job_id: jobId, resume_doc_id: resumeDoc.id, cover_doc_id: coverDoc.id, answers: buildAnswers(bank, profile.preferences, profile, countryAnswers(countryPref), job.country), status: "prepared" };
+    appRow = { job_id: jobId, resume_doc_id: resumeDoc.id, cover_doc_id: coverDoc?.id ?? null, answers: buildAnswers(bank, profile.preferences, profile, countryAnswers(countryPref), job.country), status: "prepared" };
     app = must<{ id: string }>(
       await withLegacyFallback(
         () => db().from("applications").insert({
@@ -120,12 +140,13 @@ export async function prepareApplication(jobId: string, runId: string | null = n
     }
     throw e;
   }
-  const verified = resume.verification.ok && cover.verification.ok;
+  const verified = resume.verification.ok && (cover?.verification.ok ?? true);
   const ref = { ...jobLogFields(job), application_id: app.id, run_id: runId };
   const how = prov.mode === "reused" ? ` (reused from "${prov.from?.title}" at ${prov.from?.company}, ${Math.round((prov.from?.similarity ?? 0) * 100)}% similar; no model call)` : prov.mode === "adapted" ? ` (adapted from "${prov.from?.title}" at ${prov.from?.company}, ${Math.round((prov.from?.similarity ?? 0) * 100)}% similar)` : "";
+  if (master) await logActivity({ kind: "resume.generated", level: "warn", message: `No tailored resume could be made for ${job.title} at ${job.company}, so ${master.file ? "your uploaded master resume" : "your master profile laid out in the standard template"} is attached instead. Reason: ${master.reason}`, ...ref, status: "master_fallback", detail: { fallback: master.file ? "master_original" : "master_profile", reason: master.reason } });
   await logActivity({ kind: "resume.generated", level: resume.verification.ok ? "info" : "warn", message: `Resume v${rv} for ${job.title} at ${job.company}${how}${resume.verification.ok ? "" : ` (${resume.verification.issues.length} claim(s) failed verification)`}`, ...ref, status: resume.verification.ok ? "verified" : "unverified", detail: { version: rv, model: resume.model, attempts: resume.verification.attempts, issues: resume.verification.issues, path: resumePath, memory: prov } });
-  await logActivity({ kind: "cover.generated", level: cover.verification.ok ? "info" : "warn", message: `Cover letter v${cv} for ${job.title} at ${job.company}${cover.carried ? " (carried over from a near-identical job)" : ""}${cover.verification.ok ? "" : ` (${cover.verification.issues.length} claim(s) failed verification)`}`, ...ref, status: cover.verification.ok ? "verified" : "unverified", detail: { version: cv, model: cover.model, attempts: cover.verification.attempts, issues: cover.verification.issues, path: coverPath } });
+  if (cover) await logActivity({ kind: "cover.generated", level: cover.verification.ok ? "info" : "warn", message: `Cover letter v${cv} for ${job.title} at ${job.company}${cover.carried ? " (carried over from a near-identical job)" : ""}${cover.verification.ok ? "" : ` (${cover.verification.issues.length} claim(s) failed verification)`}`, ...ref, status: cover.verification.ok ? "verified" : "unverified", detail: { version: cv, model: cover.model, attempts: cover.verification.attempts, issues: cover.verification.issues, path: coverPath } });
   await logActivity({ kind: "application.prepared", message: `Application prepared for ${job.title} at ${job.company}: ${verified ? "verified, awaiting your approval" : "needs your review (unverified claims)"}`, ...ref, status: "prepared", detail: { verified, answers: appRow.answers.length } });
-  await logEvent(app.id, "prepared", { verified, resumeModel: resume.model, coverModel: cover.model, resumeIssues: resume.verification.issues, coverIssues: cover.verification.issues });
+  await logEvent(app.id, "prepared", { verified, resumeModel: resume.model, coverModel: cover?.model ?? null, resumeIssues: resume.verification.issues, coverIssues: cover?.verification.issues ?? [], fallback: master ? (master.file ? "master_original" : "master_profile") : null });
   return { applicationId: app.id, verified };
 }

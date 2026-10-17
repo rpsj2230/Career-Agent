@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { importProfile } from "@/lib/profile/extract";
 import { clearDraft, getProfile, saveDraft } from "@/lib/profile/store";
 import { logConfig } from "@/lib/activity-helpers";
+import { masterExt, saveMasterResume } from "@/lib/tailor/master-store";
 
 export const maxDuration = 60;
 
@@ -18,6 +19,9 @@ export async function POST(request: Request) {
     const uploads = await Promise.all(files.map(async (f) => ({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) })));
     const draft = await importProfile({ uploads, pastedText: pasted, linkedinUrl }, existing.preferences);
     await saveDraft(draft);
+    // keep the first resume file exactly as uploaded: it is the fallback when a tailored resume cannot be made
+    const resumeFile = uploads.find((u) => masterExt(u.name));
+    if (resumeFile) await saveMasterResume(resumeFile.name, resumeFile.bytes).catch((e) => console.error(`[resume] could not keep the uploaded file: ${e instanceof Error ? e.message : e}`));
     await logConfig("Profile imported as a draft", { files: files.map((f) => f.name), pastedText: pasted.trim().length > 0, model: draft.model, conflicts: draft.conflicts.length });
     return NextResponse.json({ ok: true, conflicts: draft.conflicts, model: draft.model });
   } catch (e) {

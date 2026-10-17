@@ -222,3 +222,13 @@ Verified by an end-to-end run with a sloppy model (fenced JSON, invented first d
 - Pay and visa answers are true for one country only. The Profile preferences name the country your pay figures are in (or it is read from how you wrote them: "24 LPA" is India). Current and expected CTC, work authorisation, and any answer-bank entry about salary, pay, visa or sponsorship are used only on forms for that country.
 - On a form for any other country, the agent uses that country's own answers instead: the expected salary and work authorisation on the Countries page, and answers saved for that country (the "only for this country" option when you answer a handed-back application). If there is none, the application is handed back for that one question rather than sending the wrong figure. Neutral answers (notice period, links, experience) are used everywhere.
 - A country's own answer replaces the general version of the same question, even in your home country.
+
+## Resumes page, master resume and fallback
+
+- **Resumes** (left menu) shows: the master resume (your own PDF or DOCX, kept automatically when you import your profile, or uploaded there), the ATS-friendly template with a live preview per country style and a DOCX download, and every resume the agent has made, newest first, with tags (role words, country, style, how it was made, outcome, how many later resumes reused it) and a search box.
+- **Fallback:** if no model can write a tailored resume for a job, the application is prepared with your master file (exactly as uploaded) instead of failing, or with your profile laid out in the template when no file was uploaded. No cover letter is made in that case. The activity log says so with the reason, and the resume's record carries a `fallback` marker.
+- Reuse of saved resumes for similar jobs is the existing resume memory (see "Resume memory"); the page makes it visible.
+
+## One place to choose countries
+
+Settings and Profile show the searched countries read-only with a link to the Countries page, which is where countries, titles, salary and work authorisation are set. The older lists remain as a fallback, so an existing setup keeps searching.

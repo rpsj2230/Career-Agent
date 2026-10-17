@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Briefcase, CalendarClock, Cpu, FileText, Globe, History, Inbox, Plug, Server, Settings, User } from "lucide-react";
+import { BarChart3, Briefcase, CalendarClock, Cpu, FileStack, FileText, Globe, History, Inbox, Plug, Server, Settings, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const ITEMS = [
@@ -15,6 +15,7 @@ const ITEMS = [
   { href: "/reports", label: "Reports", icon: FileText },
   { href: "/logs", label: "Logs", icon: History },
   { href: "/profile", label: "Profile", icon: User },
+  { href: "/resumes", label: "Resumes", icon: FileStack },
   { href: "/models", label: "Models", icon: Cpu },
   { href: "/settings", label: "Settings", icon: Settings },
   { href: "/system", label: "System", icon: Server },

@@ -1,3 +1,4 @@
+import { searchingCountries } from "@/lib/country-summary";
 import { AnswerBankEditor, DraftReview, ImportBox, PreferencesForm } from "@/components/app/profile-forms";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,7 +11,7 @@ import { mergeStandard } from "@/lib/standard-questions";
 export const dynamic = "force-dynamic";
 
 export default async function ProfilePage() {
-  const [profile, draft] = await Promise.all([getProfile(), getDraft()]);
+  const [profile, draft, searching] = await Promise.all([getProfile(), getDraft(), searchingCountries()]);
   const bank = must<{ question: string; answer: string }[]>(await db().from("answer_bank").select("question,answer").order("question"), "load answers");
   const handbacks = await loadHandbacks().catch(() => []);
   const empty = profile.experience.length === 0;
@@ -50,7 +51,7 @@ export default async function ProfilePage() {
 
       <Card>
         <CardHeader><CardTitle>Preferences</CardTitle><CardDescription>Used for discovery, scoring and pre-filled application answers.</CardDescription></CardHeader>
-        <CardContent><PreferencesForm prefs={profile.preferences} /></CardContent>
+        <CardContent><PreferencesForm prefs={profile.preferences} searching={searching} /></CardContent>
       </Card>
 
       <Card>
