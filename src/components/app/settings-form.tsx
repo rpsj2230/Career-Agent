@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -9,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { COUNTRY_PRESETS, ROLE_PRESETS, toggleCsv } from "@/lib/standard-questions";
+import { ROLE_PRESETS, toggleCsv } from "@/lib/standard-questions";
 import { call } from "./api";
 
 type Discovery = { countries: string[]; roles: string[]; greenhouse_boards: string[]; lever_companies: string[]; ashby_orgs?: string[]; workable_accounts?: string[]; recruitee_companies?: string[]; max_age_days: number; min_rescan_hours?: number };
@@ -17,7 +18,7 @@ type Scoring = { threshold: number; min_evidence: number; batch_size: number; ro
 type Caps = { daily_total: number; daily_linkedin: number; weekly_linkedin: number; linkedin_automation_enabled: boolean; local_auto_enabled?: boolean; company_cooldown_days?: number };
 const csv = (s: string) => s.split(",").map((x) => x.trim()).filter(Boolean);
 
-export function SettingsForm({ discovery, scoring, caps, tailoring, blocklist, replies, profileTitles }: { discovery: Discovery; scoring: Scoring; caps: Caps; blocklist: { companies: string[]; keywords: string[]; skip_agencies: boolean }; replies: { enabled: boolean }; tailoring: { reuse_enabled: boolean; reuse_similarity: number; adapt_similarity: number }; profileTitles: string[] }) {
+export function SettingsForm({ searching, discovery, scoring, caps, tailoring, blocklist, replies, profileTitles }: { searching: { names: string[]; configured: boolean }; discovery: Discovery; scoring: Scoring; caps: Caps; blocklist: { companies: string[]; keywords: string[]; skip_agencies: boolean }; replies: { enabled: boolean }; tailoring: { reuse_enabled: boolean; reuse_similarity: number; adapt_similarity: number }; profileTitles: string[] }) {
   const router = useRouter();
   const [d, setD] = useState({ ...discovery, countries: discovery.countries.join(", "), roles: discovery.roles.join(", "), greenhouse_boards: discovery.greenhouse_boards.join(", "), lever_companies: discovery.lever_companies.join(", "), ashby_orgs: (discovery.ashby_orgs ?? []).join(", "), workable_accounts: (discovery.workable_accounts ?? []).join(", "), recruitee_companies: (discovery.recruitee_companies ?? []).join(", ") });
   const [t, setT] = useState(scoring.threshold);
@@ -42,15 +43,11 @@ export function SettingsForm({ discovery, scoring, caps, tailoring, blocklist, r
         <CardHeader><CardTitle>Job discovery</CardTitle><CardDescription>Tap the chips to add or remove, or type your own. Blank countries or roles fall back to your profile preferences. Greenhouse board tokens and Lever company slugs come from the careers-page URL (boards.greenhouse.io/<b>token</b>, jobs.lever.co/<b>slug</b>).</CardDescription></CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-2">
           <div className="grid gap-2">
-            <Label htmlFor="c">Countries (ISO codes)</Label>
-            <Input id="c" value={d.countries} placeholder="in, sg, ae" onChange={(e) => setD({ ...d, countries: e.target.value })} />
-            <div className="flex flex-wrap gap-1">
-              {COUNTRY_PRESETS.map((c) => (
-                <button type="button" key={c.code} onClick={() => setD({ ...d, countries: toggleCsv(d.countries, c.code) })}>
-                  <Badge variant={csv(d.countries).includes(c.code) ? "default" : "outline"}>{c.name}</Badge>
-                </button>
-              ))}
-            </div>
+            <Label>Countries</Label>
+            <p className="rounded-md border bg-muted/40 p-3 text-sm">
+              {searching.names.length > 0 ? <>Searching: <b>{searching.names.join(", ")}</b>{searching.configured ? "" : " (from your earlier settings)"}.</> : "No country is being searched yet."}{" "}
+              Countries, and the job titles, salary and work authorisation for each, are managed on the <Link className="underline" href="/countries">Countries page</Link>.
+            </p>
           </div>
           <div className="grid gap-2">
             <Label htmlFor="r">Roles</Label>

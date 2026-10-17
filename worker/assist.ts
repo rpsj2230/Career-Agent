@@ -17,7 +17,7 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, extname, join } from "node:path";
 import { createInterface } from "node:readline";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { chromium, type BrowserContext, type Page } from "playwright";
@@ -82,7 +82,8 @@ async function downloadDocs(sb: SupabaseClient, app: AppRow, dir: string) {
     writeFileSync(file, Buffer.from(await data.arrayBuffer()));
     return { path: file, storage_path: d.storage_path as string };
   };
-  return { resume: await get("resume", "Resume.docx"), cover: await get("cover_letter", "Cover-Letter.docx") };
+  const ext = (kind: string) => extname(docs?.find((x) => x.kind === kind)?.storage_path ?? "") || ".docx";
+  return { resume: await get("resume", `Resume${ext("resume")}`), cover: await get("cover_letter", `Cover-Letter${ext("cover_letter")}`) };
 }
 
 /** Wait until you deal with a sign-in, CAPTCHA or security check in the browser window. */

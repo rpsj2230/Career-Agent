@@ -25,6 +25,8 @@ export const DEFAULTS = {
   resume_templates: {} as Record<string, string>,
   /** read your mailbox (read-only, in memory) to update applications when an employer replies; off until you turn it on */
   replies: { enabled: false },
+  /** the resume file you uploaded, kept as the fallback when a tailored resume cannot be made (null until you upload one) */
+  master_resume: null as { path: string; name: string; size: number; uploaded_at: string } | null,
   /** never show these: company names, words in the title or description, and (optionally) recruitment agencies */
   blocklist: { companies: [] as string[], keywords: [] as string[], skip_agencies: false },
   /** companies found posting matching jobs, whose own boards are read directly (see jobs/ats.ts) */

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -90,7 +91,7 @@ export function DraftReview({ initial, conflicts }: { initial: unknown; conflict
 type Prefs = { countries: string[]; roles: string[]; payCountry?: string; currentCtc?: string; expectedCtc?: string; noticePeriod?: string; visaStatus?: string; relocate?: boolean };
 const csv = (s: string) => s.split(",").map((x) => x.trim()).filter(Boolean);
 
-export function PreferencesForm({ prefs }: { prefs: Prefs }) {
+export function PreferencesForm({ prefs, searching }: { prefs: Prefs; searching: { names: string[]; configured: boolean } }) {
   const router = useRouter();
   const [p, setP] = useState({ ...prefs, countries: prefs.countries.join(", "), roles: prefs.roles.join(", ") });
   const set = (k: string, v: unknown) => setP((o) => ({ ...o, [k]: v }));
@@ -103,7 +104,8 @@ export function PreferencesForm({ prefs }: { prefs: Prefs }) {
   );
   return (
     <div className="grid gap-3 md:grid-cols-2">
-      {field("countries", "Target countries (ISO codes)", "in, sg, ae")}
+      <div className="grid gap-1"><Label>Target countries</Label>
+        <p className="rounded-md border bg-muted/40 p-3 text-sm">{searching.names.length > 0 ? <>Searching: <b>{searching.names.join(", ")}</b>.</> : "None yet."} Managed on the <Link className="underline" href="/countries">Countries page</Link>.</p></div>
       {field("roles", "Target roles", "Product Manager, Program Manager")}
       {field("payCountry", "Country your pay figures below are in", "in")}
       <p className="self-end pb-2 text-xs text-muted-foreground">Pay and visa answers are only sent to forms in this country. For any other country, set that country&apos;s expected salary and work authorisation on the Countries page, or answer once when an application is handed back (choose &quot;only for this country&quot;).</p>

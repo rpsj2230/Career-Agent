@@ -6,7 +6,7 @@
 import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, extname, join } from "node:path";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { chromium, type Page } from "playwright";
 import { confirmationSnippet, type FieldEntry, type SubmissionRecord } from "../src/lib/apply/submission";
@@ -96,7 +96,7 @@ async function processInner(sb: SupabaseClient, appId: string) {
   };
   const resumeDoc = docs.find((d) => d.kind === "resume");
   const coverDoc = docs.find((d) => d.kind === "cover_letter");
-  const resumePath = await download(resumeDoc!.storage_path, "Resume.docx");
+  const resumePath = await download(resumeDoc!.storage_path, `Resume${extname(resumeDoc!.storage_path) || ".docx"}`);
   const coverPath = coverDoc ? await download(coverDoc.storage_path, "Cover-Letter.docx") : undefined;
 
   const applicant = {
