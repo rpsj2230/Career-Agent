@@ -7,7 +7,7 @@ export type ScanOutcome = { integration: IntegrationId; country?: string; query?
 
 export type ScanDeps = {
   startScan(o: { integration: string; country?: string; query?: string }): Promise<string | null>;
-  finishScan(id: string | null, o: { integration: string; country?: string; query?: string }, r: { status: "ok" | "error"; error?: string } & Partial<ScanCounts>): Promise<void>;
+  finishScan(id: string | null, o: { integration: string; country?: string; query?: string }, r: { status: "ok" | "error"; error?: string; detail?: Record<string, unknown> } & Partial<ScanCounts>): Promise<void>;
   ingest(jobs: NormalizedJob[], scanId: string | null): Promise<{ inserted: number; duplicates: number; stale: number; invalid: number; legacy?: boolean }>;
   recordIntegration(id: IntegrationId, r: { ok: boolean; error?: string; inserted: number }): Promise<void>;
   now?: () => number;
@@ -52,17 +52,18 @@ export async function runScans(specs: ScanSpec[], deps: ScanDeps, opts: { budget
     if ("skipped" in got) { skipped++; continue; }
     const meta = { integration: spec.integration, country: spec.country, query: spec.query };
     const scanId = await deps.startScan(meta);
+    const detail = spec.windowDays ? { window_days: spec.windowDays, window_from: new Date(now() - spec.windowDays * 86_400_000).toISOString(), window_to: new Date(now()).toISOString() } : undefined;
     try {
       if ("error" in got) throw new Error(got.error);
       const jobs = got.jobs;
       const r = await deps.ingest(jobs, scanId);
       legacy ||= !!r.legacy;
       const counts: ScanCounts = { fetched: jobs.length, inserted: r.inserted, duplicates: r.duplicates, stale: r.stale, invalid: r.invalid };
-      await deps.finishScan(scanId, meta, { status: "ok", ...counts });
+      await deps.finishScan(scanId, meta, { status: "ok", ...counts, detail });
       outcomes.push({ ...meta, ok: true, counts });
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e);
-      await deps.finishScan(scanId, meta, { status: "error", error });
+      await deps.finishScan(scanId, meta, { status: "error", error, detail });
       outcomes.push({ ...meta, ok: false, error, counts: { fetched: 0, inserted: 0, duplicates: 0, stale: 0, invalid: 0 } });
     }
   }

@@ -7,8 +7,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { countryLabel } from "@/lib/filters";
 import { portalLabel } from "@/lib/jobs/portal";
 import { parseLogFilters } from "@/lib/log-filters";
-import { getRun, queryLogs } from "@/lib/log-queries";
-import { fmtDateTime, fmtDuration } from "@/lib/time";
+import { applyLogs, getRun, queryLogs } from "@/lib/log-queries";
+import { ApplyReportCard } from "@/components/app/apply-report-card";
+import { applyReport, bySource, runSentence, windowLabel } from "@/lib/run-report";
+import { appTimezone, fmtDateTime, fmtDuration } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +20,9 @@ export default async function RunPage({ params }: { params: Promise<{ id: string
   const { run, scans } = await getRun(id);
   if (!run) notFound();
   const { rows } = await queryLogs({ ...parseLogFilters({ run: id }), page: 1 });
+  const tz = appTimezone();
+  const sources = bySource(scans, portalLabel, tz);
+  const applying = applyReport(await applyLogs({ run: id }), portalLabel, countryLabel);
   const failed = run.status === "failed" || run.status === "partial";
 
   return (
@@ -36,6 +41,21 @@ export default async function RunPage({ params }: { params: Promise<{ id: string
       {failed && run.error && <Card className="border-destructive"><CardHeader><CardTitle className="text-destructive">{run.status === "failed" ? "Why it failed" : "What went wrong"}</CardTitle></CardHeader><CardContent className="text-sm">{run.error}</CardContent></Card>}
 
       <Card>
+        <CardHeader><CardTitle>What this run did</CardTitle></CardHeader>
+        <CardContent className="grid gap-3">
+          <p className="text-sm">{runSentence(run.stats ?? {}, sources)}</p>
+          {sources.length > 0 && (
+            <Table>
+              <TableHeader><TableRow><TableHead>Source</TableHead><TableHead>Postings asked for</TableHead><TableHead>Searches</TableHead><TableHead>Fetched</TableHead><TableHead>New</TableHead><TableHead>Already known</TableHead><TableHead>Too old</TableHead></TableRow></TableHeader>
+              <TableBody>{sources.map((s) => <TableRow key={s.source}><TableCell className="font-medium">{s.source}</TableCell><TableCell className="whitespace-nowrap text-xs">{s.window ?? "-"}</TableCell><TableCell>{s.scans}{s.failed ? <span className="text-destructive"> ({s.failed} failed)</span> : null}</TableCell><TableCell>{s.fetched}</TableCell><TableCell>{s.inserted}</TableCell><TableCell>{s.duplicates}</TableCell><TableCell>{s.stale}</TableCell></TableRow>)}</TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      <ApplyReportCard report={applying} title="Applying decided in this run" description="Approvals and hand-backs this run made. Submissions finished later by the apply worker appear under Runs and scans for the period." />
+
+      <Card>
         <CardHeader><CardTitle>Counters</CardTitle></CardHeader>
         <CardContent className="flex flex-wrap gap-2">
           {Object.keys(run.stats ?? {}).length === 0 ? <span className="text-sm text-muted-foreground">None recorded.</span> : Object.entries(run.stats).map(([k, v]) => <Badge key={k} variant="secondary">{k}: {v}</Badge>)}
@@ -47,12 +67,12 @@ export default async function RunPage({ params }: { params: Promise<{ id: string
           <CardHeader><CardTitle>Scans in this run</CardTitle><CardDescription>Which sources were queried and what they returned.</CardDescription></CardHeader>
           <CardContent>
             <Table>
-              <TableHeader><TableRow><TableHead>When</TableHead><TableHead>Source</TableHead><TableHead>Country</TableHead><TableHead>Query</TableHead><TableHead>Result</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow><TableHead>When</TableHead><TableHead>Source</TableHead><TableHead>Country</TableHead><TableHead>Query</TableHead><TableHead>Postings asked for</TableHead><TableHead>Result</TableHead></TableRow></TableHeader>
               <TableBody>
                 {scans.map((s) => (
                   <TableRow key={s.id}>
                     <TableCell className="whitespace-nowrap text-xs">{fmtDateTime(s.started_at)}</TableCell><TableCell>{portalLabel(s.integration)}</TableCell>
-                    <TableCell>{s.country ? countryLabel(s.country) : "-"}</TableCell><TableCell>{s.query ?? "-"}</TableCell>
+                    <TableCell>{s.country ? countryLabel(s.country) : "-"}</TableCell><TableCell>{s.query ?? "-"}</TableCell><TableCell className="whitespace-nowrap text-xs">{windowLabel(s.detail, tz) ?? "-"}</TableCell>
                     <TableCell className="whitespace-normal text-xs">{s.status === "error" ? <span className="text-destructive">{s.error}</span> : `${s.fetched} fetched, ${s.inserted} new, ${s.duplicates} already known, ${s.stale} too old, ${s.invalid} unusable`}</TableCell>
                   </TableRow>
                 ))}

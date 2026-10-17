@@ -49,7 +49,7 @@ export type RunRow = {
 };
 export type ScanRow2 = {
   id: string; run_id: string | null; integration: string; portal: string | null; country: string | null; query: string | null; status: string;
-  started_at: string; finished_at: string | null; fetched: number; inserted: number; duplicates: number; stale: number; invalid: number; error: string | null;
+  started_at: string; finished_at: string | null; fetched: number; inserted: number; duplicates: number; stale: number; invalid: number; error: string | null; detail: Record<string, unknown> | null;
 };
 
 export async function listRuns(o: { status?: string; kind?: string; from?: string; to?: string; tz?: string; limit?: number }): Promise<{ rows: RunRow[]; missing: boolean }> {
@@ -77,4 +77,15 @@ export async function recentScans(o: { from?: string; to?: string; tz?: string; 
   if (to) q = q.lte("started_at", to.to);
   const res = await q.order("started_at", { ascending: false }).limit(o.limit ?? 500);
   return res.error ? [] : (res.data as ScanRow2[]);
+}
+
+/** Application log lines in a period (or one run), for the "how applying went" report. */
+export async function applyLogs(o: { from?: string; to?: string; tz?: string; run?: string }) {
+  let q = db().from("activity_log").select("kind,portal,country,status,detail").in("kind", ["application.submitted", "application.approved", "application.needs_input", "application.manual", "application.failed"]);
+  const from = o.from ? localDayBounds(o.from, o.tz) : null, to = o.to ? localDayBounds(o.to, o.tz) : null;
+  if (o.run) q = q.eq("run_id", o.run);
+  if (from) q = q.gte("created_at", from.from);
+  if (to) q = q.lte("created_at", to.to);
+  const res = await q.order("created_at", { ascending: false }).limit(5000);
+  return res.error ? [] : (res.data as { kind: string; portal: string | null; country: string | null; status: string | null; detail: Record<string, unknown> | null }[]);
 }
