@@ -177,6 +177,12 @@ check("a scraped job that names the employer's Greenhouse page is switched to it
 check("the token went to Apify as a bearer token and the request used the actor id", mock.seen.external.some((e) => e.host === "api.apify.com" && e.auth === "Bearer APIFY-TOKEN-123" && e.path.includes("someone~linkedin-jobs")), "not seen");
 check("the token is never stored in clear text", !JSON.stringify(mock.rowsOf("settings")).includes("APIFY-TOKEN-123"), "leaked");
 
+// MyCareersFuture: free, no key, Singapore
+r = await call("/api/integrations/mcf/test", { method: "POST" }); check("MyCareersFuture Test needs no key and reads the sample job", r.status === 200 && /reachable/.test(r.text), `${r.status} ${r.text}`);
+r = await call("/api/integrations/mcf/scan", { method: "POST" }); check("the MyCareersFuture scan stores Singapore jobs", r.status === 200 && /new/.test(r.text), `${r.status} ${r.text}`);
+const mcfJob = mock.rowsOf("jobs").find((j) => j.external_id === "mcf-1");
+check("the job is Singapore, labelled MyCareersFuture, with a monthly SGD salary converted for comparison", mcfJob?.portal === "mycareersfuture" && mcfJob.country === "sg" && mcfJob.salary_currency === "SGD" && mcfJob.salary_min > 8000 * 11, JSON.stringify(mcfJob && { p: mcfJob.portal, c: mcfJob.country, cur: mcfJob.salary_currency, min: mcfJob.salary_min }));
+
 // ---- Jobs list: origin portal shown, filters in the URL, hostile input ignored
 r = await call("/jobs?view=all"); check("Jobs list shows every stored job with its source", r.status === 200 && r.text.includes("Principal Product Manager") && r.text.includes("Gamma Pte Ltd") && r.text.includes("Delta"), `${r.status}`);
 check("the Source column names the origin portals", r.text.includes("LinkedIn") && r.text.includes("Adzuna"), "portal labels missing");
@@ -775,6 +781,7 @@ r = await call("/api/country-prefs", { method: "PUT", body: { country: "sg", cur
 r = await call("/api/country-prefs", { method: "PUT", body: { country: "sg", titles: ["Product Manager", "product manager", "Program Lead"], locations: ["Singapore"], remote: "hybrid_ok", salary_min: 100000, currency: "SGD", work_authorisation: "needs_sponsorship" } });
 check("saving a country works", r.status === 200, `${r.status} ${r.text}`);
 r = await call("/countries"); check("the saved country is shown with its criteria", r.text.includes("Singapore") && r.text.includes("Program Lead"), "missing");
+r = await call("/countries"); check("the Countries page shows where jobs come from for each country, with what each source costs", r.status === 200 && r.text.includes("Where jobs come from, by country") && /free/.test(r.text), `${r.status}`);
 r = await call("/logs?kind=config.changed"); check("saving a country is logged", r.text.includes("Country settings saved: Singapore"), "no log entry");
 r = await call("/api/country-prefs?country=sg", { method: "DELETE" }); check("removing a country works", r.status === 200, `${r.status}`);
 r = await call("/api/country-prefs?country=bad", { method: "DELETE" }); check("removing with a bad code is refused", r.status === 400, `${r.status}`);

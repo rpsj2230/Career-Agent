@@ -79,8 +79,8 @@ export default async function PortalsPage() {
             <CardHeader>
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
-                  <CardTitle className="flex items-center gap-2">{i.def.name} <ConnectionBadge status={i.status} /></CardTitle>
-                  <CardDescription>{i.def.kind}. {i.def.summary}</CardDescription>
+                  <CardTitle className="flex items-center gap-2">{i.def.name} <ConnectionBadge status={i.status} /> <Badge variant={i.def.cost.kind === "free" ? "secondary" : "outline"} title={i.def.cost.note}>{i.def.cost.kind === "free" ? "Free" : i.def.cost.kind === "free_tier" ? "Free tier" : "Free credit"}</Badge></CardTitle>
+                  <CardDescription>{i.def.kind}. {i.def.summary} <span className="font-medium">Cost: {i.def.cost.note}.</span></CardDescription>
                 </div>
                 {i.def.available && (
                   <div className="flex flex-wrap items-center gap-2">
@@ -98,7 +98,7 @@ export default async function PortalsPage() {
                   {i.def.needsConfig && i.def.needsConfig !== "apify_actors" && <p className="mt-1 text-xs"><Link className="underline" href="/settings">Settings &gt; Job discovery</Link> holds the list of {i.def.needsConfig === "greenhouse_boards" ? "boards" : "companies"}.</p>}</div>
                 <div><div className="mb-1 font-medium">Limits</div><ul className="list-disc pl-5 text-muted-foreground">{i.def.limitations.map((l) => <li key={l}>{l}</li>)}</ul></div>
               </div>
-              {i.def.id === "apify" && <ApifyActors actors={apify.actors} />}
+              {i.def.id === "apify" && <ApifyActors actors={apify.actors} budget={apify.monthly_item_budget} />}
               {i.def.available && i.def.id !== "manual" && (
                 <div className="grid gap-1 rounded-md bg-muted/50 p-3 text-xs">
                   <div>Last scan: {when(i.state?.last_scan_at)} · Last success: {when(i.state?.last_ok_at)} · Jobs found in total: {i.state?.jobs_found_total ?? 0}</div>

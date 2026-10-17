@@ -43,6 +43,7 @@ export function detectPortal(input: { url: string; publisher?: string | null; in
   const pub = input.publisher ? portalSlug(input.publisher) : "";
   if (pub) {
     // normalise common publisher spellings to our keys ("Naukri.com" -> "naukri")
+    if (pub in PORTAL_LABELS) return pub; // a portal we know by name ("naukrigulf" is not "naukri")
     const hit = PORTAL_HOSTS.find(([key]) => pub.startsWith(key))?.[0];
     return hit ?? pub;
   }
@@ -54,6 +55,6 @@ export const PORTAL_LABELS: Record<string, string> = {
   linkedin: "LinkedIn", indeed: "Indeed", glassdoor: "Glassdoor", naukri: "Naukri", foundit: "Foundit", shine: "Shine",
   instahyre: "Instahyre", cutshort: "Cutshort", wellfound: "Wellfound", internshala: "Internshala", timesjobs: "TimesJobs", apna: "Apna",
   greenhouse: "Greenhouse (company)", lever: "Lever (company)", remotive: "Remotive", arbeitnow: "Arbeitnow", remoteok: "Remote OK", jobicy: "Jobicy", adzuna: "Adzuna", jsearch: "JSearch", manual: "Added manually",
-  ziprecruiter: "ZipRecruiter", mailbox: "Alert emails",
+  ziprecruiter: "ZipRecruiter", bayt: "Bayt", naukrigulf: "Naukrigulf", gulftalent: "GulfTalent", seek: "SEEK", jobstreet: "JobStreet", jobsdb: "JobsDB", mycareersfuture: "MyCareersFuture", mcf: "MyCareersFuture", mailbox: "Alert emails",
 };
 export const portalLabel = (key: string | null | undefined) => (key ? PORTAL_LABELS[key] ?? key.charAt(0).toUpperCase() + key.slice(1) : "Unknown");

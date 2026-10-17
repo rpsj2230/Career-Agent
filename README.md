@@ -79,6 +79,23 @@ Adzuna and JSearch (which indexes many portals). For a posting you find on a por
 **Add job manually** (link + description); it then follows the normal score -> prepare -> approve flow and is
 applied in assisted mode.
 
+### Free coverage by country
+No single free source has every job, so the agent combines several and merges duplicates (the same role at the same company in the same
+country is stored once, with the other portals it was also seen on). Everything below is free; Apify is optional.
+
+| Country | Free sources |
+|---|---|
+| India | Adzuna, JSearch (free plan), alert emails from Naukri, Foundit, Shine, LinkedIn, Indeed, company boards |
+| Singapore | Adzuna, **MyCareersFuture** (government portal, no key), JobStreet/LinkedIn alert emails, JSearch |
+| Australia | Adzuna, SEEK/LinkedIn alert emails, JSearch |
+| Canada, US | Adzuna, LinkedIn/Indeed alert emails, JSearch, company boards, remote feeds |
+| UAE and the Gulf | JSearch (Google for Jobs), alert emails from Bayt, Naukrigulf, GulfTalent, LinkedIn, company boards (Adzuna does not cover these) |
+
+The **Countries** page shows, for each country you search, which sources are connected, what they cost, and what to add to fill gaps.
+Apify (hosted scrapers) has a free monthly credit of about $5 (a few thousand jobs); the agent stops using it at the monthly job
+budget you set, so scheduled runs cannot overspend. Alert emails are the most complete free route for the portals without an API:
+set job alerts on each portal for your titles and countries, connect the mailbox once, and every alert is turned into a job.
+
 ### Apply assistant (LinkedIn, Naukri, Indeed, Foundit, Shine, Glassdoor and any employer site)
 These portals cannot be driven from a server, and automating them from a cloud IP gets accounts challenged or banned. The
 assistant runs on **your own computer**, in a real browser window using your own signed-in sessions:

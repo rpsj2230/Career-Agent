@@ -15,9 +15,10 @@ const toRow = (a: ApifyActor): Row => ({ id: a.id, portal: a.portal, max_items: 
 const BLANK: Row = { id: "", portal: "linkedin", max_items: 50, enabled: true, input: '{\n  "keywords": "{{title}}",\n  "location": "{{location}}"\n}' };
 
 /** The scrapers that run on every scan. The input is copied from the scraper's own documentation, with placeholders where it expects the search. */
-export function ApifyActors({ actors }: { actors: ApifyActor[] }) {
+export function ApifyActors({ actors, budget }: { actors: ApifyActor[]; budget: number }) {
   const router = useRouter();
   const [rows, setRows] = useState<Row[]>(actors.map(toRow));
+  const [cap, setCap] = useState(budget);
   const set = (i: number, p: Partial<Row>) => setRows(rows.map((r, k) => (k === i ? { ...r, ...p } : r)));
 
   async function save() {
@@ -28,13 +29,15 @@ export function ApifyActors({ actors }: { actors: ApifyActor[] }) {
       catch { alert(`Scraper ${i + 1}: the input is not valid JSON (it must be an object).`); return; }
       out.push({ id: r.id.trim(), portal: r.portal.trim(), max_items: Number(r.max_items) || 50, enabled: r.enabled, input });
     }
-    if (await call("/api/settings", "PUT", { key: "apify", value: { actors: out } }, "Scrapers saved")) router.refresh();
+    if (await call("/api/settings", "PUT", { key: "apify", value: { actors: out, monthly_item_budget: Number(cap) || 0 } }, "Scrapers saved")) router.refresh();
   }
 
   return (
     <div className="grid gap-3 rounded-md border p-3">
       <div className="text-sm font-medium">Scrapers</div>
       <p className="text-xs text-muted-foreground">One row per scraper from the Apify Store. Copy its input example from its page and put <code>{"{{title}}"}</code>, <code>{"{{location}}"}</code>, <code>{"{{country}}"}</code>, <code>{"{{days}}"}</code> or <code>{"{{max_items}}"}</code> where it expects them. It runs once per title and location on your Countries page.</p>
+      <div className="grid gap-1 md:max-w-xs"><Label htmlFor="apify-budget">Most jobs to fetch per month (0 = no limit)</Label><Input id="apify-budget" type="number" min={0} value={cap} onChange={(e) => setCap(Number(e.target.value))} />
+        <span className="text-xs text-muted-foreground">Apify&apos;s free plan includes about $5 of usage a month, which is roughly a few thousand jobs. The agent stops fetching through Apify when this number is reached, so a schedule cannot spend more than you intend. Check your scrapers&apos; prices on their Apify pages.</span></div>
       {rows.map((r, i) => (
         <div key={i} className="grid gap-2 rounded-md bg-muted/40 p-3 md:grid-cols-[2fr_1fr_1fr_auto]">
           <div className="grid gap-1"><Label htmlFor={`aid-${i}`}>Actor id</Label><Input id={`aid-${i}`} value={r.id} placeholder="username~actor-name" onChange={(e) => set(i, { id: e.target.value })} /></div>

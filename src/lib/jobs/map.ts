@@ -93,3 +93,23 @@ export function mapJobicy(r: any): NormalizedJob {
     postedAt: iso(r.pubDate), salaryText: money(min, max, currency ? `${currency} ` : ""), salary: min || max ? { min, max, currency, period: "year" } : undefined,
   };
 }
+
+/**
+ * MyCareersFuture (Singapore government job portal). Salaries there are monthly SGD figures. The field names below are the ones
+ * its public search returns; each is read defensively so a missing field never drops the job.
+ */
+export function mapMcf(r: any): NormalizedJob {
+  const district = r.address?.districts?.[0];
+  const location = [r.address?.street ?? r.address?.block, district?.region, "Singapore"].filter(Boolean).join(", ");
+  const min = r.salary?.minimum, max = r.salary?.maximum;
+  const monthly = /month/i.test(String(r.salary?.type?.salaryType ?? "Monthly"));
+  const id = String(r.uuid ?? r.id ?? "");
+  return {
+    source: "mcf", externalId: id, title: r.title ?? "", company: r.postedCompany?.name ?? r.hiringCompany?.name ?? "Unknown",
+    country: "sg", publisher: "mycareersfuture", location, url: r.metadata?.jobDetailsUrl ?? (id ? `https://www.mycareersfuture.gov.sg/job/${id}` : ""),
+    description: htmlToText(r.description ?? ""),
+    salaryText: min || max ? `SGD ${min ? Math.round(min) : ""}${min && max ? " - " : ""}${max ? Math.round(max) : ""} ${monthly ? "per month" : "per year"}` : undefined,
+    postedAt: iso(r.metadata?.originalPostingDate ?? r.metadata?.newPostingDate),
+    salary: min || max ? { min: min || undefined, max: max || undefined, currency: "SGD", period: monthly ? "month" : "year" } : undefined,
+  };
+}

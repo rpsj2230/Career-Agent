@@ -22,7 +22,7 @@ export const DEFAULTS = {
   /** resume style per country code, e.g. { "de": "europe" }; countries not listed use the default for their region */
   resume_templates: {} as Record<string, string>,
   /** hosted scrapers (Apify) for the portals without an API */
-  apify: { actors: [] as ApifyActor[] },
+  apify: { actors: [] as ApifyActor[], monthly_item_budget: 2500 },
   caps: { daily_total: 15, daily_linkedin: 10, weekly_linkedin: 40, linkedin_automation_enabled: false, local_auto_enabled: false } as Caps,
 };
 

@@ -5,15 +5,19 @@
  * scrapes LinkedIn, Indeed or Glassdoor, which have no open job-search or apply API for individuals and forbid it.
  */
 
-export type IntegrationId = "adzuna" | "jsearch" | "remotive" | "arbeitnow" | "remoteok" | "jobicy" | "greenhouse" | "lever" | "manual" | "mailbox" | "apify";
+export type IntegrationId = "adzuna" | "jsearch" | "remotive" | "arbeitnow" | "remoteok" | "jobicy" | "greenhouse" | "lever" | "manual" | "mailbox" | "apify" | "mcf";
 export type ApplyMode = "automated" | "assisted" | "none";
 
 export type CredentialDef = { key: string; label: string; help: string; env?: string; /** not needed for the integration to be ready */ optional?: boolean };
 
+export type Cost = { kind: "free" | "free_tier" | "free_credit"; note: string };
+
 export type IntegrationDef = {
   id: IntegrationId;
+  /** what it costs, stated plainly */
+  cost: Cost;
   name: string;
-  kind: "aggregator API" | "company job-board API" | "email" | "manual" | "hosted scraper";
+  kind: "aggregator API" | "company job-board API" | "email" | "manual" | "hosted scraper" | "government portal";
   summary: string;
   available: boolean;                    // false = planned, shown but cannot be enabled yet
   credentials: CredentialDef[];          // all must be present before scanning
@@ -29,6 +33,7 @@ export const ADZUNA_COUNTRIES = ["at", "au", "be", "br", "ca", "ch", "de", "es",
 
 export const INTEGRATIONS: IntegrationDef[] = [
   {
+    cost: { kind: "free_tier", note: "Free key; request limits apply" },
     id: "adzuna", name: "Adzuna", kind: "aggregator API", available: true, discovers: true, apply: "assisted",
     summary: "Job aggregator with an official free API covering India, the UK, the US, Australia, Singapore and more.",
     credentials: [
@@ -44,6 +49,7 @@ export const INTEGRATIONS: IntegrationDef[] = [
     ],
   },
   {
+    cost: { kind: "free_tier", note: "Free RapidAPI plan with a small monthly quota; paid above it" },
     id: "jsearch", name: "JSearch (Google for Jobs)", kind: "aggregator API", available: true, discovers: true, apply: "assisted",
     summary: "Aggregates listings published on LinkedIn, Indeed, Glassdoor, Naukri and many other sites. The publisher is recorded as each job's origin portal.",
     credentials: [{ key: "rapidapi_key", label: "RapidAPI key", help: "Subscribe to JSearch on rapidapi.com (a free plan exists)", env: "RAPIDAPI_KEY" }],
@@ -56,6 +62,7 @@ export const INTEGRATIONS: IntegrationDef[] = [
     ],
   },
   {
+    cost: { kind: "free", note: "Free, no key" },
     id: "remotive", name: "Remotive", kind: "aggregator API", available: true, discovers: true, apply: "assisted",
     summary: "Public feed of remote jobs. No account needed.",
     credentials: [], countries: "all",
@@ -63,6 +70,7 @@ export const INTEGRATIONS: IntegrationDef[] = [
     limitations: ["Remote roles only", "No country filter: the country is guessed from the location text", "Applying is on the employer's site (assisted)"],
   },
   {
+    cost: { kind: "free", note: "Free, no key" },
     id: "arbeitnow", name: "Arbeitnow", kind: "aggregator API", available: true, discovers: true, apply: "assisted",
     summary: "Free public job board feed, strongest for Germany and the rest of Europe (including visa-sponsorship and relocation roles). No account needed.",
     credentials: [], countries: ["de", "nl", "at", "ch", "fr", "es", "pl", "ie", "gb"],
@@ -70,6 +78,15 @@ export const INTEGRATIONS: IntegrationDef[] = [
     limitations: ["The feed has no search: it is fetched and filtered by your job titles here", "Mostly Europe; the country comes from the location text", "Applying is on the employer's site (assisted)"],
   },
   {
+    cost: { kind: "free", note: "Free, no key (Singapore government portal)" },
+    id: "mcf", name: "MyCareersFuture (Singapore)", kind: "government portal", available: true, discovers: true, apply: "assisted",
+    summary: "Singapore's official government job portal. Its job search is public, so every Singapore listing there is found with no account and no key.",
+    credentials: [], countries: ["sg"],
+    setup: ["Nothing to set up", "Press Test to confirm it is reachable"],
+    limitations: ["Singapore only, filtered by your titles from the Countries page", "Salaries there are monthly and are converted for comparison", "Applying is on the portal or the employer's site (assisted)"],
+  },
+  {
+    cost: { kind: "free", note: "Free, no key" },
     id: "remoteok", name: "Remote OK", kind: "aggregator API", available: true, discovers: true, apply: "assisted",
     summary: "Free public feed of remote jobs, many with salary ranges. No account needed.",
     credentials: [], countries: "all",
@@ -77,6 +94,7 @@ export const INTEGRATIONS: IntegrationDef[] = [
     limitations: ["Remote roles only, filtered by your job titles here", "Remote OK asks that listings link back to remoteok.com; each job keeps its original link", "Applying is on the employer's site (assisted)"],
   },
   {
+    cost: { kind: "free", note: "Free, no key" },
     id: "jobicy", name: "Jobicy", kind: "aggregator API", available: true, discovers: true, apply: "assisted",
     summary: "Free public feed of remote jobs worldwide with salary data on many. No account needed.",
     credentials: [], countries: "all",
@@ -84,6 +102,7 @@ export const INTEGRATIONS: IntegrationDef[] = [
     limitations: ["Remote roles only, filtered by your job titles here", "Applying is on the employer's site (assisted)"],
   },
   {
+    cost: { kind: "free", note: "Free, public company boards" },
     id: "greenhouse", name: "Greenhouse company boards", kind: "company job-board API", available: true, discovers: true, apply: "automated", needsConfig: "greenhouse_boards",
     summary: "Public job boards of companies that use Greenhouse. The one place where automatic applying is supported.",
     credentials: [], countries: "all",
@@ -95,6 +114,7 @@ export const INTEGRATIONS: IntegrationDef[] = [
     ],
   },
   {
+    cost: { kind: "free", note: "Free, public company boards" },
     id: "lever", name: "Lever company boards", kind: "company job-board API", available: true, discovers: true, apply: "automated", needsConfig: "lever_companies",
     summary: "Public job boards of companies that use Lever. Automatic applying is supported on standard forms.",
     credentials: [], countries: "all",
@@ -102,6 +122,7 @@ export const INTEGRATIONS: IntegrationDef[] = [
     limitations: ["Only the companies you list", "Required questions without a saved answer hand the job back to you", "CAPTCHAs are never bypassed"],
   },
   {
+    cost: { kind: "free_credit", note: "Apify free plan includes about $5 of usage a month (a few thousand jobs); more is paid. Set a monthly job budget below to stay inside it" },
     id: "apify", name: "Hosted scrapers (Apify)", kind: "hosted scraper", available: true, discovers: true, apply: "assisted", needsConfig: "apify_actors",
     summary: "Reads LinkedIn, Naukri, Indeed, SEEK/JobStreet/JobsDB and similar portals automatically, using ready-made scrapers that Apify runs on its own servers against the portals' public pages. This is how the portals without a job-search API are searched on every schedule with no manual step.",
     credentials: [{ key: "token", label: "Apify API token", help: "Apify > Settings > Integrations (a free plan with monthly credit exists)", env: "APIFY_TOKEN" }],
@@ -119,6 +140,7 @@ export const INTEGRATIONS: IntegrationDef[] = [
     ],
   },
   {
+    cost: { kind: "free", note: "Free" },
     id: "manual", name: "Added manually", kind: "manual", available: true, discovers: false, apply: "assisted",
     summary: "Paste a link and description for any posting, from any portal or an alert email.",
     credentials: [], countries: "all",
@@ -126,6 +148,7 @@ export const INTEGRATIONS: IntegrationDef[] = [
     limitations: ["You supply the posting; nothing is fetched automatically"],
   },
   {
+    cost: { kind: "free", note: "Free: reads the alert emails the portals already send you" },
     id: "mailbox", name: "Job-alert emails", kind: "email", available: true, discovers: true, apply: "assisted",
     summary: "Reads the job-alert emails that LinkedIn, Indeed, Glassdoor and Naukri already send you (read-only IMAP) and turns each listed job into a job here. This is the compliant route to those portals: nothing logs in to them.",
     credentials: [

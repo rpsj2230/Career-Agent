@@ -2,7 +2,7 @@ import { guessCountry, htmlToText, type NormalizedJob } from "./normalize";
 
 export type AlertMail = { from: string; subject: string; html: string; text?: string; date?: Date; messageId?: string };
 
-type Match = { id: string; url: string };
+type Match = { id: string; url: string; /** when one parser serves several portals */ portal?: string };
 type PortalParser = { portal: string; senders: string[]; match: (u: URL) => Match | null };
 
 const hostIs = (u: URL, ...suffixes: string[]) => suffixes.some((s) => u.hostname === s || u.hostname.endsWith(`.${s}`));
@@ -44,6 +44,55 @@ const PARSERS: PortalParser[] = [
       if (!hostIs(u, "naukri.com")) return null;
       const m = u.pathname.match(/job-listings-.*?-(\d{6,})\/?$/) ?? u.pathname.match(/job-listings-.*?(\d{6,})/);
       return m ? { id: m[1], url: `https://www.naukri.com${u.pathname}` } : null;
+    },
+  },
+  {
+    portal: "foundit", senders: ["foundit.in", "foundit.com", "monsterindia.com", "foundit.sg", "foundit.ae"],
+    match: (u) => {
+      if (!/(^|\.)(foundit\.[a-z.]+|monsterindia\.com)$/.test(u.hostname)) return null;
+      const m = u.pathname.match(/\/job\/.*?-(\d{5,})\/?$/) ?? u.pathname.match(/\/job\/(\d{5,})/);
+      return m ? { id: m[1], url: `${u.origin}${u.pathname}` } : null;
+    },
+  },
+  {
+    portal: "shine", senders: ["shine.com"],
+    match: (u) => {
+      if (!hostIs(u, "shine.com")) return null;
+      const m = u.pathname.match(/\/jobs\/.*?\/(\d{5,})\/?$/) ?? u.pathname.match(/-(\d{6,})\/?$/);
+      return m ? { id: m[1], url: `${u.origin}${u.pathname}` } : null;
+    },
+  },
+  {
+    portal: "bayt", senders: ["bayt.com"],
+    match: (u) => {
+      if (!hostIs(u, "bayt.com")) return null;
+      const m = u.pathname.match(/\/jobs\/.*?-(\d{5,})\/?$/);
+      return m ? { id: m[1], url: `${u.origin}${u.pathname}` } : null;
+    },
+  },
+  {
+    portal: "naukrigulf", senders: ["naukrigulf.com"],
+    match: (u) => {
+      if (!hostIs(u, "naukrigulf.com")) return null;
+      const m = u.pathname.match(/-jid-(\d{5,})/) ?? u.pathname.match(/-(\d{8,})\/?$/);
+      return m ? { id: m[1], url: `${u.origin}${u.pathname}` } : null;
+    },
+  },
+  {
+    portal: "gulftalent", senders: ["gulftalent.com"],
+    match: (u) => {
+      if (!hostIs(u, "gulftalent.com")) return null;
+      const m = u.pathname.match(/\/jobs\/.*?-(\d{4,})\/?$/);
+      return m ? { id: m[1], url: `${u.origin}${u.pathname}` } : null;
+    },
+  },
+  {
+    // SEEK (Australia, New Zealand), JobStreet (Singapore, Malaysia, Philippines, Indonesia) and JobsDB (Hong Kong, Thailand) share one platform
+    portal: "seek", senders: ["seek.com.au", "seek.co.nz", "seek.com", "jobstreet.com", "jobsdb.com"],
+    match: (u) => {
+      if (!/(^|\.)(seek\.(com(\.au)?|co\.nz)|jobstreet\.com|jobsdb\.com)$/.test(u.hostname)) return null;
+      const m = u.pathname.match(/\/job\/(\d{6,})/);
+      return m ? { id: m[1], url: `${u.origin}/job/${m[1]}`, portal: /jobstreet/.test(u.hostname) ? "jobstreet" : /jobsdb/.test(u.hostname) ? "jobsdb" : "seek" } : null;
     },
   },
 ];
@@ -106,8 +155,8 @@ export function parseAlertEmail(mail: AlertMail): NormalizedJob[] {
     const company = ctx.company ?? "Unknown";
     const location = ctx.location;
     jobs.push({
-      source: "mailbox", externalId: `${parser.portal}-${f.match.id}`, title: f.title.slice(0, 200), company: company.slice(0, 200),
-      country: guessCountry(location ?? mail.subject), location, url: f.match.url, publisher: parser.portal,
+      source: "mailbox", externalId: `${f.match.portal ?? parser.portal}-${f.match.id}`, title: f.title.slice(0, 200), company: company.slice(0, 200),
+      country: guessCountry(location ?? mail.subject), location, url: f.match.url, publisher: f.match.portal ?? parser.portal,
       description: `${f.title} at ${company}${location ? `, ${location}` : ""}. Found in a ${parser.portal} job-alert email ("${mail.subject.slice(0, 120)}"). Only this summary was in the email; open the posting for the full description.`,
       salaryText: ctx.salary, postedAt: mail.date?.toISOString(),
     });
