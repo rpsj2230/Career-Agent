@@ -1,3 +1,4 @@
+import { checkKey, keyProblems } from "@/lib/keycheck";
 import { z } from "zod";
 import { safeEqual } from "./access";
 
@@ -28,6 +29,13 @@ export function checkSignup(input: unknown, env: { INVITE_CODE?: string; CRON_SE
   if (!safeEqual(code, invite)) return { ok: false, status: 403, error: "Invite code is incorrect" };
   if (password.length < MIN_PASSWORD) return { ok: false, status: 400, error: `Password must be at least ${MIN_PASSWORD} characters` };
   return { ok: true, email: email.toLowerCase(), password };
+}
+
+/** What Vercel's settings look like (never the key itself), appended to a Supabase refusal so the cause is visible. */
+export function diagnosis(message: string, status: number | undefined, env: { key?: string; url?: string }): string {
+  const problems = keyProblems(checkKey(env.key, env.url));
+  const real = `Supabase said: "${message.replace(/\s+/g, " ").slice(0, 160)}"${status ? ` (HTTP ${status})` : ""}.`;
+  return problems.length ? ` Found: ${problems.join(" ")} ${real}` : ` The key looks like a valid service key for this project, so ${real} If you changed it recently, redeploy and try again; otherwise check that the database setup SQL was run (System page).`;
 }
 
 /** Turn a Supabase failure into something you can act on (never includes the password). */
