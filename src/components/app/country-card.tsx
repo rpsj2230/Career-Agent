@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { COUNTRIES, countryInfo, defaultCurrency } from "@/lib/countries";
 import { defaultPref, parseList, queriesPerSource, REMOTE_LABEL, REMOTE_OPTIONS, WORK_AUTH, type CountryPref } from "@/lib/country-prefs";
 import { STYLES, styleFor } from "@/lib/tailor/template";
+import { AutofillButton } from "./autofill-button";
 import { call } from "./api";
 
 const selectClass = "h-9 rounded-md border border-input bg-transparent px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
@@ -116,7 +117,7 @@ export function CountryCard({ pref, profileTitles, templates, suggested = [] }: 
           <select id={`s-${pref.country}`} value={style} onChange={(e) => setStyle(e.target.value)} className={selectClass}><option value="">Automatic ({styleFor(pref.country).label})</option>{STYLES.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}</select>
           <span className="text-xs text-muted-foreground">The layout is the same every time; this sets the page size, spelling, the summary heading and how many bullets each role shows. Your expected salary and visa answers for this country come from the fields above.</span></div>
         <div className="grid gap-1 md:col-span-2"><Label htmlFor={`n-${pref.country}`}>Other criteria for this country</Label><Textarea id={`n-${pref.country}`} rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. avoid startups under 20 people; prefer companies that sponsor employment passes" /></div>
-        <div className="flex gap-2 md:col-span-2"><Button onClick={save}>Save {info?.name ?? pref.country}</Button><Button variant="outline" onClick={remove}>Remove</Button></div>
+        <div className="flex gap-2 md:col-span-2"><Button onClick={save}>Save {info?.name ?? pref.country}</Button><AutofillButton scope="country" country={pref.country} label="Fill empty fields from my profile" /><Button variant="outline" onClick={remove}>Remove</Button></div>
       </CardContent>
     </Card>
   );

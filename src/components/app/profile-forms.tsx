@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ROLE_PRESETS, rowsToSave, toggleCsv, type AnswerRow } from "@/lib/standard-questions";
+import { AutofillButton } from "./autofill-button";
 import { call } from "./api";
 
 export function ImportBox() {
@@ -129,7 +130,7 @@ export function PreferencesForm({ prefs, searching, profileTitles }: { prefs: Pr
       {field("noticePeriod", "Notice period", "60 days")}
       {field("visaStatus", "Work authorisation / visa (in that country)", "Indian citizen")}
       <div className="flex items-center gap-2"><Checkbox id="relocate" checked={!!p.relocate} onCheckedChange={(v) => set("relocate", v === true)} /><Label htmlFor="relocate">Open to relocation</Label></div>
-      <div className="md:col-span-2"><Button onClick={save}>Save preferences</Button></div>
+      <div className="flex flex-wrap gap-2 md:col-span-2"><Button onClick={save}>Save preferences</Button><AutofillButton scope="preferences" label="Fill empty fields from my profile" /></div>
     </div>
   );
 }

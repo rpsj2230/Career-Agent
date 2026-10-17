@@ -6,7 +6,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { COVERAGE_NOTE, coverageFor } from "@/lib/integrations/coverage";
 import { loadPortalsView } from "@/lib/integrations/view";
 import { COUNTRIES } from "@/lib/countries";
-import { listCountryPrefs } from "@/lib/country-prefs-store";
+import { ensureCountryDefaults, listCountryPrefs } from "@/lib/country-prefs-store";
+import { AutofillButton } from "@/components/app/autofill-button";
 import { getProfile } from "@/lib/profile/store";
 import { getSetting } from "@/lib/settings";
 import { loadTitleSuggestions } from "@/lib/jobs/adaptive-store";
@@ -14,6 +15,9 @@ import { loadTitleSuggestions } from "@/lib/jobs/adaptive-store";
 export const dynamic = "force-dynamic";
 
 export default async function CountriesPage() {
+  // first visit: give each of your countries an entry filled from your profile (once per country; nothing existing is touched)
+  const first = await getProfile();
+  if (first.experience.length > 0) await ensureCountryDefaults(first).catch(() => []);
   const [{ rows, missing }, profile, discovery, templates, view, apify] = await Promise.all([listCountryPrefs(), getProfile(), getSetting("discovery"), getSetting("resume_templates"), loadPortalsView().catch(() => null), getSetting("apify")]);
   const statusOf = (id: string) => view?.integrations.find((i) => i.def.id === id)?.status ?? "needs_setup";
   const coverage = rows.filter((r) => r.enabled).map((r) => coverageFor(r.country, statusOf as never, apify.actors.some((a) => a.enabled)));
@@ -33,7 +37,10 @@ export default async function CountriesPage() {
       {rows.length === 0 && !missing && (
         <Alert><AlertTitle>Using your general settings</AlertTitle><AlertDescription>No country is configured here yet, so scans use the countries and roles from <Link className="underline" href="/settings">Settings</Link>{discovery.countries.length ? ` (${discovery.countries.map((c) => c.toUpperCase()).join(", ")})` : ""}. Add a country below to give it its own criteria; configured countries take over from those general settings.</AlertDescription></Alert>
       )}
-      <AddCountry available={available} />
+      <div className="flex flex-wrap items-end gap-3">
+        <AddCountry available={available} />
+        {profile.experience.length > 0 && <AutofillButton scope="countries" label="Fill empty fields from my profile" />}
+      </div>
       {coverage.length > 0 && (
         <Card>
           <CardHeader><CardTitle>Where jobs come from, by country</CardTitle><CardDescription>No single source has every job, so several are used together and duplicates are merged. Free sources are listed first; add the suggestions to fill the gaps.</CardDescription></CardHeader>
@@ -50,7 +57,7 @@ export default async function CountriesPage() {
         </Card>
       )}
       <div className="grid gap-4">
-        {rows.map((r) => <CountryCard key={r.country} pref={r} profileTitles={profileTitles} templates={templates} suggested={(suggestions as Record<string, { title: string; count: number }[]>)[r.country] ?? []} />)}
+        {rows.map((r) => <CountryCard key={r.country + JSON.stringify(r)} pref={r} profileTitles={profileTitles} templates={templates} suggested={(suggestions as Record<string, { title: string; count: number }[]>)[r.country] ?? []} />)}
       </div>
     </div>
   );
