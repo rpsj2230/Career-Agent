@@ -309,7 +309,7 @@ for (let i = 1; i <= 30; i++) mock.rowsOf("activity_log").push({ id: 100000 + i,
 check("enough events exist to test pagination", mock.rowsOf("activity_log").length > 50, `only ${mock.rowsOf("activity_log").length}`);
 r = await call("/logs"); check("Logs page shows recent events across categories", r.status === 200 && r.text.includes("Activity log") && r.text.includes("job.rejected") && r.text.includes("application.submitted"), `${r.status}`);
 check("rows link to their job and application", r.text.includes(`href="/jobs/${zeta.id}"`) && r.text.includes(`href="/applications/${application.id}"`), "links missing");
-r = await call("/resumes"); check("the Resumes page shows the master resume, the template and the saved resumes", r.status === 200 && r.text.includes("Master resume") && r.text.includes("Resume template") && r.text.includes("Saved resumes"), `${r.status}`);
+r = await call("/resumes"); check("the Resumes page shows the master resume, the template and the saved resumes", r.status === 200 && r.text.includes("Master resume") && r.text.includes("Resume template") && r.text.includes("Saved resumes") && r.text.includes("What changes for each job") && r.text.includes("Changes per job"), `${r.status}`);
 r = await call("/api/resumes/master", { method: "GET" }); check("with no master resume uploaded, downloading it says so", r.status === 404, `${r.status}`);
 r = await call("/settings"); check("Settings points to the Countries page instead of a second country list", r.status === 200 && r.text.includes("Countries page"), `${r.status}`);
 r = await call("/logs?level=error"); check("level filter shows errors only", r.text.includes("request quota") && !r.text.includes("Matched (fit"), "wrong rows");

@@ -19,6 +19,8 @@ export const DEFAULTS = {
   scoring: { threshold: 65, min_evidence: 20, batch_size: 5, routing: true, escalate_borderline: true, learning: true },
   /** reuse or adapt resumes made for similar jobs instead of writing each from scratch */
   tailoring: { reuse_enabled: true, reuse_similarity: 0.85, adapt_similarity: 0.4 },
+  /** which parts of your resume the agent may change for each job; the rest always stays as in your master resume */
+  tailoring_scope: { headline: true, summary: true, bullets: true, skills: true },
   /** keep the database small: clear the description of skipped jobs after N days; delete per-job rejection log lines after N days (0 = never) */
   retention: { skipped_days: 30, log_days: 90 },
   /** resume style per country code, e.g. { "de": "europe" }; countries not listed use the default for their region */
