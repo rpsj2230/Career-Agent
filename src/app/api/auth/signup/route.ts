@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { parseAllowlist } from "@/lib/access";
 import { claimOwner, getOwnerEmail, releaseOwner } from "@/lib/owner";
-import { checkSignup, explainSignupError } from "@/lib/signup";
+import { checkSignup, diagnosis, explainSignupError } from "@/lib/signup";
 import { logActivity } from "@/lib/activity";
 
 /**
@@ -15,7 +15,7 @@ export async function POST(request: Request) {
     const m = e instanceof Error ? e.message : String(e);
     await logActivity({ kind: "auth.login_failed", level: "error", message: `Account creation crashed: ${m}`, detail: { reason: m } });
     const x = explainSignupError(m);
-    return NextResponse.json({ error: x.text }, { status: x.status });
+    return NextResponse.json({ error: x.text + (x.status === 500 ? diagnosis(m, undefined, { key: process.env.SUPABASE_SERVICE_ROLE_KEY, url: process.env.SUPABASE_URL }) : "") }, { status: x.status });
   }
 }
 
@@ -46,7 +46,7 @@ async function handle(request: Request) {
     const x = explainSignupError(error.message, error.status);
     if (claimed && x.status !== 409) await releaseOwner(); // do not leave the app claimed by an account that was never created
     await logActivity({ kind: "auth.login_failed", level: "error", message: `Account creation failed: ${error.message}`, detail: { email: check.email, ip, status: error.status ?? null } });
-    return NextResponse.json({ error: x.text }, { status: x.status });
+    return NextResponse.json({ error: x.text + (x.status === 500 ? diagnosis(error.message, error.status, { key: process.env.SUPABASE_SERVICE_ROLE_KEY, url: process.env.SUPABASE_URL }) : "") }, { status: x.status });
   }
   await logActivity({ kind: "auth.signup", message: `Account created: ${check.email}${claimed ? " (owner)" : ""}`, detail: { email: check.email, owner: claimed, ip } });
   return NextResponse.json({ ok: true });
