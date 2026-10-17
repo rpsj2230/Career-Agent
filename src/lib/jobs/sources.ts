@@ -71,7 +71,13 @@ export function jsonFetcher(fetchImpl: FetchLike = fetch) {
     let res: Response;
     try { res = await fetchImpl(url, { ...init, signal: AbortSignal.timeout(15_000) }); }
     catch (e) { throw new Error(`Could not reach ${host}: ${e instanceof Error ? e.message : String(e)}`); }
-    if (!res.ok) throw new Error(explainHttpFailure(res.status, host));
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      let said = body.trim();
+      try { const j = JSON.parse(body); said = typeof j === "object" && j ? String(j.message ?? j.error ?? j.detail ?? "") : String(j); } catch { /* not JSON: use the text */ }
+      if (/^[[{]/.test(said)) said = ""; // raw JSON with no message is noise
+      throw new Error(explainHttpFailure(res.status, host, said.replace(/\s+/g, " ").slice(0, 160) || undefined));
+    }
     return res.json();
   };
 }

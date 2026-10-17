@@ -285,7 +285,14 @@ export function derivePortalStatus(portal: PortalDef, statusOf: (id: Integration
 }
 
 /** Turns an HTTP failure into a message that says what to do. */
-export function explainHttpFailure(status: number, host: string): string {
+export function explainHttpFailure(status: number, host: string, detail?: string): string {
+  if (/rapidapi\.com$/i.test(host)) {
+    const said = detail ? ` RapidAPI said: "${detail}".` : "";
+    if (status === 404) return `${host} returned HTTP 404: RapidAPI could not find that endpoint, so the API may have moved or been renamed.${said} On RapidAPI, open the API's page, press Test Endpoint on its search endpoint with your key, and compare the host and path.`;
+    if (status === 401 || status === 403) return `${host} rejected the credentials (HTTP ${status}).${said} Check that you are subscribed to this API's plan (even the free one) with the same RapidAPI account the key came from.`;
+    if (status === 429) return `${host} says the request quota or rate limit is used up (HTTP 429).${said} Wait, or upgrade the plan.`;
+    return `${host} returned HTTP ${status}.${said}`;
+  }
   if (status === 401 || status === 403) return `${host} rejected the credentials (HTTP ${status}). Check the key and that your plan is active.`;
   if (status === 404) return `${host} returned "not found" (HTTP 404). The endpoint, board token or company name may be wrong.`;
   if (status === 429) return `${host} says the request quota or rate limit is used up (HTTP 429). Wait or upgrade the plan.`;
