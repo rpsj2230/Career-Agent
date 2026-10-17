@@ -71,8 +71,9 @@ List matched skills and gaps using the job's own terms. "seniorityFit", "locatio
 
 /** The candidate and (when set) the country's criteria: the part of a scoring prompt that is the same for every job. */
 export function candidateBlock(profile: MasterProfile, cfg?: EffectiveCountry): string {
+  // the matching rules read every fact; the model is shown a bounded sample (more of the current role) to keep each request small
   const exp = profile.experience
-    .map((e) => `- ${e.title} at ${e.company} (${e.start ?? "?"} to ${e.end ?? "?"}): ${e.bullets.slice(0, 4).map((b) => b.text).join("; ")}`)
+    .map((e, i) => `- ${e.title} at ${e.company} (${e.start ?? "?"} to ${e.end ?? "?"}): ${e.bullets.slice(0, i === 0 ? 8 : 4).map((b) => b.text).join("; ")}`)
     .join("\n");
   const p = profile.preferences;
   return `CANDIDATE
