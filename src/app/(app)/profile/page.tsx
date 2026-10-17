@@ -44,7 +44,17 @@ export default async function ProfilePage() {
           <CardContent className="grid gap-3 text-sm">
             <p>{profile.basics.summary}</p>
             <div className="flex flex-wrap gap-1">{profile.skills.map((s) => <Badge key={s.id} variant="secondary">{s.name}</Badge>)}</div>
-            <ul className="grid gap-1">{profile.experience.map((e) => <li key={e.id}><span className="font-medium">{e.title}</span>, {e.company} <span className="text-muted-foreground">({e.start} - {e.end}) · {e.bullets.length} facts</span></li>)}</ul>
+            <p className="text-xs text-muted-foreground">Each responsibility or achievement below is one &quot;fact&quot;. Every fact is used: for matching jobs to you, and as the only material the agent may draw on when it builds a resume or cover letter for a job. Open a role to read its facts.</p>
+            <div className="grid gap-2">
+              {profile.experience.map((e) => (
+                <details key={e.id} className="rounded-md border p-2">
+                  <summary className="cursor-pointer"><span className="font-medium">{e.title}</span>, {e.company} <span className="text-muted-foreground">({e.start} - {e.end}) · {e.bullets.length} facts</span></summary>
+                  <ul className="ml-5 mt-2 list-disc space-y-1">{e.bullets.map((b) => <li key={b.id}>{b.text}</li>)}</ul>
+                </details>
+              ))}
+              {profile.education.length > 0 && <details className="rounded-md border p-2"><summary className="cursor-pointer font-medium">Education ({profile.education.length})</summary><ul className="ml-5 mt-2 list-disc space-y-1">{profile.education.map((d) => <li key={d.id}>{d.degree}, {d.school}{d.start || d.end ? ` (${[d.start, d.end].filter(Boolean).join(" - ")})` : ""}</li>)}</ul></details>}
+              {profile.certifications.length > 0 && <details className="rounded-md border p-2"><summary className="cursor-pointer font-medium">Certifications and awards ({profile.certifications.length})</summary><ul className="ml-5 mt-2 list-disc space-y-1">{profile.certifications.map((c) => <li key={c.id}>{c.name}</li>)}</ul></details>}
+            </div>
           </CardContent>
         </Card>
       )}
