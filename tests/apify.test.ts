@@ -80,3 +80,27 @@ describe("runActor", () => {
     expect(await runActor("tok", actor, vars, respond(200, { oops: true }).f)).toEqual([]);
   });
 });
+
+describe("presets and country limits", () => {
+  it("every preset is a valid actor row with a fillable input", async () => {
+    const { APIFY_PRESETS } = await import("@/lib/jobs/apify-presets");
+    expect(APIFY_PRESETS.map((p) => p.key)).toEqual(["linkedin", "indeed", "naukri", "seek"]);
+    for (const p of APIFY_PRESETS) {
+      expect(ApifyActor.safeParse(p.actor).success).toBe(true);
+      const filled = JSON.stringify(fillTemplate(p.actor.input, templateVars({ title: "Product Manager", location: "Sydney", country: "au" }, 3, 25)));
+      expect(filled).not.toMatch(/\{\{/);
+      expect(filled).toContain("Product Manager");
+    }
+  });
+  it("rounds the age window to what scrapers offer", () => {
+    const v = (d: number) => templateVars({ title: "x", country: "in" }, d, 10);
+    expect([v(1), v(5), v(20)].map((x) => x.posted_bucket)).toEqual(["24h", "week", "month"]);
+    expect([v(1), v(2), v(5), v(10), v(30)].map((x) => x.posted_days)).toEqual([1, 3, 7, 14, 14]);
+    expect(v(5).country_lower).toBe("in");
+  });
+  it("keeps a numeric limit numeric after filling", async () => {
+    const { APIFY_PRESETS } = await import("@/lib/jobs/apify-presets");
+    const f = fillTemplate(APIFY_PRESETS[2].actor.input, templateVars({ title: "PM", country: "in" }, 3, 25)) as Record<string, unknown>;
+    expect(f.maxJobs).toBe(25);
+  });
+});
