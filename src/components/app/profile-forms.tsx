@@ -87,7 +87,7 @@ export function DraftReview({ initial, conflicts }: { initial: unknown; conflict
   );
 }
 
-type Prefs = { countries: string[]; roles: string[]; currentCtc?: string; expectedCtc?: string; noticePeriod?: string; visaStatus?: string; relocate?: boolean };
+type Prefs = { countries: string[]; roles: string[]; payCountry?: string; currentCtc?: string; expectedCtc?: string; noticePeriod?: string; visaStatus?: string; relocate?: boolean };
 const csv = (s: string) => s.split(",").map((x) => x.trim()).filter(Boolean);
 
 export function PreferencesForm({ prefs }: { prefs: Prefs }) {
@@ -105,10 +105,12 @@ export function PreferencesForm({ prefs }: { prefs: Prefs }) {
     <div className="grid gap-3 md:grid-cols-2">
       {field("countries", "Target countries (ISO codes)", "in, sg, ae")}
       {field("roles", "Target roles", "Product Manager, Program Manager")}
-      {field("currentCtc", "Current CTC", "24 LPA")}
-      {field("expectedCtc", "Expected CTC", "32 LPA")}
+      {field("payCountry", "Country your pay figures below are in", "in")}
+      <p className="self-end pb-2 text-xs text-muted-foreground">Pay and visa answers are only sent to forms in this country. For any other country, set that country&apos;s expected salary and work authorisation on the Countries page, or answer once when an application is handed back (choose &quot;only for this country&quot;).</p>
+      {field("currentCtc", "Current CTC (in that country's terms)", "24 LPA")}
+      {field("expectedCtc", "Expected CTC (in that country's terms)", "32 LPA")}
       {field("noticePeriod", "Notice period", "60 days")}
-      {field("visaStatus", "Work authorisation / visa", "Indian citizen")}
+      {field("visaStatus", "Work authorisation / visa (in that country)", "Indian citizen")}
       <div className="flex items-center gap-2"><Checkbox id="relocate" checked={!!p.relocate} onCheckedChange={(v) => set("relocate", v === true)} /><Label htmlFor="relocate">Open to relocation</Label></div>
       <div className="md:col-span-2"><Button onClick={save}>Save preferences</Button></div>
     </div>

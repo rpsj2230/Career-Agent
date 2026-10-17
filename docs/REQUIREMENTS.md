@@ -216,3 +216,9 @@ Verified by an end-to-end run with a sloppy model (fenced JSON, invented first d
 - The Portals page offers one-click rows for LinkedIn (`harvestapi~linkedin-job-search`), Indeed (`valig~indeed-jobs-scraper`), Naukri (`automation-lab~naukri-scraper`, India only) and SEEK (`datafetch_labs~seek-jobs-scraper`, Australia only). They were chosen from public Apify Store listings (no login or cookies, documented input, recently maintained); they are third-party and can change, so the first scan confirms each.
 - Each scraper row can be limited to chosen countries, so a scraper is only run where it applies and no budget is spent elsewhere.
 - Extra input placeholders: `{{country_lower}}`, `{{posted_bucket}}` ("24h", "week", "month") and `{{posted_days}}` (1, 3, 7 or 14).
+
+## Country-scoped pay and visa answers
+
+- Pay and visa answers are true for one country only. The Profile preferences name the country your pay figures are in (or it is read from how you wrote them: "24 LPA" is India). Current and expected CTC, work authorisation, and any answer-bank entry about salary, pay, visa or sponsorship are used only on forms for that country.
+- On a form for any other country, the agent uses that country's own answers instead: the expected salary and work authorisation on the Countries page, and answers saved for that country (the "only for this country" option when you answer a handed-back application). If there is none, the application is handed back for that one question rather than sending the wrong figure. Neutral answers (notice period, links, experience) are used everywhere.
+- A country's own answer replaces the general version of the same question, even in your home country.

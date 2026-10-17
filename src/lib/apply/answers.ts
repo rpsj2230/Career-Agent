@@ -1,4 +1,5 @@
 import type { MasterProfile } from "@/lib/types";
+import { bankForJob, generalPayAllowed, inferPayCountry } from "./country-scope";
 
 export type Answer = { question: string; answer: string; source: "answer_bank" | "profile" };
 
@@ -36,18 +37,23 @@ export function deriveProfileAnswers(p: MasterProfile, nowYear = NOW_YEAR()): { 
 }
 
 /** Answer bank first; common India/visa questions are filled from profile preferences when not in the bank. */
-export function buildAnswers(bank: { question: string; answer: string }[], prefs: MasterProfile["preferences"], profile?: MasterProfile, countrySpecific: { question: string; answer: string; re: RegExp }[] = []): Answer[] {
-  const out: Answer[] = bank.filter((b) => b.answer.trim()).map((b) => ({ question: b.question, answer: b.answer, source: "answer_bank" as const }));
+export function buildAnswers(bank: { question: string; answer: string }[], prefs: MasterProfile["preferences"], profile?: MasterProfile, countrySpecific: { question: string; answer: string; re: RegExp }[] = [], jobCountry?: string | null): Answer[] {
+  const payCountry = inferPayCountry(prefs);
+  // pay and visa answers are only used in the country they were written for; other countries get that country's own answers or are handed back
+  const generalOk = generalPayAllowed(jobCountry, payCountry);
+  const out: Answer[] = bankForJob(bank, jobCountry, payCountry).filter((b) => b.answer.trim()).map((b) => ({ question: b.question, answer: b.answer, source: "answer_bank" as const }));
   const has = (re: RegExp) => out.some((a) => re.test(a.question));
   const add = (question: string, answer: string | undefined, re: RegExp) => {
     if (answer && !has(re)) out.push({ question, answer, source: "profile" });
   };
   // answers for the job's own country come before the general ones, so they win over them (your answer bank still wins over both)
   for (const c of countrySpecific) add(c.question, c.answer, c.re);
-  add("Current CTC", prefs.currentCtc, /current.*(ctc|salary)/i);
-  add("Expected CTC", prefs.expectedCtc, /expected.*(ctc|salary)/i);
+  if (generalOk) {
+    add("Current CTC", prefs.currentCtc, /current.*(ctc|salary)/i);
+    add("Expected CTC", prefs.expectedCtc, /expected.*(ctc|salary)/i);
+    add("Work authorisation / visa status", prefs.visaStatus, /visa|authori[sz]ation/i);
+  }
   add("Notice period", prefs.noticePeriod, /notice/i);
-  add("Work authorisation / visa status", prefs.visaStatus, /visa|authori[sz]ation/i);
   if (prefs.relocate !== undefined) add("Willing to relocate?", prefs.relocate ? "Yes" : "No", /relocat/i);
   if (profile) for (const d of deriveProfileAnswers(profile)) add(d.question, d.answer, d.re);
   return out;

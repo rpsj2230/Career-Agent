@@ -98,7 +98,7 @@ export async function prepareApplication(jobId: string, runId: string | null = n
     const scoreRow = must<{ score: number; model: string | null; detail: { summary?: string; matchedSkills?: string[]; gaps?: string[] } } | null>(
       await db().from("job_scores").select("score,model,detail").eq("job_id", jobId).maybeSingle(), "load score",
     );
-    appRow = { job_id: jobId, resume_doc_id: resumeDoc.id, cover_doc_id: coverDoc.id, answers: buildAnswers(bank, profile.preferences, profile, countryAnswers(countryPref)), status: "prepared" };
+    appRow = { job_id: jobId, resume_doc_id: resumeDoc.id, cover_doc_id: coverDoc.id, answers: buildAnswers(bank, profile.preferences, profile, countryAnswers(countryPref), job.country), status: "prepared" };
     app = must<{ id: string }>(
       await withLegacyFallback(
         () => db().from("applications").insert({
