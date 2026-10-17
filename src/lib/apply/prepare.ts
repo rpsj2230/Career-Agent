@@ -19,6 +19,7 @@ import { DEFAULT_THRESHOLDS, type Library } from "@/lib/tailor/memory";
 import { tailorResumeSmart, writeCoverLetterSmart, type Runner, type SmartOutcome } from "@/lib/tailor/tailor";
 import { buildDiff } from "@/lib/docs/verify";
 import { masterAsTailored } from "@/lib/tailor/sections";
+import { applyScope } from "@/lib/tailor/scope";
 import { loadMasterFile } from "@/lib/tailor/master-store";
 import { buildAnswers } from "./answers";
 import { buildJobSnapshot, buildProfileSnapshot } from "./snapshot";
@@ -88,6 +89,11 @@ export async function prepareApplication(jobId: string, runId: string | null = n
     const content = masterAsTailored(profile);
     resume = { content, model: "master", verification: { ok: true, issues: [], attempts: 0 }, diff: buildDiff(profile, content), provenance: { mode: "fresh", modelCalls: 0, tokensSavedEstimate: 0 } } as unknown as SmartOutcome;
     cover = null;
+  }
+  if (!master) {
+    // parts you locked on the Resumes page stay exactly as in your master resume
+    const scope = await getSetting("tailoring_scope").catch(() => null);
+    if (scope) { const content = applyScope(resume.content, profile, scope); if (content !== resume.content) resume = { ...resume, content, diff: buildDiff(profile, content) }; }
   }
   const prov = resume.provenance;
 

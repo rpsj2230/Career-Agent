@@ -232,3 +232,8 @@ Verified by an end-to-end run with a sloppy model (fenced JSON, invented first d
 ## One place to choose countries
 
 Settings and Profile show the searched countries read-only with a link to the Countries page, which is where countries, titles, salary and work authorisation are set. The older lists remain as a fallback, so an existing setup keeps searching.
+
+## Master resume template map
+
+- The Resumes page always shows the master resume template (a labelled sample until your profile is imported). Every part is marked **Fixed** (identical in every resume: name and contact details, each employer, your job title there, location, dates, education, certifications) or **Changes per job** (headline/target title, summary, the bullets under each employer, and the skills listed and their order).
+- Four switches control what the agent may change; a switched-off part is always copied from your master resume. The tailored content is only ever built from your own facts, so nothing outside your profile can appear.

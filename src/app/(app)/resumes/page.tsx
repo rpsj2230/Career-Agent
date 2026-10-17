@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { MasterUpload } from "@/components/app/master-upload";
-import { ResumePreview } from "@/components/app/resume-preview";
+import { ScopeToggles } from "@/components/app/scope-toggles";
+import { TemplateMap } from "@/components/app/template-map";
+import { SAMPLE_PROFILE } from "@/lib/tailor/scope";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -23,7 +25,7 @@ export default async function ResumesPage({ searchParams }: { searchParams: Prom
   const sp = await searchParams;
   const q = one(sp.q)?.slice(0, 80) ?? "";
   const style = styleById(one(sp.style));
-  const [profile, master, templates] = await Promise.all([getProfile(), getMasterInfo(), getSetting("resume_templates").catch(() => ({}))]);
+  const [profile, master, templates, scope] = await Promise.all([getProfile(), getMasterInfo(), getSetting("resume_templates").catch(() => ({})), getSetting("tailoring_scope")]);
   const docs = await db().from("documents").select("id,job_id,version,storage_path,created_at,verification,job:jobs(title,company,country)").eq("kind", "resume").order("created_at", { ascending: false }).limit(600);
   const apps = await db().from("applications").select("job_id,lifecycle").limit(2000);
   const lifecycle = new Map(((apps.data ?? []) as { job_id: string; lifecycle: string }[]).map((a) => [a.job_id, a.lifecycle]));
@@ -56,19 +58,20 @@ export default async function ResumesPage({ searchParams }: { searchParams: Prom
       <Card>
         <CardHeader>
           <CardTitle>Resume template</CardTitle>
-          <CardDescription>One fixed, plain single-column layout that applicant tracking systems read correctly: the same fonts, spacing and order every time. Only a small named style changes by country (page size, spelling, the summary&apos;s heading, how many bullets per role). Below is your profile in the selected style.</CardDescription>
+          <CardDescription>One fixed, plain single-column layout that applicant tracking systems read correctly: the same fonts, spacing and order every time. Only a small named style changes by country (page size, spelling, the summary&apos;s heading, how many bullets per role). Below is the master resume in the selected style, with each part marked as fixed or changing per job.</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3">
           <div className="flex flex-wrap items-center gap-2 text-sm">
             {STYLES.map((s) => <Button key={s.id} asChild size="sm" variant={s.id === style.id ? "default" : "outline"}><Link href={`/resumes?style=${s.id}${q ? `&q=${encodeURIComponent(q)}` : ""}`}>{s.label}</Link></Button>)}
           </div>
           <p className="text-xs text-muted-foreground">Countries using this style: {Object.entries(templates as Record<string, string>).filter(([, id]) => id === style.id).map(([c]) => countryLabel(c)).join(", ") || "by default, the regions it is designed for (change a country&apos;s style on the Countries page)"}.</p>
-          {hasProfile ? (
-            <>
-              <ResumePreview view={resumeView(profile, masterAsTailored(profile), style)} style={style} />
-              <div><Button asChild variant="outline" size="sm"><a href={`/api/resumes/master?file=template&style=${style.id}`}>Download this as DOCX</a></Button></div>
-            </>
-          ) : <p className="text-sm text-muted-foreground">Import and confirm your profile first to see it in the template.</p>}
+          <TemplateMap view={resumeView(hasProfile ? profile : SAMPLE_PROFILE, masterAsTailored(hasProfile ? profile : SAMPLE_PROFILE), style)} style={style} scope={scope} sample={!hasProfile} />
+          {hasProfile && <div><Button asChild variant="outline" size="sm"><a href={`/api/resumes/master?file=template&style=${style.id}`}>Download this as DOCX</a></Button></div>}
+          <div className="grid gap-1">
+            <div className="text-sm font-medium">What changes for each job</div>
+            <p className="text-xs text-muted-foreground">Everything marked Fixed is identical in every resume: your name and contact details, each employer, your job title there, its dates and location, your education and certifications. The agent only rewrites the parts you leave switched on, using the job description, and never adds a skill, employer, number or title you do not have.</p>
+            <ScopeToggles scope={scope} />
+          </div>
         </CardContent>
       </Card>
 

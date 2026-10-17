@@ -14,6 +14,7 @@ const Schemas = {
   scoring: z.object({ threshold: z.number().int().min(0).max(100), min_evidence: z.number().int().min(0).max(60).default(20), batch_size: z.number().int().min(1).max(8).default(5), routing: z.boolean().default(true), escalate_borderline: z.boolean().default(true), learning: z.boolean().default(true) }),
   tailoring: z.object({ reuse_enabled: z.boolean(), reuse_similarity: z.number().min(0.5).max(1), adapt_similarity: z.number().min(0.1).max(0.9) })
     .refine((t) => t.adapt_similarity < t.reuse_similarity, "The adapt level must be lower than the reuse level"),
+  tailoring_scope: z.object({ headline: z.boolean(), summary: z.boolean(), bullets: z.boolean(), skills: z.boolean() }),
   retention: z.object({ skipped_days: z.number().int().min(0).max(3650), log_days: z.number().int().min(0).max(3650) }),
   resume_templates: z.record(z.string().regex(/^[a-z]{2}$/), z.enum(STYLES.map((x) => x.id) as [string, ...string[]])),
   replies: z.object({ enabled: z.boolean() }),
