@@ -44,14 +44,17 @@ export class AllModelsFailed extends Error {
 export async function runWithFallback<T>(
   task: Task,
   candidates: ModelRow[],
-  call: (m: ModelRow) => Promise<T>,
+  call: (m: ModelRow, remainingMs?: number) => Promise<T>,
   onAttempt?: (m: ModelRow, ok: boolean, ms: number, error?: string) => Promise<void> | void,
+  /** a point in time after which no further model is tried (a web request must answer before the host cuts it off) */
+  deadline?: number,
 ): Promise<{ value: T; used: ModelRow }> {
   const attempts: { label: string; error: string }[] = [];
   for (const m of candidates) {
+    if (deadline !== undefined && Date.now() > deadline - 3_000) { attempts.push({ label: m.label, error: "not tried: out of time for this request" }); break; }
     const t0 = Date.now();
     try {
-      const value = await call(m);
+      const value = await call(m, deadline === undefined ? undefined : Math.max(3_000, deadline - Date.now()));
       await onAttempt?.(m, true, Date.now() - t0);
       return { value, used: m };
     } catch (e) {
