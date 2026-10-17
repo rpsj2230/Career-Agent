@@ -14,7 +14,7 @@ export type Caps = {
 export const DEFAULTS = {
   discovery: { countries: ["in"], roles: [] as string[], greenhouse_boards: [] as string[], lever_companies: [] as string[], ashby_orgs: [] as string[], workable_accounts: [] as string[], recruitee_companies: [] as string[], max_age_days: 30, min_rescan_hours: 6 },
   /** threshold: minimum fit to queue a job; min_evidence: jobs the free rules rate below this are skipped without a model call */
-  scoring: { threshold: 65, min_evidence: 20 },
+  scoring: { threshold: 65, min_evidence: 20, batch_size: 5, routing: true, escalate_borderline: true, learning: true },
   /** reuse or adapt resumes made for similar jobs instead of writing each from scratch */
   tailoring: { reuse_enabled: true, reuse_similarity: 0.85, adapt_similarity: 0.4 },
   /** keep the database small: clear the description of skipped jobs after N days; delete per-job rejection log lines after N days (0 = never) */

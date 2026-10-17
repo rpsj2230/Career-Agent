@@ -96,6 +96,9 @@ export const JobScore = z.object({
   summary: z.string().default(""),
 });
 export type JobScore = z.infer<typeof JobScore>;
+/** One job's result inside a batched scoring answer. */
+export const BatchScore = z.object({ results: z.array(JobScore.extend({ id: z.coerce.string() })).default([]) });
+export type BatchScore = z.infer<typeof BatchScore>;
 export const roundScore = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
 
 export type Task = "score" | "tailor" | "extract";

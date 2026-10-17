@@ -10,7 +10,7 @@ export default async function SettingsPage() {
   return (
     <div className="grid gap-4">
       <h1 className="text-2xl font-semibold">Settings</h1>
-      <SettingsForm discovery={discovery} threshold={scoring.threshold} minEvidence={scoring.min_evidence ?? 20} caps={caps} tailoring={tailoring} blocklist={blocklist} profileTitles={titles} />
+      <SettingsForm discovery={discovery} scoring={scoring} caps={caps} tailoring={tailoring} blocklist={blocklist} profileTitles={titles} />
     </div>
   );
 }

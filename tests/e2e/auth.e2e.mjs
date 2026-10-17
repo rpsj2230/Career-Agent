@@ -449,6 +449,24 @@ r = await call(`/api/schedules/${askId}`, { method: "DELETE" });
   check("the next run picks up what was waiting", mock.rowsOf("jobs").find((j) => j.company === "WeakCo").status !== "new", "still waiting");
 }
 
+// ---- batch scoring: several jobs share one model call; a job the model leaves out is scored on its own
+{
+  const add = (slug, company) => call("/api/jobs/manual", { method: "POST", body: { url: `https://boards.greenhouse.io/${slug}/jobs/1`, title: "Product Manager", company, description: longDesc, country: "sg" } });
+  for (const [slug, company] of [["ba", "BatchA"], ["bb", "BatchB"], ["bc", "BatchC"]]) await add(slug, company);
+  const callsBefore = mock.seen.chatCalls ?? 0, batchesBefore = (mock.seen.batchSizes ?? []).length;
+  r = await call("/api/cron/score?limit=40");
+  const batched = mock.rowsOf("jobs").filter((j) => /^Batch[ABC]$/.test(j.company));
+  check("three jobs are scored in one model call", batched.length === 3 && batched.every((j) => j.status !== "new") && (mock.seen.batchSizes ?? []).slice(batchesBefore).includes(3) && (mock.seen.chatCalls ?? 0) - callsBefore === 1, JSON.stringify({ st: batched.map((j) => j.status), sizes: mock.seen.batchSizes, calls: (mock.seen.chatCalls ?? 0) - callsBefore }));
+  check("each job still gets its own stored score and reason", batched.every((j) => mock.rowsOf("job_scores").some((x) => x.job_id === j.id && x.score >= 60)), "missing scores");
+  mock.fixtures.chatMode = "partial";
+  for (const [slug, company] of [["bd", "BatchD"], ["be", "BatchE"]]) await add(slug, company);
+  const c2 = mock.seen.chatCalls ?? 0;
+  r = await call("/api/cron/score?limit=40");
+  const part = mock.rowsOf("jobs").filter((j) => /^Batch[DE]$/.test(j.company));
+  check("a job the model left out of a batch answer is scored on its own, and nothing is lost", part.length === 2 && part.every((j) => j.status !== "new") && (mock.seen.chatCalls ?? 0) - c2 === 2, JSON.stringify({ st: part.map((j) => j.status), calls: (mock.seen.chatCalls ?? 0) - c2 }));
+  mock.fixtures.chatMode = "normal";
+}
+
 // ---- resume memory: a near-identical job reuses a verified resume with no model call; an unrelated one is written fresh
 {
   await call("/api/settings", { method: "PUT", body: { key: "tailoring", value: { reuse_enabled: true, reuse_similarity: 0.85, adapt_similarity: 0.4 } } });
