@@ -34,6 +34,82 @@ export function numbersIn(text: string): string[] {
 
 // ---------------------------------------------------------------- invented terms (tools, employers, titles ...)
 
+// ---------------------------------------------------------------- abbreviations and equivalent wordings
+//
+// "PM" and "Product Manager", "VP" and "Vice President", "Sr." and "Senior" are the same fact written two ways, so a
+// model using the other form is not inventing anything. Three sources of equivalence, none of which needs a model:
+//  1. a table of common abbreviations (below), applied only when the profile already uses one side of the pair,
+//  2. initialisms learned from the profile itself ("Net Promoter Score" => "NPS"), and
+//  3. "Full Name (ABBR)" pairs the candidate wrote.
+
+type Equiv = { abbr: string; full: string[]; /** words one of which must already be in the profile (disambiguates "PM") */ context?: string[] };
+const EQUIVALENTS: Equiv[] = [
+  { abbr: "pm", full: ["product manager", "product management"], context: ["product"] },
+  { abbr: "pm", full: ["project manager", "project management"], context: ["project"] },
+  { abbr: "pm", full: ["program manager", "program management"], context: ["program", "programme"] },
+  { abbr: "pm", full: ["product manager"], context: ["saas", "fintech", "growth", "roadmap", "roadmapping", "backlog", "discovery", "activation"] },
+  { abbr: "tpm", full: ["technical program manager", "technical programme manager"] },
+  { abbr: "po", full: ["product owner"] }, { abbr: "sm", full: ["scrum master"] },
+  { abbr: "swe", full: ["software engineer", "software engineering"] }, { abbr: "sde", full: ["software development engineer", "software engineer"] },
+  { abbr: "qa", full: ["quality assurance"] }, { abbr: "ba", full: ["business analyst", "business analysis"] },
+  { abbr: "ml", full: ["machine learning"] }, { abbr: "ai", full: ["artificial intelligence"] }, { abbr: "nlp", full: ["natural language processing"] },
+  { abbr: "ux", full: ["user experience"] }, { abbr: "ui", full: ["user interface"] }, { abbr: "cx", full: ["customer experience"] },
+  { abbr: "hr", full: ["human resources"] }, { abbr: "vp", full: ["vice president"] }, { abbr: "svp", full: ["senior vice president"] },
+  { abbr: "ceo", full: ["chief executive officer"] }, { abbr: "cto", full: ["chief technology officer", "chief technical officer"] },
+  { abbr: "cfo", full: ["chief financial officer"] }, { abbr: "coo", full: ["chief operating officer"] }, { abbr: "cmo", full: ["chief marketing officer"] },
+  { abbr: "cpo", full: ["chief product officer"] },
+  { abbr: "kpi", full: ["key performance indicator", "key performance indicators"] }, { abbr: "okr", full: ["objectives and key results"] },
+  { abbr: "roi", full: ["return on investment"] }, { abbr: "p&l", full: ["profit and loss"] }, { abbr: "pnl", full: ["profit and loss"] },
+  { abbr: "crm", full: ["customer relationship management"] }, { abbr: "erp", full: ["enterprise resource planning"] },
+  { abbr: "mvp", full: ["minimum viable product"] }, { abbr: "gtm", full: ["go to market", "go-to-market"] },
+  { abbr: "b2b", full: ["business to business", "business-to-business"] }, { abbr: "b2c", full: ["business to consumer", "business-to-consumer"] },
+  { abbr: "saas", full: ["software as a service"] }, { abbr: "seo", full: ["search engine optimization", "search engine optimisation"] },
+  { abbr: "sem", full: ["search engine marketing"] }, { abbr: "cac", full: ["customer acquisition cost"] }, { abbr: "ltv", full: ["lifetime value", "customer lifetime value"] },
+  { abbr: "nps", full: ["net promoter score"] }, { abbr: "csat", full: ["customer satisfaction"] }, { abbr: "sla", full: ["service level agreement"] },
+  { abbr: "sop", full: ["standard operating procedure", "standard operating procedures"] }, { abbr: "ci/cd", full: ["continuous integration", "continuous delivery"] },
+  { abbr: "mba", full: ["master of business administration"] }, { abbr: "bsc", full: ["bachelor of science"] }, { abbr: "msc", full: ["master of science"] },
+  { abbr: "btech", full: ["bachelor of technology"] }, { abbr: "mtech", full: ["master of technology"] }, { abbr: "be", full: ["bachelor of engineering"] },
+  { abbr: "sr", full: ["senior"] }, { abbr: "jr", full: ["junior"] }, { abbr: "mgr", full: ["manager"] }, { abbr: "eng", full: ["engineer", "engineering"] },
+  { abbr: "dev", full: ["developer", "development"] }, { abbr: "ops", full: ["operations"] }, { abbr: "exec", full: ["executive"] },
+  { abbr: "dir", full: ["director"] }, { abbr: "asst", full: ["assistant"] }, { abbr: "assoc", full: ["associate"] }, { abbr: "yoy", full: ["year over year", "year-over-year"] },
+  { abbr: "mom", full: ["month over month", "month-over-month"] }, { abbr: "qoq", full: ["quarter over quarter", "quarter-over-quarter"] },
+  { abbr: "uk", full: ["united kingdom"] }, { abbr: "us", full: ["united states"] }, { abbr: "usa", full: ["united states"] }, { abbr: "uae", full: ["united arab emirates"] },
+];
+
+const wordList = (s: string) => (s.toLowerCase().match(/[a-z0-9&]+/g) ?? []);
+const hasAll = (v: Set<string>, words: string[]) => words.length > 0 && words.every((w) => v.has(w));
+
+/** Add the other spelling of every abbreviation the profile uses, and the abbreviation of every phrase it spells out. */
+function addEquivalents(v: Set<string>, texts: string[]) {
+  for (const e of EQUIVALENTS) {
+    const abbrPresent = v.has(e.abbr) || e.abbr.split("/").every((x) => v.has(x));
+    const contextOk = !e.context || e.context.some((c) => v.has(c));
+    for (const full of e.full) {
+      const words = wordList(full);
+      if (hasAll(v, words)) { v.add(e.abbr); e.abbr.split("/").forEach((x) => v.add(x)); }
+      else if (abbrPresent && contextOk) words.forEach((w) => v.add(w));
+    }
+  }
+  // initialisms of capitalised phrases the candidate wrote ("Net Promoter Score" => nps), for any contiguous run of 2 to 6 words
+  const LINK = new Set(["of", "and", "the", "for", "in", "to", "&"]);
+  for (const t of texts) {
+    const toks = (t.match(/[A-Za-z][A-Za-z0-9&']*|&/g) ?? []);
+    for (let a = 0; a < toks.length; a++) {
+      let initials = "", withLinks = "";   // "Voice of Customer" is written VC or VoC depending on the author: allow both
+      for (let b = a; b < Math.min(toks.length, a + 7); b++) {
+        const w = toks[b];
+        if (LINK.has(w.toLowerCase())) { withLinks += w[0].toLowerCase(); continue; }
+        if (!/^[A-Z]/.test(w)) break;
+        initials += w[0].toLowerCase(); withLinks += w[0].toLowerCase();
+        if (initials.length >= 2) v.add(initials);
+        if (withLinks.length >= 2) v.add(withLinks);
+      }
+    }
+    // "Customer Success Manager (CSM)": the written abbreviation joins the vocabulary through the plain word pass, and its
+    // phrase is already there, so both directions are allowed
+  }
+}
+
 const WORD = /[A-Za-z][A-Za-z0-9+#]*(?:[.\-/&'][A-Za-z0-9+#]+)*/g;
 const parts = (w: string) => w.toLowerCase().split(/[.\-/&']/).filter(Boolean);
 
@@ -47,6 +123,7 @@ export function vocabulary(p: MasterProfile): Set<string> {
   ];
   const v = new Set<string>();
   for (const t of texts) for (const w of t.match(WORD) ?? []) { v.add(w.toLowerCase()); parts(w).forEach((x) => v.add(x)); }
+  addEquivalents(v, texts);
   return v;
 }
 

@@ -19,7 +19,7 @@ import { CoverLetter, MasterProfile, TailoredResume } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-type Doc = { id: string; kind: string; version: number; content: any; diff: DiffRow[] | null; verification: { ok: boolean; issues: { where: string; problem: string }[] } | null; storage_path: string | null; model: string | null; created_at: string };
+type Doc = { id: string; kind: string; version: number; content: any; diff: DiffRow[] | null; verification: { ok: boolean; issues: { where: string; problem: string }[]; reuse?: { mode: string; from?: { title: string; company: string; similarity: number } | null; modelCalls: number; tokensSavedEstimate: number } } | null; storage_path: string | null; model: string | null; created_at: string };
 
 const Row = ({ k, children }: { k: string; children: React.ReactNode }) => (
   <TableRow><TableCell className="w-48 align-top text-muted-foreground">{k}</TableCell><TableCell className="whitespace-normal break-words">{children}</TableCell></TableRow>
@@ -128,7 +128,7 @@ export default async function ApplicationPage({ params }: { params: Promise<{ id
           </CardHeader>
           <CardContent className="grid gap-4">
             <div className="flex flex-wrap items-center gap-2">
-              {resume && <><b>Tailored resume v{resume.version}</b>{resume.verification?.ok ? <Badge variant="secondary">verified</Badge> : <Badge variant="destructive">{resume.verification?.issues?.length ?? "?"} issue(s)</Badge>}<span className="text-xs text-muted-foreground">{resume.model} · {fmtDateTime(resume.created_at)}</span>{dl(resume.storage_path, "Download DOCX")}</>}
+              {resume && <><b>Tailored resume v{resume.version}</b>{resume.verification?.ok ? <Badge variant="secondary">verified</Badge> : <Badge variant="destructive">{resume.verification?.issues?.length ?? "?"} issue(s)</Badge>}<span className="text-xs text-muted-foreground">{resume.model} · {fmtDateTime(resume.created_at)}</span>{resume.verification?.reuse && resume.verification.reuse.mode !== "fresh" && <Badge variant="outline" title="Built from a past verified resume to save model usage">{`${resume.verification.reuse.mode === "reused" ? "Reused" : "Adapted"} from ${resume.verification.reuse.from?.title} at ${resume.verification.reuse.from?.company} (${Math.round((resume.verification.reuse.from?.similarity ?? 0) * 100)}% similar, about ${resume.verification.reuse.tokensSavedEstimate} tokens saved)`}</Badge>}{dl(resume.storage_path, "Download DOCX")}</>}
               {app.profile_snapshot && <Button asChild size="sm" variant="outline"><a href={`/api/applications/${id}/original`}>Download original resume</a></Button>}
             </div>
             {issues.length > 0 && <ul className="list-disc pl-5 text-sm text-destructive">{issues.map((i, k) => <li key={k}>{i.where}: {i.problem}</li>)}</ul>}
