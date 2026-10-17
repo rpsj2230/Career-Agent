@@ -413,6 +413,20 @@ r = await call(`/api/schedules/${askId}`, { method: "DELETE" });
   check("and the rejection log says why", mock.rowsOf("activity_log").some((l) => l.kind === "job.rejected" && l.job_id === nj.id && l.detail?.stage === "evidence"), "log missing");
 }
 
+// ---- scoring order: with a limited model budget the best candidate by the free rules is scored first, the rest wait
+{
+  const body = (url, title, company, desc) => call("/api/jobs/manual", { method: "POST", body: { url, title, company, description: desc, country: "sg" } });
+  await body("https://boards.greenhouse.io/orderco/jobs/94", "Product Manager", "StrongCo", longDesc);
+  await body("https://boards.greenhouse.io/orderco/jobs/95", "Product Marketing Lead", "WeakCo", longDesc);
+  const weak = mock.rowsOf("jobs").find((j) => j.company === "WeakCo");
+  weak.found_at = new Date(Date.now() + 60_000).toISOString(); // newest: the old newest-first order would score it first
+  r = await call("/api/cron/score?limit=1");
+  const strong = mock.rowsOf("jobs").find((j) => j.company === "StrongCo");
+  check("with room for one model call the strongest rule-based candidate is scored first", strong.status !== "new" && weak.status === "new" && r.json?.scored === 1, JSON.stringify({ s: strong.status, w: weak.status, r: r.json }));
+  r = await call("/api/cron/score?limit=40");
+  check("the next run picks up what was waiting", mock.rowsOf("jobs").find((j) => j.company === "WeakCo").status !== "new", "still waiting");
+}
+
 // ---- resume memory: a near-identical job reuses a verified resume with no model call; an unrelated one is written fresh
 {
   await call("/api/settings", { method: "PUT", body: { key: "tailoring", value: { reuse_enabled: true, reuse_similarity: 0.85, adapt_similarity: 0.4 } } });

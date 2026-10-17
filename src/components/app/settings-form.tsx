@@ -16,17 +16,18 @@ type Discovery = { countries: string[]; roles: string[]; greenhouse_boards: stri
 type Caps = { daily_total: number; daily_linkedin: number; weekly_linkedin: number; linkedin_automation_enabled: boolean };
 const csv = (s: string) => s.split(",").map((x) => x.trim()).filter(Boolean);
 
-export function SettingsForm({ discovery, threshold, caps, tailoring, profileTitles }: { discovery: Discovery; threshold: number; caps: Caps; tailoring: { reuse_enabled: boolean; reuse_similarity: number; adapt_similarity: number }; profileTitles: string[] }) {
+export function SettingsForm({ discovery, threshold, minEvidence, caps, tailoring, profileTitles }: { discovery: Discovery; threshold: number; minEvidence: number; caps: Caps; tailoring: { reuse_enabled: boolean; reuse_similarity: number; adapt_similarity: number }; profileTitles: string[] }) {
   const router = useRouter();
   const [d, setD] = useState({ ...discovery, countries: discovery.countries.join(", "), roles: discovery.roles.join(", "), greenhouse_boards: discovery.greenhouse_boards.join(", "), lever_companies: discovery.lever_companies.join(", ") });
   const [t, setT] = useState(threshold);
+  const [me, setMe] = useState(minEvidence);
   const [tl, setTl] = useState(tailoring);
   const [c, setC] = useState(caps);
   const refresh = () => router.refresh();
 
   const saveDiscovery = async () => { if (await call("/api/settings", "PUT", { key: "discovery", value: { countries: csv(d.countries), roles: csv(d.roles), greenhouse_boards: csv(d.greenhouse_boards), lever_companies: csv(d.lever_companies), max_age_days: Number(d.max_age_days) } }, "Discovery settings saved")) refresh(); };
   const saveTailoring = async () => { if (await call("/api/settings", "PUT", { key: "tailoring", value: tl }, "Resume memory saved")) refresh(); };
-  const saveScoring = async () => { if (await call("/api/settings", "PUT", { key: "scoring", value: { threshold: Number(t) } }, "Threshold saved")) refresh(); };
+  const saveScoring = async () => { if (await call("/api/settings", "PUT", { key: "scoring", value: { threshold: Number(t), min_evidence: Number(me) } }, "Threshold saved")) refresh(); };
   const saveCaps = async () => { if (await call("/api/settings", "PUT", { key: "caps", value: { ...c, daily_total: Number(c.daily_total), daily_linkedin: Number(c.daily_linkedin), weekly_linkedin: Number(c.weekly_linkedin) } }, "Limits saved")) refresh(); };
   const num = (v: number, set: (n: number) => void, id: string) => <Input id={id} type="number" value={v} onChange={(e) => set(Number(e.target.value))} />;
 
@@ -72,7 +73,7 @@ export function SettingsForm({ discovery, threshold, caps, tailoring, profileTit
 
       <Card>
         <CardHeader><CardTitle>Fit threshold</CardTitle><CardDescription>Jobs scoring below this are skipped (with the reason kept) and never reach your queue.</CardDescription></CardHeader>
-        <CardContent className="flex items-end gap-3"><div className="grid gap-1"><Label htmlFor="th">Minimum score (0-100)</Label>{num(t, setT, "th")}</div><Button onClick={saveScoring}>Save</Button></CardContent>
+        <CardContent className="flex items-end gap-3"><div className="grid gap-1"><Label htmlFor="th">Minimum score (0-100)</Label>{num(t, setT, "th")}</div><div className="grid gap-1"><Label htmlFor="me">Free pre-check minimum (0-60)</Label>{num(me, setMe, "me")}</div><Button onClick={saveScoring}>Save</Button></CardContent>
       </Card>
 
       <Card>

@@ -1,4 +1,4 @@
-import type { ResumeView } from "@/lib/tailor/sections";
+import { experienceTitle, type ResumeView } from "@/lib/tailor/sections";
 import { STYLES, type ResumeStyle, type SectionId } from "@/lib/tailor/template";
 
 /** The resume as it appears in the DOCX (same view, same section order and labels), so what you read here is what was sent. */
@@ -6,14 +6,13 @@ export function ResumePreview({ view, style = STYLES[0] }: { view: ResumeView; s
   const h = (t: string) => <h4 className="mt-4 border-b pb-0.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t}</h4>;
   const blocks: Record<SectionId, () => React.ReactNode> = {
     summary: () => view.summary ? <>{h(style.summaryLabel)}<p>{view.summary}</p></> : null,
-    skills: () => view.skills.length > 0 ? <>{h("Skills")}<p>{view.skills.join("  •  ")}</p></> : null,
+    skills: () => view.skills.length > 0 ? <>{h("Skills")}<p>{view.skills.join(", ")}</p></> : null,
     experience: () => (
       <>
-        {h("Experience")}
+        {h("Work Experience")}
         {view.experience.map((e, i) => (
           <div key={i} className="mt-2">
-            <div className="flex justify-between gap-2"><b>{e.title}  ·  {e.company}</b> <span className="text-muted-foreground">{e.dates}</span></div>
-            {e.location && <div className="text-xs italic text-muted-foreground">{e.location}</div>}
+            <div className="flex justify-between gap-2"><b>{experienceTitle(e)}</b> <span className="text-muted-foreground">{e.dates}</span></div>
             <ul className="ml-5 list-disc">{e.bullets.map((b, k) => <li key={k}>{b}</li>)}</ul>
           </div>
         ))}

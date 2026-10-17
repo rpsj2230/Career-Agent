@@ -138,3 +138,11 @@ Verified by an end-to-end run with a sloppy model (fenced JSON, invented first d
 - **Per-country answers.** Expected salary (in that country's currency) and work-authorisation / sponsorship answers come from the country's entry; your answer bank still wins over them.
 - **Countries.** About 60 countries are selectable, and any other country can be added by its two-letter code.
 - **Models.** Added Groq gpt-oss-120b, NVIDIA NIM Llama 3.3 70B, OpenRouter free and Mistral Small to the defaults (each is skipped until a key is saved; use Test on the Models page).
+
+## The funnel, token use and ATS
+
+1. **Search narrowly (no model).** Each source is queried per country with your titles and locations, within the max-age window; results are de-duplicated (also across portals) and stale or invalid rows dropped.
+2. **Free rules (no model).** Country, remote, pay and visa prefilter; then rule-based evidence from your profile; jobs below the free pre-check minimum (Settings) are skipped with the reason kept.
+3. **Model scoring (tokens), best first.** The survivors are ordered by rule-based evidence and at most a fixed number per run (60 in the pipeline) go to the model; the rest wait for the next run. The model's score is bounded by the evidence.
+4. **Model writing (tokens), matches only.** Resume and cover letter are produced only for jobs above your threshold, and reused or adapted from past resumes where similar. Verification, the template, DOCX rendering, form filling, scheduling and notifications use no model.
+5. **ATS.** Single-column plain text, real headings with standard names, no tables, text boxes, images, headers or footers, one font, contact details in the body, "Title, Company, Location" with dates on the same line. Enforced for every style by `tests/ats.test.ts`.
