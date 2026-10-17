@@ -43,6 +43,13 @@ const say = (s: string) => console.log(s);
 const AUTO = process.env.ASSIST_MODE === "auto";
 const WATCH = process.env.ASSIST_WATCH === "1";
 
+/** Tell the app this assistant is alive, so it can warn you if applications are waiting and it has gone quiet. Never throws. */
+async function heartbeat(sb: SupabaseClient) {
+  try {
+    await sb.from("settings").upsert({ key: "assistant_heartbeat", value: { at: new Date().toISOString(), mode: AUTO ? "hands-free" : "assist", watching: WATCH, hours: process.env.ASSIST_HOURS ?? "", tz: Intl.DateTimeFormat().resolvedOptions().timeZone }, updated_at: new Date().toISOString() });
+  } catch { /* the heartbeat is a courtesy, never a reason to stop */ }
+}
+
 async function loadCaps(sb: SupabaseClient): Promise<AutoCaps> {
   const { data } = await sb.from("settings").select("value").eq("key", "caps").maybeSingle();
   return { daily_total: 15, daily_linkedin: 10, weekly_linkedin: 40, linkedin_automation_enabled: false, local_auto_enabled: false, ...((data?.value as object) ?? {}) };
@@ -245,6 +252,7 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
 
 /** One pass over everything waiting. Returns how many were recorded as submitted. */
 async function batch(sb: SupabaseClient): Promise<number> {
+  await heartbeat(sb);
   const limit = Math.max(1, Math.min(50, Number(process.env.ASSIST_LIMIT ?? 10) || 10));
   const only = process.env.APPLICATION_ID?.trim();
   let q = sb.from("applications").select("id, job_id, resume_doc_id, cover_doc_id, answers").eq("status", "assisted_pending").order("approved_at", { ascending: true }).limit(limit);
@@ -296,6 +304,7 @@ async function main() {
     const pollMs = Math.max(1, Number(process.env.ASSIST_POLL_MINUTES ?? 20)) * 60_000;
     say(`Watching for approved applications every ${pollMs / 60_000} minute(s)${process.env.ASSIST_HOURS ? `, working hours ${process.env.ASSIST_HOURS}` : ""}. Press Ctrl+C to stop.`);
     for (;;) {
+      await heartbeat(sb);
       if (withinHours(new Date(), process.env.ASSIST_HOURS)) {
         try { const n = await batch(sb); if (n) say(`${new Date().toLocaleTimeString()}  ${n} application(s) submitted this round.`); }
         catch (e) { console.error(`round failed (will try again): ${e instanceof Error ? e.message : e}`); }
