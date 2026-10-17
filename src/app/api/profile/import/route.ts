@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { importProfile } from "@/lib/profile/extract";
+import { parseProfileJson } from "@/lib/profile/json-import";
 import { clearDraft, getProfile, saveDraft } from "@/lib/profile/store";
 import { logConfig } from "@/lib/activity-helpers";
 import { masterExt, saveMasterResume } from "@/lib/tailor/master-store";
@@ -16,6 +17,14 @@ export async function POST(request: Request) {
   if (files.some((f) => f.size > 10 * 1024 * 1024)) return NextResponse.json({ error: "Each file must be under 10 MB" }, { status: 400 });
   try {
     const existing = await getProfile();
+    // a ready-made profile file needs no AI model: it is checked and saved as a draft for you to review
+    const json = files.find((f) => /\.json$/i.test(f.name));
+    if (json) {
+      const { profile, conflicts } = parseProfileJson(await json.text(), existing.preferences);
+      await saveDraft({ profile, conflicts, model: "ready-made profile file" });
+      await logConfig("Profile loaded from a ready-made file as a draft", { file: json.name, conflicts: conflicts.length });
+      return NextResponse.json({ ok: true, conflicts, model: "ready-made profile file" });
+    }
     const uploads = await Promise.all(files.map(async (f) => ({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) })));
     const draft = await importProfile({ uploads, pastedText: pasted, linkedinUrl }, existing.preferences);
     await saveDraft(draft);
