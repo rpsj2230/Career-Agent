@@ -23,6 +23,10 @@ export const Education = z.object({
 
 export const Named = z.object({ id: z.string(), name: z.string().min(1) });
 
+/** A skill, optionally filed under a heading ("Delivery & Project Management") in either the Core Competencies or the Technical Skills section. */
+export const Skill = Named.extend({ group: z.string().optional(), kind: z.enum(["competency", "technical"]).optional() });
+export const CaseStudy = z.object({ id: z.string(), title: z.string().min(1), url: z.string().optional() });
+
 export const MasterProfile = z.object({
   basics: z.object({
     name: z.string().default(""),
@@ -32,6 +36,10 @@ export const MasterProfile = z.object({
     headline: z.string().default(""),
     summary: z.string().default(""),
     links: z.array(z.string()).default([]),
+    /** the line of credentials under the headline, e.g. "PMP® · SFC™ · PMEC™" */
+    credentials: z.string().default(""),
+    /** shown with the location in the contact line, e.g. "Employment Pass (EP)" */
+    workStatus: z.string().default(""),
   }),
   preferences: z
     .object({
@@ -47,8 +55,15 @@ export const MasterProfile = z.object({
     .default({ countries: [], roles: [] }),
   experience: z.array(Experience).default([]),
   education: z.array(Education).default([]),
-  skills: z.array(Named).default([]),
+  skills: z.array(Skill).default([]),
   certifications: z.array(Named).default([]),
+  /** "Career Highlights": short headline achievements, shown most-relevant first */
+  highlights: z.array(Bullet).default([]),
+  caseStudies: z.array(CaseStudy).default([]),
+  /** "Professional Development": courses and training */
+  development: z.array(Named).default([]),
+  /** "Awards and Recognition" */
+  awards: z.array(Named).default([]),
 });
 export type MasterProfile = z.infer<typeof MasterProfile>;
 
@@ -68,6 +83,8 @@ export const TailoredResume = z.object({
   ).default([]),
   skillIds: z.array(z.string()).default([]),
   certificationIds: z.array(z.string()).default([]),
+  /** which Career Highlights to show, most relevant first (shown verbatim, never reworded) */
+  highlightIds: z.array(z.string()).default([]),
 });
 export type TailoredResume = z.infer<typeof TailoredResume>;
 
@@ -84,6 +101,7 @@ export const ResumePatchSchema = z.object({
   experience: z.array(z.object({ experienceId: z.string(), bullets: z.array(z.object({ text: z.string(), sourceIds: z.array(z.string()).default([]) })).default([]) })).default([]),
   skillIds: z.array(z.string()).optional(),
   certificationIds: z.array(z.string()).optional(),
+  highlightIds: z.array(z.string()).optional(),
 });
 
 /** `score` may come back as "82", 82.5 or 82; it is rounded wherever it is stored (see roundScore). */

@@ -48,6 +48,7 @@ export function liveDeps(): PipelineDeps {
     },
     prepare: (jobId, runId) => prepareApplication(jobId, runId),
     approve: (applicationId, runId) => approveApplication(applicationId, { actor: "schedule", runId, dispatch: false }),
+    autoApplyEnabled: async () => (await getSetting("autoapply")).enabled,
     loadCaps: async () => ({ caps: await getSetting("caps"), state: await loadCapState() }),
     now: () => Date.now(),
   };

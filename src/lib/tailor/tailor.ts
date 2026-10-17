@@ -25,7 +25,8 @@ export function factsBlock(p: MasterProfile): string {
     lines.push(`[${e.id}] ${e.title} at ${e.company} (${e.start ?? "?"} to ${e.end ?? "?"})`);
     for (const b of e.bullets) lines.push(`  [${b.id}] ${b.text}`);
   }
-  lines.push("SKILLS: " + p.skills.map((s) => `[${s.id}] ${s.name}`).join("; "));
+  if (p.highlights.length) { lines.push("CAREER HIGHLIGHTS (shown verbatim; you only choose which ones):"); for (const h of p.highlights) lines.push(`  [${h.id}] ${h.text}`); }
+  lines.push("SKILLS: " + p.skills.map((s) => `[${s.id}] ${s.name}${s.group ? ` (${s.group})` : ""}`).join("; "));
   if (p.certifications.length) lines.push("CERTIFICATIONS: " + p.certifications.map((c) => `[${c.id}] ${c.name}`).join("; "));
   return lines.join("\n");
 }
@@ -36,7 +37,7 @@ const feedback = (r: VerifyResult) => `\n\nYOUR PREVIOUS ATTEMPT WAS REJECTED. F
 export type TailorOutcome<T> = { content: T; verification: VerifyResult & { attempts: number }; model: string };
 
 export async function tailorResume(p: MasterProfile, job: JobText, run: Runner, maxAttempts = 2): Promise<TailorOutcome<TailoredResume> & { diff: ReturnType<typeof buildDiff> }> {
-  const system = `You tailor a candidate's resume to one job.\n${RULES}\nSelect and order the most relevant roles' bullets (about 3-5 per role, most relevant first), pick the most relevant skills by id, and write a 2-3 sentence summary.`;
+  const system = `You tailor a candidate's resume to one job.\n${RULES}\nSelect and order the most relevant roles' bullets (about 3-5 per role, most relevant first), pick the most relevant skills by id (the ones the job asks for first), choose 3-4 CAREER HIGHLIGHTS by id in "highlightIds" (most relevant first; they are shown exactly as written, so never put text there), and write a 2-3 sentence summary.`;
   const base = `CANDIDATE FACTS\n${factsBlock(p)}\n\n${jobBlock(job)}`;
   let prompt = base, last: { out: TailoredResume; model: string; v: VerifyResult } | undefined;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {

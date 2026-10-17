@@ -21,7 +21,7 @@ const base = (over: Partial<TailoredResume["experience"][number]["bullets"][numb
   headline: "Senior Product Manager",
   summary: { text: "Product manager with 6 years in fintech payments", sourceIds: ["summary"] },
   experience: [{ experienceId: exp === 0 ? "exp1" : "exp2", bullets: [{ text: "Grew checkout activation by 24% across 3 markets", sourceIds: ["exp1.b1"], ...over }] }],
-  skillIds: ["s1"], certificationIds: [],
+  skillIds: ["s1"], certificationIds: [], highlightIds: [],
 });
 const problems = (t: TailoredResume, allow: string[] = []) => verifyTailored(profile, t, allow).issues.map((i) => `${i.where}: ${i.problem}`).join(" | ");
 

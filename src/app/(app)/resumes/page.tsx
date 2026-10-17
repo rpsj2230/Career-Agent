@@ -2,7 +2,7 @@ import Link from "next/link";
 import { MasterUpload } from "@/components/app/master-upload";
 import { ScopeToggles } from "@/components/app/scope-toggles";
 import { TemplateMap } from "@/components/app/template-map";
-import { SAMPLE_PROFILE } from "@/lib/tailor/scope";
+import { DEFAULT_SCOPE, SAMPLE_PROFILE } from "@/lib/tailor/scope";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -65,12 +65,12 @@ export default async function ResumesPage({ searchParams }: { searchParams: Prom
             {STYLES.map((s) => <Button key={s.id} asChild size="sm" variant={s.id === style.id ? "default" : "outline"}><Link href={`/resumes?style=${s.id}${q ? `&q=${encodeURIComponent(q)}` : ""}`}>{s.label}</Link></Button>)}
           </div>
           <p className="text-xs text-muted-foreground">Countries using this style: {Object.entries(templates as Record<string, string>).filter(([, id]) => id === style.id).map(([c]) => countryLabel(c)).join(", ") || "by default, the regions it is designed for (change a country&apos;s style on the Countries page)"}.</p>
-          <TemplateMap view={resumeView(hasProfile ? profile : SAMPLE_PROFILE, masterAsTailored(hasProfile ? profile : SAMPLE_PROFILE), style)} style={style} scope={scope} sample={!hasProfile} />
+          <TemplateMap view={resumeView(hasProfile ? profile : SAMPLE_PROFILE, masterAsTailored(hasProfile ? profile : SAMPLE_PROFILE), style)} style={style} scope={{ ...DEFAULT_SCOPE, ...scope }} sample={!hasProfile} />
           {hasProfile && <div><Button asChild variant="outline" size="sm"><a href={`/api/resumes/master?file=template&style=${style.id}`}>Download this as DOCX</a></Button></div>}
           <div className="grid gap-1">
             <div className="text-sm font-medium">What changes for each job</div>
             <p className="text-xs text-muted-foreground">Everything marked Fixed is identical in every resume: your name and contact details, each employer, your job title there, its dates and location, your education and certifications. The agent only rewrites the parts you leave switched on, using the job description, and never adds a skill, employer, number or title you do not have.</p>
-            <ScopeToggles scope={scope} />
+            <ScopeToggles scope={{ ...DEFAULT_SCOPE, ...scope }} />
           </div>
         </CardContent>
       </Card>

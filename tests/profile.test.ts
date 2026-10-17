@@ -21,11 +21,12 @@ describe("linkedinExportToText", () => {
 describe("assignIds", () => {
   const p = assignIds(
     {
-      basics: { name: "A", email: "", phone: "", location: "", headline: "", summary: "", links: [] },
+      basics: { name: "A", email: "", phone: "", location: "", headline: "", summary: "", links: [], credentials: "", workStatus: "" },
       experience: [{ company: "Acme", title: "PM", bullets: ["one", " ", "two"] }, { company: "B", title: "APM", bullets: [] }],
       education: [{ school: "S", degree: "D" }],
-      skills: ["SQL", "sql", "Go"],
+      skills: [{ name: "SQL" }, { name: "sql" }, { name: "Go" }],
       certifications: [],
+      highlights: ["Won a thing"], caseStudies: [], development: [], awards: [],
       conflicts: [],
     },
     { countries: ["in"], roles: [] },
@@ -75,7 +76,7 @@ describe("sloppy extraction output is read as meant", () => {
     expect(r.experience[0]).toMatchObject({ start: "2019", end: undefined });
     expect(r.experience[1].bullets).toEqual([]);
     expect(r.education).toHaveLength(1);
-    expect(r.skills).toEqual(["SQL", "Python"]);
+    expect(r.skills).toEqual([{ name: "SQL" }, { name: "Python" }]);
     expect(r.certifications).toEqual([]);
     expect(r.conflicts).toEqual([]);
   });

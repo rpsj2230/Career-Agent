@@ -99,6 +99,7 @@ export type ResumePatch = {
   experience?: { experienceId: string; bullets: { text: string; sourceIds: string[] }[] }[];
   skillIds?: string[];
   certificationIds?: string[];
+  highlightIds?: string[];
 };
 
 /** Apply the model's edits on top of the approved resume: only what the patch names changes. */
@@ -112,5 +113,6 @@ export function applyPatch(base: TailoredResume, patch: ResumePatch): TailoredRe
     experience: merged,
     skillIds: patch.skillIds && patch.skillIds.length > 0 ? patch.skillIds : base.skillIds,
     certificationIds: patch.certificationIds ?? base.certificationIds,
+    highlightIds: patch.highlightIds && patch.highlightIds.length > 0 ? patch.highlightIds : base.highlightIds ?? [],
   };
 }

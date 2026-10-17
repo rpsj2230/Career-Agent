@@ -24,7 +24,7 @@ const base: TailoredResume = {
   experience: [{ experienceId: "e1", bullets: [
     { text: "Grew checkout activation by 24% across 3 markets using SQL and Amplitude", sourceIds: ["e1.b1"] },
     { text: "Led a roadmap for the payments platform with engineering and design", sourceIds: ["e1.b2"] } ] }],
-  skillIds: ["s1", "s2"], certificationIds: [],
+  skillIds: ["s1", "s2"], certificationIds: [], highlightIds: [],
 };
 const past = (o: Partial<PastResume> = {}): PastResume => ({ jobId: "p1", title: "Product Manager, Payments", company: "OldPay", description: JD_PAYMENTS, country: "sg", content: base, lifecycle: "none", createdAt: "2026-09-01T00:00:00Z", cover: null, ...o });
 const words = new Set(tokenize("product manager fintech payments sql roadmap engineering design experimentation activation amplitude"));

@@ -14,6 +14,7 @@ export function factIndex(p: MasterProfile): Map<string, string> {
   for (const s of p.skills) m.set(s.id, s.name);
   for (const c of p.certifications) m.set(c.id, c.name);
   for (const ed of p.education) m.set(ed.id, `${ed.degree} ${ed.school}`);
+  for (const h of p.highlights ?? []) m.set(h.id, h.text);
   return m;
 }
 
@@ -120,6 +121,9 @@ export function vocabulary(p: MasterProfile): Set<string> {
     ...p.experience.flatMap((e) => [e.title, e.company, e.location ?? "", ...e.bullets.map((b) => b.text)]),
     ...p.education.flatMap((e) => [e.degree, e.school]),
     ...p.skills.map((s) => s.name), ...p.certifications.map((c) => c.name),
+    p.basics.credentials ?? "", p.basics.workStatus ?? "",
+    ...(p.highlights ?? []).map((h) => h.text), ...(p.caseStudies ?? []).map((c) => c.title),
+    ...(p.development ?? []).map((d) => d.name), ...(p.awards ?? []).map((a) => a.name),
   ];
   const v = new Set<string>();
   for (const t of texts) for (const w of t.match(WORD) ?? []) { v.add(w.toLowerCase()); parts(w).forEach((x) => v.add(x)); }
@@ -234,6 +238,8 @@ export function verifyTailored(p: MasterProfile, t: TailoredResume, allow: strin
   }
   const skillIds = new Set(p.skills.map((s) => s.id));
   for (const id of t.skillIds) if (!skillIds.has(id)) issues.push({ where: id, problem: "skill id not in master profile" });
+  const highlightIds = new Set((p.highlights ?? []).map((h) => h.id));
+  for (const id of t.highlightIds ?? []) if (!highlightIds.has(id)) issues.push({ where: id, problem: "career highlight id not in master profile" });
   const certIds = new Set(p.certifications.map((c) => c.id));
   for (const id of t.certificationIds) if (!certIds.has(id)) issues.push({ where: id, problem: "certification id not in master profile" });
   return { ok: issues.length === 0, issues, mapping };
