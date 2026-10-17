@@ -165,3 +165,9 @@ Verified by an end-to-end run with a sloppy model (fenced JSON, invented first d
 - Every source is labelled with its cost (free, free tier, free credit) on the Portals page. The Countries page shows per-country coverage (good / partial / thin), what is connected, and what to add.
 - Added free sources: MyCareersFuture (Singapore, no key) and alert-email parsers for Bayt, Naukrigulf, GulfTalent, SEEK, JobStreet, JobsDB, Foundit and Shine. Their endpoints and email layouts were written from public URL patterns and could not be tested live from the build environment; the Test button (and the mailbox Test) report what was actually read.
 - Apify has a monthly job budget (default 2,500) enforced before every run.
+
+## Incremental scanning
+
+- Each search (integration + country + query) remembers when it last finished successfully (from `portal_scans`). The next run asks the source only for jobs newer than that, with a day of overlap (Adzuna `max_days_old`, JSearch `date_posted`, Apify `{{days}}`, alert emails since that date); feeds that cannot filter are trimmed to the same window before storing. The first run of a search looks back the full maximum age.
+- A search that ran within `min_rescan_hours` (default 6) is skipped by scheduled runs (the Scan now button always searches), which protects free-plan quotas such as Adzuna's 250 calls a day.
+- `max_age_days` (Settings, default 30, up to 90) is the oldest job ever stored.

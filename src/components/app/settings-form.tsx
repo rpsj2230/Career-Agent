@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { COUNTRY_PRESETS, ROLE_PRESETS, toggleCsv } from "@/lib/standard-questions";
 import { call } from "./api";
 
-type Discovery = { countries: string[]; roles: string[]; greenhouse_boards: string[]; lever_companies: string[]; max_age_days: number };
+type Discovery = { countries: string[]; roles: string[]; greenhouse_boards: string[]; lever_companies: string[]; max_age_days: number; min_rescan_hours?: number };
 type Caps = { daily_total: number; daily_linkedin: number; weekly_linkedin: number; linkedin_automation_enabled: boolean; local_auto_enabled?: boolean };
 const csv = (s: string) => s.split(",").map((x) => x.trim()).filter(Boolean);
 
@@ -25,7 +25,7 @@ export function SettingsForm({ discovery, threshold, minEvidence, caps, tailorin
   const [c, setC] = useState(caps);
   const refresh = () => router.refresh();
 
-  const saveDiscovery = async () => { if (await call("/api/settings", "PUT", { key: "discovery", value: { countries: csv(d.countries), roles: csv(d.roles), greenhouse_boards: csv(d.greenhouse_boards), lever_companies: csv(d.lever_companies), max_age_days: Number(d.max_age_days) } }, "Discovery settings saved")) refresh(); };
+  const saveDiscovery = async () => { if (await call("/api/settings", "PUT", { key: "discovery", value: { countries: csv(d.countries), roles: csv(d.roles), greenhouse_boards: csv(d.greenhouse_boards), lever_companies: csv(d.lever_companies), max_age_days: Number(d.max_age_days), min_rescan_hours: Number(d.min_rescan_hours ?? 6) } }, "Discovery settings saved")) refresh(); };
   const saveTailoring = async () => { if (await call("/api/settings", "PUT", { key: "tailoring", value: tl }, "Resume memory saved")) refresh(); };
   const saveScoring = async () => { if (await call("/api/settings", "PUT", { key: "scoring", value: { threshold: Number(t), min_evidence: Number(me) } }, "Threshold saved")) refresh(); };
   const saveCaps = async () => { if (await call("/api/settings", "PUT", { key: "caps", value: { ...c, daily_total: Number(c.daily_total), daily_linkedin: Number(c.daily_linkedin), weekly_linkedin: Number(c.weekly_linkedin) } }, "Limits saved")) refresh(); };
@@ -67,6 +67,7 @@ export function SettingsForm({ discovery, threshold, minEvidence, caps, tailorin
           <div className="grid gap-1"><Label htmlFor="g">Greenhouse boards</Label><Input id="g" value={d.greenhouse_boards} placeholder="razorpay, postman" onChange={(e) => setD({ ...d, greenhouse_boards: e.target.value })} /></div>
           <div className="grid gap-1"><Label htmlFor="l">Lever companies</Label><Input id="l" value={d.lever_companies} placeholder="cred, meesho" onChange={(e) => setD({ ...d, lever_companies: e.target.value })} /></div>
           <div className="grid gap-1"><Label htmlFor="age">Ignore jobs older than (days)</Label>{num(d.max_age_days, (n) => setD({ ...d, max_age_days: n }), "age")}</div>
+          <div className="grid gap-1"><Label htmlFor="rescan">Do not search the same thing again within (hours)</Label>{num(d.min_rescan_hours ?? 6, (n) => setD({ ...d, min_rescan_hours: n }), "rescan")}<span className="text-xs text-muted-foreground">Saves free-plan quota and time. Each search remembers when it last ran and then asks only for newer jobs. 0 = always search.</span></div>
           <div className="md:col-span-2"><Button onClick={saveDiscovery}>Save discovery</Button></div>
         </CardContent>
       </Card>

@@ -12,7 +12,7 @@ export type Caps = {
 };
 
 export const DEFAULTS = {
-  discovery: { countries: ["in"], roles: [] as string[], greenhouse_boards: [] as string[], lever_companies: [] as string[], max_age_days: 14 },
+  discovery: { countries: ["in"], roles: [] as string[], greenhouse_boards: [] as string[], lever_companies: [] as string[], max_age_days: 30, min_rescan_hours: 6 },
   /** threshold: minimum fit to queue a job; min_evidence: jobs the free rules rate below this are skipped without a model call */
   scoring: { threshold: 65, min_evidence: 20 },
   /** reuse or adapt resumes made for similar jobs instead of writing each from scratch */
