@@ -199,3 +199,9 @@ Verified by an end-to-end run with a sloppy model (fenced JSON, invented first d
 - After each scheduled run, the best newly prepared applications (up to five, highest fit first, each only once) are sent to Telegram with **Approve** and **Skip** buttons. Approve goes through exactly the same checks as the button in the app (verification, daily caps, atomic claim, activity log); Skip records the decision.
 - Connect once with **Settings → Connect Telegram buttons** (needs `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, and `APP_URL` set to the https address). This registers `/api/telegram/webhook` with Telegram.
 - Security: the webhook is the only public endpoint added. It requires Telegram's secret header (derived from the bot token, compared in constant time) and ignores any press that does not come from your configured chat. Button data holds only an action and an application id; unknown or malformed data is rejected.
+
+## Scan and apply reports
+
+- Every scan now records the posting dates it asked the source for (for example "1 Jan to 3 Jan"), shown on the Runs and scans page and inside each run.
+- A run opens with a one-sentence summary (fetched N jobs from N sources, how many new, skipped by your rules, scored, prepared, approved automatically, handed to you) and a per-source table.
+- **Runs and scans** has a "How applying went" report for the chosen period: submitted (automatically or with you), approved by a schedule or by you, handed back, failed, by portal and by country.

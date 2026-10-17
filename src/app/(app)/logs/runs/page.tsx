@@ -6,7 +6,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { countryLabel } from "@/lib/filters";
 import { portalLabel } from "@/lib/jobs/portal";
-import { listRuns, recentScans } from "@/lib/log-queries";
+import { applyLogs, listRuns, recentScans } from "@/lib/log-queries";
+import { ApplyReportCard } from "@/components/app/apply-report-card";
+import { applyReport, windowLabel } from "@/lib/run-report";
 import { summarizeScans } from "@/lib/scan-summary";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { appTimezone, fmtDateTime, fmtDuration } from "@/lib/time";
@@ -24,7 +26,8 @@ export default async function RunsPage({ searchParams }: { searchParams: Promise
   const status = ["running", "succeeded", "partial", "failed", "cancelled"].includes(one(sp.status) ?? "") ? one(sp.status) : undefined;
   const kind = ["pipeline", "scan", "score", "prepare", "apply", "report"].includes(one(sp.kind) ?? "") ? one(sp.kind) : undefined;
   const from = date(one(sp.from)), to = date(one(sp.to));
-  const [{ rows, missing }, scans] = await Promise.all([listRuns({ status, kind, from, to, tz }), recentScans({ from, to, tz })]);
+  const [{ rows, missing }, scans, applyRows] = await Promise.all([listRuns({ status, kind, from, to, tz }), recentScans({ from, to, tz }), applyLogs({ from, to, tz })]);
+  const applying = applyReport(applyRows, portalLabel, countryLabel);
   const totals = summarizeScans(scans);
 
   return (
@@ -63,6 +66,8 @@ export default async function RunsPage({ searchParams }: { searchParams: Promise
         </CardContent>
       </Card>
 
+      <ApplyReportCard report={applying} title="How applying went" description="Applications in the selected period: how many were submitted, who approved them, through which portal and in which country." />
+
       <Card>
         <CardHeader><CardTitle>{rows.length} run{rows.length === 1 ? "" : "s"}</CardTitle></CardHeader>
         <CardContent>
@@ -91,12 +96,12 @@ export default async function RunsPage({ searchParams }: { searchParams: Promise
           <CardHeader><CardTitle>Recent scans</CardTitle><CardDescription>One row per source query.</CardDescription></CardHeader>
           <CardContent>
             <Table>
-              <TableHeader><TableRow><TableHead>When</TableHead><TableHead>Source</TableHead><TableHead>Country</TableHead><TableHead>Query</TableHead><TableHead>Result</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow><TableHead>When</TableHead><TableHead>Source</TableHead><TableHead>Country</TableHead><TableHead>Query</TableHead><TableHead>Postings asked for</TableHead><TableHead>Result</TableHead></TableRow></TableHeader>
               <TableBody>
                 {scans.slice(0, 60).map((s) => (
                   <TableRow key={s.id}>
                     <TableCell className="whitespace-nowrap text-xs">{fmtDateTime(s.started_at)}</TableCell><TableCell>{portalLabel(s.integration)}</TableCell>
-                    <TableCell>{s.country ? countryLabel(s.country) : "-"}</TableCell><TableCell>{s.query ?? "-"}</TableCell>
+                    <TableCell>{s.country ? countryLabel(s.country) : "-"}</TableCell><TableCell>{s.query ?? "-"}</TableCell><TableCell className="whitespace-nowrap text-xs">{windowLabel(s.detail, tz) ?? "-"}</TableCell>
                     <TableCell className="whitespace-normal text-xs">{s.status === "error" ? <span className="text-destructive">{s.error}</span> : `${s.fetched} fetched, ${s.inserted} new, ${s.duplicates} already known`}</TableCell>
                   </TableRow>
                 ))}

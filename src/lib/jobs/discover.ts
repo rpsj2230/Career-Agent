@@ -13,7 +13,7 @@ import { effectiveIntervalHours, idleStreak, silentDrop } from "./adaptive";
 import { apifyBudget } from "./apify-usage";
 import { ingestScan, loadKnownJobs } from "./ingest";
 import { runScans, type ScanDeps } from "./scans";
-import { buildScanSpecs, searchQueries, type DiscoverySettings } from "./sources";
+import { buildScanSpecs, searchQueries, windowDays, type DiscoverySettings } from "./sources";
 
 /**
  * What to search: the Countries page when configured (each country with its own titles, locations and remote
@@ -110,6 +110,7 @@ export async function scanStep(ctx: RunCtx, o: ScanScope) {
     if (recentlySearched === 0) ctx.markPartial("Nothing to scan: no connected integration is ready. Connect one on the Portals page.");
     return { outcomes: [], skipped: 0, legacy: false, settings };
   }
+  for (const sp of specs) sp.windowDays = windowDays(settings, sp); // recorded on each scan: which posting dates it asked for
   const known = await loadKnownJobs();
   const existing = new Set(known.keys());
   const seenUrls = new Set<string>();

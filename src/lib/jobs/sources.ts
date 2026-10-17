@@ -47,7 +47,7 @@ export type IntegrationCreds = {
 export type ScanDeps = { fetchImpl?: FetchLike; mailSource?: (cfg: MailboxConfig) => MailSource; apifyFetch?: ApifyFetch };
 
 /** One recorded unit of work: a single integration, country and query. */
-export type ScanSpec = { integration: IntegrationId; country?: string; query?: string; fetch: () => Promise<NormalizedJob[]> };
+export type ScanSpec = { integration: IntegrationId; country?: string; query?: string; windowDays?: number; fetch: () => Promise<NormalizedJob[]> };
 
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
