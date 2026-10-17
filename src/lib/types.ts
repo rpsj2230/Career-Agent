@@ -76,6 +76,15 @@ export const CoverLetter = z.object({
 });
 export type CoverLetter = z.infer<typeof CoverLetter>;
 
+/** Edits to an approved resume: only what must change for a similar job. Everything is optional. */
+export const ResumePatchSchema = z.object({
+  headline: z.string().optional(),
+  summary: z.object({ text: z.string(), sourceIds: z.array(z.string()).default([]) }).optional(),
+  experience: z.array(z.object({ experienceId: z.string(), bullets: z.array(z.object({ text: z.string(), sourceIds: z.array(z.string()).default([]) })).default([]) })).default([]),
+  skillIds: z.array(z.string()).optional(),
+  certificationIds: z.array(z.string()).optional(),
+});
+
 /** `score` may come back as "82", 82.5 or 82; it is rounded wherever it is stored (see roundScore). */
 export const JobScore = z.object({
   score: z.coerce.number().min(0).max(100),

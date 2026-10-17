@@ -5,7 +5,7 @@ import { db, must } from "@/lib/db";
 import type { Task } from "@/lib/types";
 import { DEFAULT_MODELS } from "./defaults";
 import { callStructured } from "./call";
-import { runWithFallback, selectCandidates, type ModelRow } from "./fallback";
+import { runWithFallback, selectCandidates, timeoutFor, withLocalFallback, type ModelRow } from "./fallback";
 import { resolveKeys } from "./keys";
 
 let ensured = false;
@@ -27,7 +27,7 @@ export function buildModel(m: ModelRow, apiKey: string | undefined) {
 
 async function loadCandidates(task: Task): Promise<{ candidates: ModelRow[]; keys: Map<string, string> }> {
   await ensureDefaultModels();
-  const rows = must(await db().from("model_configs").select("*"), "load model_configs") as ModelRow[];
+  const rows = withLocalFallback(must(await db().from("model_configs").select("*"), "load model_configs") as ModelRow[], process.env);
   const keys = await resolveKeys(rows);
   const since = new Date();
   since.setUTCHours(0, 0, 0, 0);
@@ -58,7 +58,7 @@ export async function runStructured<S extends z.ZodType>(opts: {
     opts.task,
     candidates,
     async (m) => {
-      return callStructured(buildModel(m, keys.get(m.label)), { schema: opts.schema, system: opts.system, prompt: opts.prompt });
+      return callStructured(buildModel(m, keys.get(m.label)), { schema: opts.schema, system: opts.system, prompt: opts.prompt, timeoutMs: timeoutFor(m) });
     },
     async (m, ok, ms, error) => {
       await db().from("model_usage").insert({

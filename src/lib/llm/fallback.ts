@@ -62,3 +62,22 @@ export async function runWithFallback<T>(
   }
   throw new AllModelsFailed(task, attempts);
 }
+
+/** Local models are slow on a CPU runner, so they get far longer than a hosted API before being cut off. */
+export const LOCAL_TIMEOUT_MS = 600_000;
+export const timeoutFor = (m: Pick<ModelRow, "provider">): number | undefined => (m.provider === "ollama" ? LOCAL_TIMEOUT_MS : undefined);
+
+/**
+ * The last-resort local model. When `LOCAL_MODEL` is set (the GitHub workflow starts Ollama and sets it), the local row
+ * is switched on, pointed at the runner's Ollama, given every task and moved to the very end of the chain, so it is
+ * used only when every hosted model has failed or run out of quota. When it is not set (Vercel, your laptop without
+ * Ollama) the local row is switched off so a dead localhost address is never attempted.
+ */
+export function withLocalFallback(rows: ModelRow[], env: Record<string, string | undefined>): ModelRow[] {
+  const local = env.LOCAL_MODEL?.trim();
+  return rows.map((m) => {
+    if (m.provider !== "ollama") return m;
+    if (!local) return { ...m, enabled: false };
+    return { ...m, enabled: true, model: local, base_url: env.LOCAL_MODEL_URL?.trim() || "http://127.0.0.1:11434/v1", tasks: ["score", "tailor", "extract"], daily_cap: null, priority: 10_000 };
+  });
+}

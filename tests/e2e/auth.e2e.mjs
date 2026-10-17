@@ -364,6 +364,8 @@ r = await call(`/api/schedules/${askId}`, { method: "DELETE" });
 // ---- the agent with an imperfect model
 {
   const chat = () => mock.seen.chatPrompts ?? [];
+  // these scenarios test the model's own output, so past resumes must not be reused here (see the resume memory block below)
+  await call("/api/settings", { method: "PUT", body: { key: "tailoring", value: { reuse_enabled: false, reuse_similarity: 0.85, adapt_similarity: 0.4 } } });
   // (1) a sloppy model: fenced JSON, decimal-as-text scores, a first draft that invents tools and numbers
   mock.fixtures.chatMode = "sloppy";
   r = await call("/api/jobs/manual", { method: "POST", body: { url: "https://boards.greenhouse.io/sloppyco/jobs/77", title: "Product Manager", company: "SloppyCo", description: longDesc, country: "sg" } });
@@ -397,6 +399,33 @@ r = await call(`/api/schedules/${askId}`, { method: "DELETE" });
   check("and the ready-to-submit count told to GitHub excludes it", !/ready_to_submit=[1-9]/.test(w2.output) || mock.rowsOf("applications").filter((a) => a.status === "approved" && a.id === baApp?.id).length === 0, w2.output);
   r = await call(`/api/schedules/${autoBadId}`, { method: "DELETE" });
   mock.fixtures.chatMode = "normal";
+}
+
+// ---- resume memory: a near-identical job reuses a verified resume with no model call; an unrelated one is written fresh
+{
+  await call("/api/settings", { method: "PUT", body: { key: "tailoring", value: { reuse_enabled: true, reuse_similarity: 0.85, adapt_similarity: 0.4 } } });
+  const tailorCalls = () => (mock.seen.chatPrompts ?? []).filter((c) => c.task === "tailor").length;
+  r = await call("/api/jobs/manual", { method: "POST", body: { url: "https://boards.greenhouse.io/reuseco/jobs/91", title: "Product Manager", company: "ReuseCo", description: longDesc, country: "sg" } });
+  r = await call("/api/cron/score?limit=40");
+  const rj = mock.rowsOf("jobs").find((j) => j.company === "ReuseCo");
+  const t0 = tailorCalls();
+  r = await call(`/api/jobs/${rj.id}/prepare`, { method: "POST" });
+  check("a near-identical job is prepared from a past verified resume", r.status === 200 && r.json?.verified === true, `${r.status} ${r.text}`);
+  const rdoc = mock.rowsOf("documents").find((d) => d.job_id === rj.id && d.kind === "resume");
+  check("...with no model call for the resume and the reuse recorded", tailorCalls() === t0 && rdoc?.verification?.reuse?.mode === "reused" && rdoc.verification.reuse.modelCalls === 0 && rdoc.verification.reuse.tokensSavedEstimate > 0, JSON.stringify(rdoc?.verification?.reuse));
+  const rapp = mock.rowsOf("applications").find((a) => a.job_id === rj.id);
+  r = await call(`/applications/${rapp.id}`);
+  check("the application page says it was reused, from which job and how much was saved", /Reused from/.test(r.text) && r.text.includes("tokens saved"), "badge missing");
+  check("the activity log says so too", mock.rowsOf("activity_log").some((l) => l.kind === "resume.generated" && l.job_id === rj.id && /reused from/.test(l.message)), "log missing");
+  r = await call("/api/settings", { method: "PUT", body: { key: "tailoring", value: { reuse_enabled: false, reuse_similarity: 0.85, adapt_similarity: 0.4 } } });
+  check("memory can be switched off in settings", r.status === 200, `${r.status} ${r.text}`);
+  r = await call("/api/jobs/manual", { method: "POST", body: { url: "https://boards.greenhouse.io/fresco/jobs/92", title: "Product Manager", company: "FreshCo", description: longDesc, country: "sg" } });
+  r = await call("/api/cron/score?limit=40");
+  const fj = mock.rowsOf("jobs").find((j) => j.company === "FreshCo");
+  const t1 = tailorCalls();
+  r = await call(`/api/jobs/${fj.id}/prepare`, { method: "POST" });
+  check("with memory off the resume is written fresh by the model", r.status === 200 && tailorCalls() > t1 && mock.rowsOf("documents").find((d) => d.job_id === fj.id && d.kind === "resume").verification.reuse.mode === "fresh", `${r.status} ${r.text}`);
+  await call("/api/settings", { method: "PUT", body: { key: "tailoring", value: { reuse_enabled: true, reuse_similarity: 0.85, adapt_similarity: 0.4 } } });
 }
 
 

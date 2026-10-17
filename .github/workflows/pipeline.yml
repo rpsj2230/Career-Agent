@@ -50,9 +50,21 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Optional last-resort local model. Set the repository variable LOCAL_MODEL (e.g. qwen2.5:7b-instruct) to turn it on;
+      # it is used only after every hosted model has failed or run out of quota, and its output goes through the same verifier.
+      - name: Start local model (Ollama)
+        if: vars.LOCAL_MODEL != ''
+        env:
+          LOCAL_MODEL: ${{ vars.LOCAL_MODEL }}
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          (ollama serve > /tmp/ollama.log 2>&1 &)
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:11434/api/tags >/dev/null && break; sleep 2; done
+          ollama pull "$LOCAL_MODEL"
       - id: p
         run: npx tsx worker/pipeline.ts
         env:
+          LOCAL_MODEL: ${{ vars.LOCAL_MODEL }}
           NODE_OPTIONS: --conditions=react-server
           SCHEDULE_ID: ${{ inputs.schedule_id }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

@@ -98,6 +98,7 @@ function link(parent, item) {
   const t = item.table, h = item.hint;
   if (parent === "applications" && t === "jobs") return { pk: "job_id", ck: "id", one: true };
   if (parent === "applications" && t === "documents") return h.includes("cover") ? { pk: "cover_doc_id", ck: "id", one: true } : { pk: "resume_doc_id", ck: "id", one: true };
+  if (parent === "documents" && t === "jobs") return { pk: "job_id", ck: "id", one: true };
   if (parent === "jobs" && t === "job_scores") return { pk: "id", ck: "job_id", one: true };
   if (parent === "jobs" && t === "applications") return { pk: "id", ck: "job_id", one: true };
   if (parent === "jobs" && t === "documents") return { pk: "id", ck: "job_id", one: false };
