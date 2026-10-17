@@ -1,22 +1,25 @@
 import { z } from "zod";
 import { MasterProfile } from "@/lib/types";
 
+// Free models are sloppy about shape: a missing field, null, a number where text belongs, a single item instead of a list, or
+// {"name": "x"} instead of "x". All of these are read as what was meant, so one cosmetic slip does not fail the whole import.
+const text = z.preprocess((v) => (v == null ? "" : typeof v === "object" ? String((v as Record<string, unknown>).name ?? (v as Record<string, unknown>).text ?? "") : String(v)), z.string());
+const optText = z.preprocess((v) => (v == null || v === "" ? undefined : typeof v === "object" ? String((v as Record<string, unknown>).name ?? (v as Record<string, unknown>).text ?? "") || undefined : String(v)), z.string().optional());
+const list = <T extends z.ZodType>(item: T) => z.preprocess((v) => (v == null ? [] : Array.isArray(v) ? v : [v]), z.array(item));
+const names = list(text).transform((xs) => xs.filter((x) => x.trim()));
+
 /** What the model returns: the same shape as the master profile but without ids. */
 export const ExtractedProfile = z.object({
-  basics: z.object({
-    name: z.string(), email: z.string(), phone: z.string(), location: z.string(),
-    headline: z.string(), summary: z.string(), links: z.array(z.string()),
-  }),
-  experience: z.array(z.object({
-    company: z.string(), title: z.string(), location: z.string().optional(),
-    start: z.string().optional(), end: z.string().optional(), bullets: z.array(z.string()),
+  basics: z.preprocess((v) => v ?? {}, z.object({
+    name: text, email: text, phone: text, location: text, headline: text, summary: text, links: names,
   })),
-  education: z.array(z.object({
-    school: z.string(), degree: z.string(), start: z.string().optional(), end: z.string().optional(),
+  experience: list(z.object({
+    company: text, title: text, location: optText, start: optText, end: optText, bullets: names,
   })),
-  skills: z.array(z.string()),
-  certifications: z.array(z.string()),
-  conflicts: z.array(z.string()).describe("Facts where sources disagree, written for the user to resolve"),
+  education: list(z.object({ school: text, degree: text, start: optText, end: optText })),
+  skills: names,
+  certifications: names,
+  conflicts: names.describe("Facts where sources disagree, written for the user to resolve"),
 });
 export type ExtractedProfile = z.infer<typeof ExtractedProfile>;
 

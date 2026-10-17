@@ -65,3 +65,19 @@ describe("resume and cover-letter schemas forgive missing lists (the verifier re
     for (const s of [TailoredResume, CoverLetter, JobScore]) expect(() => z.toJSONSchema(s, { io: "input" })).not.toThrow();
   });
 });
+
+describe("what the model is told", () => {
+  it("always spells out the structure and mentions JSON (Groq refuses JSON mode otherwise)", async () => {
+    let seen = "";
+    const spy = new MockLanguageModelV4({
+      doGenerate: async (opts) => {
+        seen = JSON.stringify(opts.prompt);
+        return { content: [{ type: "text", text: '{"answer":"4"}' }], finishReason: { unified: "stop", raw: "stop" }, usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } }, warnings: [] };
+      },
+    });
+    await callStructured(spy, { schema: z.object({ answer: z.string() }), system: "Be brief.", prompt: "2+2?" });
+    expect(seen).toMatch(/JSON/);
+    expect(seen).toContain("properties");
+    expect(seen).toContain("answer");
+  });
+});
