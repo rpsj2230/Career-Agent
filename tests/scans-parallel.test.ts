@@ -60,4 +60,17 @@ describe("runScans: fetch in parallel, store in order", () => {
     expect(r.outcomes).toHaveLength(1);
     expect(r.skipped).toBe(2);
   });
+
+  it("never waits past the budget for a slow source: the reply is on time and the slow scan is reported as not finished", async () => {
+    const d = deps([]);
+    const specs: ScanSpec[] = [
+      { integration: "jsearch", query: "fast", fetch: async () => [job("1")] },
+      { integration: "apify", query: "minutes", fetch: () => new Promise<NormalizedJob[]>((r) => setTimeout(() => r([job("2")]), 5_000)) },
+    ];
+    const t0 = Date.now();
+    const r = await runScans(specs, d, { budgetMs: 150 });
+    expect(Date.now() - t0).toBeLessThan(1_000); // not 5 s
+    expect(r.outcomes.map((o) => o.query)).toEqual(["fast"]);
+    expect(r.skipped).toBe(1);
+  });
 });

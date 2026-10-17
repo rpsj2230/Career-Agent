@@ -28,6 +28,10 @@ export async function scoreNewJobs(opts: { limit: number; budgetMs: number; trig
 /** The scoring step inside an existing run. `countries` limits it to a schedule's countries. */
 export async function scoreStep(ctx: RunCtx, opts: { limit: number; budgetMs: number; countries?: string[] }) {
   const started = Date.now();
+  // Time left in this run. A web request is cut off by the host at 60 s, so no model call or page fetch is started that cannot
+  // finish inside what is left, and every model call is told how long it may take. (The GitHub runner passes a long budget.)
+  const left = () => opts.budgetMs - (Date.now() - started);
+  const MIN_CALL_MS = 12_000;
   const profile = await getProfile();
   if (profile.experience.length === 0) throw new Error("Profile is empty: import and confirm your resume first");
   const scoring = await getSetting("scoring");
@@ -96,7 +100,7 @@ export async function scoreStep(ctx: RunCtx, opts: { limit: number; budgetMs: nu
 
   type Scored = { output: JobScore; model: string; tier: "fast" | "strong" };
   const scoreOne = (c: Candidate): Promise<Scored> =>
-    runStructured({ task: "score", schema: JobScore, system: SCORE_SYSTEM, prompt: buildScorePrompt(profile, c.job, critFor(c.job), evidenceText(c.evidence)), jobId: c.job.id });
+    runStructured({ task: "score", schema: JobScore, system: SCORE_SYSTEM, prompt: buildScorePrompt(profile, c.job, critFor(c.job), evidenceText(c.evidence)), jobId: c.job.id, budgetMs: Math.max(3_000, left()) });
   const fail = async (c: Candidate, e: unknown) => {
     // leave the job as 'new' so the next run retries it
     const error = e instanceof Error ? e.message : String(e);
@@ -112,9 +116,9 @@ export async function scoreStep(ctx: RunCtx, opts: { limit: number; budgetMs: nu
     let { output: raw, model } = r;
     let judged = judge({ ...raw, score: roundScore(raw.score) }, evidence, profile);
     // a score close to the threshold decides whether you see the job: have a stronger model look again before settling it
-    if (scoring.escalate_borderline !== false && r.tier === "fast" && Math.abs(judged.score - threshold) <= 8) {
+    if (scoring.escalate_borderline !== false && r.tier === "fast" && Math.abs(judged.score - threshold) <= 8 && left() > MIN_CALL_MS) {
       try {
-        const again = await runStructured({ task: "score", schema: JobScore, system: SCORE_SYSTEM, prompt: buildScorePrompt(profile, job, critFor(job), evidenceText(evidence)), jobId: job.id, prefer: "strong" });
+        const again = await runStructured({ task: "score", schema: JobScore, system: SCORE_SYSTEM, prompt: buildScorePrompt(profile, job, critFor(job), evidenceText(evidence)), jobId: job.id, prefer: "strong", budgetMs: Math.max(3_000, left()) });
         if (again.tier === "strong") { raw = again.output; model = again.model; judged = judge({ ...raw, score: roundScore(raw.score) }, evidence, profile); judged.notes.push(`Re-checked by a stronger model (${model}) because the score was close to your threshold`); ctx.stat("escalated"); }
       } catch { /* the first answer stands */ }
     }
@@ -139,12 +143,12 @@ export async function scoreStep(ctx: RunCtx, opts: { limit: number; budgetMs: nu
 
   let stop = false;
   while (queue.length && !stop) {
-    if (Date.now() - started > opts.budgetMs) break;
+    if (left() < MIN_CALL_MS) break; // not enough time to finish another model call: the rest stays "new" for the next run
     const first = queue.shift()!;
     const batch = [first];
     for (let i = 0; i < queue.length && batch.length < size;) { if (queue[i].job.country === first.job.country) batch.push(...queue.splice(i, 1)); else i++; }
     for (const c of batch) {
-      if (enriched >= 25) break;
+      if (enriched >= 25 || left() < MIN_CALL_MS + 8_000) break; // fetching a full description can take up to 8 s
       const full = await enrichIfThin(c.job);
       if (full) { c.job.description = full; enriched++; ctx.stat("descriptions_completed"); }
     }
@@ -152,7 +156,7 @@ export async function scoreStep(ctx: RunCtx, opts: { limit: number; budgetMs: nu
     const results = new Map<string, Scored>();
     if (batch.length > 1) {
       try {
-        const res = await runStructured({ task: "score", schema: BatchScore, system: SCORE_SYSTEM + BATCH_SYSTEM_SUFFIX, prompt: buildBatchPrompt(profile, batch.map((c) => ({ id: c.job.id, job: c.job, evidence: evidenceText(c.evidence) })), critFor(first.job)), jobId: first.job.id });
+        const res = await runStructured({ task: "score", schema: BatchScore, system: SCORE_SYSTEM + BATCH_SYSTEM_SUFFIX, prompt: buildBatchPrompt(profile, batch.map((c) => ({ id: c.job.id, job: c.job, evidence: evidenceText(c.evidence) })), critFor(first.job)), jobId: first.job.id, budgetMs: Math.max(3_000, left()) });
         ctx.stat("model_calls"); ctx.stat("jobs_in_batches", batch.length);
         for (const item of res.output.results) if (batch.some((c) => c.job.id === item.id) && !results.has(item.id)) results.set(item.id, { output: item, model: res.model, tier: res.tier });
       } catch (e) {
@@ -163,7 +167,10 @@ export async function scoreStep(ctx: RunCtx, opts: { limit: number; budgetMs: nu
     for (const c of batch) {
       let r = results.get(c.job.id);
       try {
-        if (!r) { r = await scoreOne(c); ctx.stat("model_calls"); }
+        if (!r) {
+          if (left() < MIN_CALL_MS) break; // out of time: this job stays "new"
+          r = await scoreOne(c); ctx.stat("model_calls");
+        }
         await finish(c, r);
       } catch (e) {
         if (await fail(c, e)) { ctx.markPartial(e instanceof Error ? e.message : String(e)); stop = true; break; }

@@ -32,7 +32,7 @@ export async function effectiveDiscovery(): Promise<DiscoverySettings> {
   };
 }
 
-export type ScanScope = { only?: IntegrationId; integrations?: string[]; countries?: string[]; budgetMs?: number; /** search even if it ran a moment ago (the Scan now button) */ force?: boolean };
+export type ScanScope = { only?: IntegrationId; integrations?: string[]; countries?: string[]; budgetMs?: number; /** search even if it ran a moment ago (the Scan now button) */ force?: boolean; /** a web request with a hard time limit: hosted scrapers (minutes per run) are left to the scheduled GitHub run */ interactive?: boolean };
 
 const scanKey = (integration: string, country?: string | null, query?: string | null) => `${integration}|${country ?? ""}|${query ?? ""}`;
 
@@ -89,6 +89,10 @@ export async function scanStep(ctx: RunCtx, o: ScanScope) {
   const last = new Map([...history].map(([k, v]) => [k, v[0].at]));
   settings.since = (i, c, q) => last.get(scanKey(i, c, q)) ?? null;
   let specs = buildScanSpecs(settings, creds, (id) => (states.get(id)?.enabled ?? true) && (!allowed || allowed.has(id)), { only: o.only });
+  if (o.interactive) {
+    const slow = specs.filter((sp) => sp.integration === "apify").length;
+    if (slow) { specs = specs.filter((sp) => sp.integration !== "apify"); ctx.stat("hosted_scrapers_deferred", slow); }
+  }
   // a search that ran moments ago would only find the same jobs: skip it (saves time and free-plan quota)
   const minHours = settings.min_rescan_hours ?? 6;
   let recentlySearched = 0;
@@ -140,6 +144,6 @@ export async function scanStep(ctx: RunCtx, o: ScanScope) {
  * Scan the connected integrations inside a recorded run. Every scan, its counts and its errors are stored;
  * a failing source marks the run partial rather than losing the others; the run is always finalised.
  */
-export async function discoverNow(o: { trigger: RunTrigger; only?: IntegrationId; budgetMs?: number; scheduleId?: string | null; force?: boolean }) {
-  return withRun({ trigger: o.trigger, kind: "scan", schedule_id: o.scheduleId ?? null, scope: { only: o.only ?? "all" } }, (ctx) => scanStep(ctx, { only: o.only, budgetMs: o.budgetMs, force: o.force }));
+export async function discoverNow(o: { trigger: RunTrigger; only?: IntegrationId; budgetMs?: number; scheduleId?: string | null; force?: boolean; interactive?: boolean }) {
+  return withRun({ trigger: o.trigger, kind: "scan", schedule_id: o.scheduleId ?? null, scope: { only: o.only ?? "all" } }, (ctx) => scanStep(ctx, { only: o.only, budgetMs: o.budgetMs, force: o.force, interactive: o.interactive }));
 }
