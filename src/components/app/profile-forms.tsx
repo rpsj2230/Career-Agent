@@ -24,7 +24,7 @@ export function ImportBox() {
       const raw = await res.text();
       let data: { error?: string; model?: string } = {};
       try { data = JSON.parse(raw); } catch { /* the host answered with a plain page, not JSON */ }
-      if (!res.ok) toast.error(data.error ?? (res.status === 413 ? "The files are too large to upload here (the limit is about 4 MB in total). Upload your resume alone, or paste your LinkedIn text instead." : res.status === 504 || res.status === 408 ? "The import took too long and was cut off. Try again, or paste less text." : `Import failed (HTTP ${res.status}): ${raw.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 200) || "no details"}`));
+      if (!res.ok) toast.error(data.error ?? (res.status === 413 ? "The files are too large to upload here (the limit is about 4 MB in total). Upload your master resume alone first." : res.status === 504 || res.status === 408 ? "The import took too long and was cut off. Try again, or paste less text." : `Import failed (HTTP ${res.status}): ${raw.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 200) || "no details"}`));
       else { toast.success(`Draft ready (model ${data.model}). Review it below before confirming.`); router.refresh(); }
     } catch (err) {
       toast.error(`Import failed: the server could not be reached (${err instanceof Error ? err.message : "network error"}). Check your connection and try again.`);
@@ -33,29 +33,23 @@ export function ImportBox() {
   return (
     <form onSubmit={submit} className="grid gap-5">
       <section className="grid gap-2">
-        <Label htmlFor="linkedinUrl">1. Your LinkedIn profile link (optional)</Label>
-        <Input id="linkedinUrl" name="linkedinUrl" placeholder="https://www.linkedin.com/in/your-name" />
-        <p className="text-xs text-muted-foreground">Saved on your profile and used in applications that ask for it.</p>
+        <Label htmlFor="master">1. Your master resume (PDF or DOCX)</Label>
+        <Input id="master" name="master" type="file" accept=".pdf,.docx" />
+        <p className="text-xs text-muted-foreground">One file, uploaded once. It sets the sections and wording of your profile (Career Highlights, Core Competencies, Technical Skills, Experience and so on), it becomes the master resume template on the Resumes page, and it is kept as the fallback resume when a tailored one cannot be made. If you have two resumes, choose the one you want as the master here.</p>
       </section>
 
       <section className="grid gap-2">
-        <Label htmlFor="pasted">2. Paste your LinkedIn profile (recommended)</Label>
-        <ol className="list-decimal pl-5 text-xs text-muted-foreground">
-          <li>Open your own profile on linkedin.com in your browser, signed in.</li>
-          <li>Click &quot;Show all&quot; on Experience, Education and Skills so the full lists are on the page.</li>
-          <li>Press Ctrl+A (Cmd+A on Mac) to select everything, then Ctrl+C to copy, and paste it below.</li>
-        </ol>
-        <Textarea id="pasted" name="pasted" rows={8} placeholder="Paste the copied profile text here" />
-        <p className="text-xs text-muted-foreground">Page menus and &quot;people also viewed&quot; are removed automatically. LinkedIn does not allow apps to fetch profiles by link, so copying your own page is the reliable route.</p>
-      </section>
-
-      <section className="grid gap-2">
-        <Label htmlFor="files">3. Or upload files: resume (PDF, DOCX), LinkedIn &quot;Save to PDF&quot;, the LinkedIn data export (.zip), or a ready-made profile file (.json)</Label>
+        <Label htmlFor="files">2. Supporting documents (optional)</Label>
         <Input id="files" name="files" type="file" multiple accept=".pdf,.docx,.txt,.md,.zip,.json" />
-        <p className="text-xs text-muted-foreground">On your profile: More, then Save to PDF. For the full export: LinkedIn Settings, Data privacy, Get a copy of your data. You can combine sources; conflicts are listed for you to resolve. A ready-made .json profile needs no AI model and is loaded exactly as written, as a draft for you to review.</p>
+        <p className="text-xs text-muted-foreground">Your LinkedIn &quot;Save to PDF&quot; (on your profile: More, then Save to PDF), a second resume, or the LinkedIn data export (.zip). These only add to your profile: skills your master resume does not list are added for job search and scoring (they are not printed in the master template), and anything else they contain is listed for you to review. A ready-made .json profile file is also accepted here and is loaded exactly as written, with no AI model.</p>
       </section>
 
-      <p className="text-xs text-muted-foreground">Your text is sent to the configured AI model provider. Remove ID numbers and dates of birth first.</p>
+      <details className="text-sm">
+        <summary className="cursor-pointer text-muted-foreground">Or paste text from your LinkedIn page instead of a PDF</summary>
+        <Textarea id="pasted" name="pasted" rows={6} className="mt-2" placeholder="Paste the copied profile text here" />
+      </details>
+
+      <p className="text-xs text-muted-foreground">Your text is sent to the configured AI model provider. Remove ID numbers and dates of birth first. After the import you review the result before anything is used.</p>
       <Button type="submit" disabled={busy} className="w-fit">{busy ? "Reading and structuring..." : "Import"}</Button>
     </form>
   );

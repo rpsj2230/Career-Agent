@@ -11,10 +11,12 @@ export const maxDuration = 60;
 export async function POST(request: Request) {
   let form: FormData;
   try { form = await request.formData(); } catch { return NextResponse.json({ error: "The upload could not be read. Try again with smaller files." }, { status: 400 }); }
-  const files = form.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
+  const real = (f: FormDataEntryValue | null): f is File => f instanceof File && f.size > 0;
+  const masterFile = real(form.get("master")) ? (form.get("master") as File) : null;
+  const files = [...(masterFile ? [masterFile] : []), ...form.getAll("files").filter(real)];
   const pasted = String(form.get("pasted") ?? "");
-  const linkedinUrl = String(form.get("linkedinUrl") ?? "");
-  if (files.length === 0 && pasted.trim().length === 0) return NextResponse.json({ error: "Attach a file or paste your LinkedIn profile text" }, { status: 400 });
+  if (files.length === 0 && pasted.trim().length === 0) return NextResponse.json({ error: "Attach your master resume (and, if you like, your LinkedIn PDF)" }, { status: 400 });
+  if (masterFile && !masterExt(masterFile.name)) return NextResponse.json({ error: "The master resume must be a PDF or a Word (.docx) file" }, { status: 400 });
   if (files.some((f) => f.size > 10 * 1024 * 1024)) return NextResponse.json({ error: "Each file must be under 10 MB" }, { status: 400 });
   try {
     const existing = await getProfile();
@@ -26,13 +28,14 @@ export async function POST(request: Request) {
       await logConfig("Profile loaded from a ready-made file as a draft", { file: json.name, conflicts: conflicts.length });
       return NextResponse.json({ ok: true, conflicts, model: "ready-made profile file" });
     }
-    const uploads = await Promise.all(files.map(async (f) => ({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) })));
-    const draft = await importProfile({ uploads, pastedText: pasted, linkedinUrl }, existing.preferences);
+    const read = async (f: File) => ({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) });
+    const master = masterFile ? await read(masterFile) : undefined;
+    const supporting = await Promise.all(form.getAll("files").filter(real).map(read));
+    const draft = await importProfile({ master, supporting, pastedText: pasted }, existing.preferences);
     await saveDraft(draft);
-    // keep the first resume file exactly as uploaded: it is the fallback when a tailored resume cannot be made
-    const resumeFile = uploads.find((u) => masterExt(u.name));
-    if (resumeFile) await saveMasterResume(resumeFile.name, resumeFile.bytes).catch((e) => console.error(`[resume] could not keep the uploaded file: ${e instanceof Error ? e.message : e}`));
-    await logConfig("Profile imported as a draft", { files: files.map((f) => f.name), pastedText: pasted.trim().length > 0, model: draft.model, conflicts: draft.conflicts.length });
+    // the master resume is also kept exactly as uploaded: it is the fallback when a tailored resume cannot be made
+    if (master) await saveMasterResume(master.name, master.bytes).catch((e) => console.error(`[resume] could not keep the uploaded file: ${e instanceof Error ? e.message : e}`));
+    await logConfig("Profile imported as a draft", { master: masterFile?.name ?? null, files: files.map((f) => f.name), pastedText: pasted.trim().length > 0, model: draft.model, conflicts: draft.conflicts.length });
     return NextResponse.json({ ok: true, conflicts: draft.conflicts, model: draft.model });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Import failed" }, { status: 422 });
