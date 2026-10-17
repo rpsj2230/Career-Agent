@@ -66,3 +66,11 @@ describe("explainHttpFailure", () => {
     expect(explainHttpFailure(503, "x")).toMatch(/having problems/);
   });
 });
+
+describe("RapidAPI failures", () => {
+  it("say what RapidAPI replied and what to check", () => {
+    expect(explainHttpFailure(404, "jsearch.p.rapidapi.com", "Endpoint '/search' does not exist")).toMatch(/RapidAPI said: "Endpoint '\/search' does not exist".*Test Endpoint/);
+    expect(explainHttpFailure(403, "jsearch.p.rapidapi.com", "You are not subscribed to this API.")).toMatch(/subscribed/);
+    expect(explainHttpFailure(404, "jsearch.p.rapidapi.com")).not.toMatch(/RapidAPI said/);
+  });
+});

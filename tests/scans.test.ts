@@ -11,7 +11,7 @@ const settings: DiscoverySettings = { countries: ["sg", "au", "xx"], roles: ["Pr
 const creds = { adzuna: { app_id: "AID", app_key: "AKEY" }, jsearch: { rapidapi_key: "RKEY" } };
 const all = () => true;
 
-const res = (body: unknown, status = 200) => ({ ok: status < 400, status, json: async () => body }) as unknown as Response;
+const res = (body: unknown, status = 200) => ({ ok: status < 400, status, json: async () => body, text: async () => JSON.stringify(body) }) as unknown as Response;
 
 describe("buildScanSpecs", () => {
   it("creates one scan per integration, country and role, skipping countries Adzuna does not serve", () => {
