@@ -12,6 +12,7 @@ const Schemas = {
   scoring: z.object({ threshold: z.number().int().min(0).max(100) }),
   tailoring: z.object({ reuse_enabled: z.boolean(), reuse_similarity: z.number().min(0.5).max(1), adapt_similarity: z.number().min(0.1).max(0.9) })
     .refine((t) => t.adapt_similarity < t.reuse_similarity, "The adapt level must be lower than the reuse level"),
+  retention: z.object({ skipped_days: z.number().int().min(0).max(3650), log_days: z.number().int().min(0).max(3650) }),
   caps: z.object({
     daily_total: z.number().int().min(0).max(100), daily_linkedin: z.number().int().min(0).max(50),
     weekly_linkedin: z.number().int().min(0).max(200), linkedin_automation_enabled: z.boolean(),
