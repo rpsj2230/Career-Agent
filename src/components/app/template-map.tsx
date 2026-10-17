@@ -11,9 +11,18 @@ export function TemplateMap({ view, style = STYLES[0], scope, sample = false }: 
   const fixed = <Badge variant="secondary" className="shrink-0">Fixed</Badge>;
   const varies = (on: boolean) => on ? <Badge className="shrink-0 bg-amber-500 text-white">Changes per job</Badge> : <Badge variant="secondary" className="shrink-0">Fixed (locked)</Badge>;
   const head = (t: string, tag: React.ReactNode) => <div className="mt-4 flex items-center justify-between gap-2 border-b pb-0.5"><h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t}</h4>{tag}</div>;
+  const grouped = (label: string, gs: { group: string; items: string[] }[]) =>
+    gs.length > 0 ? <>{head(label, varies(scope.skills))}{gs.map((g, i) => <p key={i} className="mt-1">{g.group && <b>{g.group}: </b>}{g.items.join(", ")}</p>)}</> : null;
+  const list = (label: string, xs: string[], tag: React.ReactNode) => xs.length > 0 ? <>{head(label, tag)}<ul className="ml-5 list-disc">{xs.map((x, i) => <li key={i}>{x}</li>)}</ul></> : null;
   const blocks: Record<SectionId, () => React.ReactNode> = {
+    highlights: () => list("Career Highlights", view.highlights, varies(scope.highlights)),
+    caseStudies: () => list("Case Studies", view.caseStudies, fixed),
+    competencies: () => grouped("Core Competencies", view.competencies),
+    technical: () => grouped("Technical Skills", view.technical),
+    development: () => list("Professional Development", view.development, fixed),
+    awards: () => list("Awards and Recognition", view.awards, fixed),
     summary: () => <>{head(style.summaryLabel, varies(scope.summary))}<p className="mt-1">{view.summary}</p></>,
-    skills: () => <>{head("Skills", varies(scope.skills))}<p className="mt-1">{view.skills.join(", ")}</p></>,
+    skills: () => view.skills.length > 0 ? <>{head("Skills", varies(scope.skills))}<p className="mt-1">{view.skills.join(", ")}</p></> : null,
     experience: () => (
       <>
         {head("Work Experience", <span className="flex gap-1">{fixed}<span className="text-xs text-muted-foreground self-center">employers, titles, dates</span></span>)}
@@ -35,6 +44,7 @@ export function TemplateMap({ view, style = STYLES[0], scope, sample = false }: 
       <div className="text-center">
         <div className="text-lg font-bold">{view.name}</div>
         <div className="mt-1 flex items-center justify-center gap-2">{view.headline} {varies(scope.headline)}</div>
+        {view.credentials && <div className="text-xs text-muted-foreground">{view.credentials}</div>}
         <div className="mt-1 flex items-center justify-center gap-2 text-xs text-muted-foreground">{view.contact} {fixed}</div>
       </div>
       {style.sections.map((s) => <div key={s}>{blocks[s]()}</div>)}

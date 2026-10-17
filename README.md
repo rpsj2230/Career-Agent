@@ -122,7 +122,7 @@ The whole loop can run without you:
 2. **Scoring, tailoring and approval** run in the same schedule (create it with *Approve automatically* if you want no review step;
    unverified documents are never approved automatically).
 3. **Applying**: Greenhouse and Lever pages are submitted by the cloud worker. Everything else (LinkedIn, Naukri, Indeed, ...) is submitted
-   by the assistant on your computer in **hands-free mode**: switch it on in *Settings > Application limits*, then run once
+   by the assistant on your computer in **hands-free mode**: switch on **Settings > Auto-Apply** (the master switch, off by default; with it off, schedules and the assistant never submit by themselves) and *Settings > Application limits*, then run once
    `npm run assist` to sign in to each portal, and start `npm run assist:watch`. It checks every 20 minutes (`ASSIST_POLL_MINUTES`),
    only inside the hours you choose (`ASSIST_HOURS=9-21`), submits only within your daily limits, pauses 45-120 seconds between
    applications, hands back anything it cannot answer, and stops at the first CAPTCHA or security check.

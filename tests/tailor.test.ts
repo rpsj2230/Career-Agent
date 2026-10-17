@@ -15,7 +15,7 @@ const job = { title: "Senior PM", company: "Beta", description: "d".repeat(100) 
 const good: TailoredResume = {
   headline: "Product Manager", summary: { text: "PM with 6 years", sourceIds: ["summary"] },
   experience: [{ experienceId: "exp1", bullets: [{ text: "Raised activation 24%", sourceIds: ["exp1.b1"] }] }],
-  skillIds: ["skill2", "skill1"], certificationIds: [],
+  skillIds: ["skill2", "skill1"], certificationIds: [], highlightIds: [],
 };
 const bad: TailoredResume = { ...good, experience: [{ experienceId: "exp1", bullets: [{ text: "Raised activation 60%", sourceIds: ["exp1.b1"] }] }] };
 

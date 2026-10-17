@@ -19,7 +19,7 @@ const profile = MasterProfile.parse({
 });
 
 describe("resume view", () => {
-  const tailored = { headline: "Senior PM", summary: { text: "Tailored summary", sourceIds: ["summary"] }, experience: [{ experienceId: "exp1", bullets: [{ text: "Grew activation 24%", sourceIds: ["exp1.b1"] }] }], skillIds: ["s1"], certificationIds: [] };
+  const tailored = { headline: "Senior PM", summary: { text: "Tailored summary", sourceIds: ["summary"] }, experience: [{ experienceId: "exp1", bullets: [{ text: "Grew activation 24%", sourceIds: ["exp1.b1"] }] }], skillIds: ["s1"], certificationIds: [], highlightIds: [] };
 
   it("takes company, title and dates from the profile and keeps only what was selected", () => {
     const v = resumeView(profile, tailored);

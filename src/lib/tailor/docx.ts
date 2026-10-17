@@ -30,9 +30,18 @@ export function resumeParagraphs(p: MasterProfile, t: TailoredResume, style: Res
   const header: Paragraph[] = [
     new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 20 }, children: [run(v.name, { bold: true, size: 40 })] }),
     ...(v.headline ? [new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 40 }, children: [run(v.headline, { size: 24, color: MUTED })] })] : []),
+    ...(v.credentials ? [new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 40 }, children: [run(v.credentials, { size: 20, color: MUTED })] })] : []),
     new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 60 }, children: [run(v.contact, { size: 19, color: MUTED })] }),
   ];
+  const grouped = (label: string, gs: { group: string; items: string[] }[]) =>
+    gs.length ? [heading(label), ...gs.map((g) => new Paragraph({ spacing: { after: 50, line: 259 }, children: [...(g.group ? [run(`${g.group}: `, { bold: true })] : []), run(g.items.join(", "))] }))] : [];
   const blocks: Record<SectionId, () => Paragraph[]> = {
+    highlights: () => (v.highlights.length ? [heading("Career Highlights"), ...v.highlights.map(bullet)] : []),
+    caseStudies: () => (v.caseStudies.length ? [heading("Case Studies"), ...v.caseStudies.map(bullet)] : []),
+    competencies: () => grouped("Core Competencies", v.competencies),
+    technical: () => grouped("Technical Skills", v.technical),
+    development: () => (v.development.length ? [heading("Professional Development"), ...v.development.map(bullet)] : []),
+    awards: () => (v.awards.length ? [heading("Awards and Recognition"), ...v.awards.map(bullet)] : []),
     summary: () => (v.summary ? [heading(style.summaryLabel), body(v.summary)] : []),
     skills: () => (v.skills.length ? [heading("Skills"), body(v.skills.join(", "))] : []),
     experience: () => {

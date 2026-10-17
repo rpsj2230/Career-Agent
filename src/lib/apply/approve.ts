@@ -43,6 +43,12 @@ export async function approveApplication(id: string, o: { override?: boolean; ac
   if (!jobRow) return { ok: false, status: 404, error: "Job not found" };
   const capsNow = await getSetting("caps");
   if (o.actor === "schedule") {
+    // the master switch: with Auto-Apply off nothing is approved by a schedule; the application stays prepared for you
+    if (!(await getSetting("autoapply")).enabled) {
+      const reason = "Auto-Apply is switched off (Settings > Auto-Apply). The application stays prepared for you to approve.";
+      await log({ kind: "application.blocked", level: "info", message: `Left for you: ${reason}`, status: "blocked", detail: { reason, code: "autoapply_off" } });
+      return { ok: false, status: 409, error: reason };
+    }
     // an automatic approval does not send a second application to a company you just applied to; you can still do that by hand
     const recent = await recentCompanyApplication(jobRow.company ?? "", capsNow.company_cooldown_days ?? 14, id);
     if (recent) {

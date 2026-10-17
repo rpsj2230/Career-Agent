@@ -3,7 +3,7 @@
  * alignment every time, in plain single-column text that applicant tracking systems read correctly. What differs by
  * country is only a small, named style (page size, spelling, the summary's heading, how long each role may run).
  */
-export type SectionId = "summary" | "skills" | "experience" | "education" | "certifications";
+export type SectionId = "summary" | "highlights" | "caseStudies" | "competencies" | "technical" | "skills" | "experience" | "education" | "certifications" | "development" | "awards";
 
 export type ResumeStyle = {
   id: string;
@@ -17,12 +17,13 @@ export type ResumeStyle = {
   maxBullets: number;
 };
 
-const ORDER: SectionId[] = ["summary", "skills", "experience", "education", "certifications"];
+/** Follows a typical senior resume: summary, headline achievements, case studies, competencies, technical skills, experience, then credentials. */
+const ORDER: SectionId[] = ["summary", "highlights", "caseStudies", "competencies", "technical", "skills", "experience", "certifications", "development", "education", "awards"];
 
 export const STYLES: ResumeStyle[] = [
   { id: "standard", label: "Standard (A4, British spelling)", page: "A4", spelling: "uk", summaryLabel: "Summary", sections: ORDER, maxBullets: 5 },
   { id: "us", label: "United States / Canada (Letter, American spelling)", page: "Letter", spelling: "us", summaryLabel: "Professional Summary", sections: ORDER, maxBullets: 4 },
-  { id: "europe", label: "Europe (A4, British spelling, 'Profile')", page: "A4", spelling: "uk", summaryLabel: "Profile", sections: ["summary", "experience", "education", "skills", "certifications"], maxBullets: 5 },
+  { id: "europe", label: "Europe (A4, British spelling, 'Profile')", page: "A4", spelling: "uk", summaryLabel: "Profile", sections: ["summary", "highlights", "experience", "education", "caseStudies", "competencies", "technical", "skills", "certifications", "development", "awards"], maxBullets: 5 },
   { id: "gulf", label: "Middle East (A4, British spelling, 'Profile')", page: "A4", spelling: "uk", summaryLabel: "Profile", sections: ORDER, maxBullets: 6 },
   { id: "india", label: "India (A4, British spelling, fuller detail)", page: "A4", spelling: "uk", summaryLabel: "Professional Summary", sections: ORDER, maxBullets: 6 },
 ];

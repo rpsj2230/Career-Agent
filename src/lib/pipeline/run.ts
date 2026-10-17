@@ -23,6 +23,8 @@ export type PipelineDeps = {
   /** applications returned to the queue because you answered the question that stopped them: approved again under the same rules */
   requeued?(countries: string[]): Promise<{ applicationId: string; verified: boolean; job: QueuedJob }[]>;
   loadCaps(): Promise<{ caps: Caps; state: CapState }>;
+  /** the global Auto-Apply switch; absent means on (the per-schedule settings still apply) */
+  autoApplyEnabled?(): Promise<boolean>;
   now(): number;
   store?: ActivityStore;
 };
@@ -116,9 +118,11 @@ export async function runPipeline(
 
     // 4. approve, only within what this schedule is allowed to do
     let automated = 0;
+    // the global Auto-Apply switch: when it is off every application waits for you, whatever the schedule says
+    const autoOn = deps.autoApplyEnabled ? await deps.autoApplyEnabled().catch(() => false) : true;
     for (const p of prepared) {
       const { caps, state } = await deps.loadCaps();
-      const d = decideAutoApply({ mode: schedule.mode, requireApproval: schedule.require_approval, verified: p.verified, applyType: p.job.apply_type, ats: p.job.url ? parseAtsUrl(p.job.url)?.ats ?? null : null, caps, capState: state, automatedThisRun: automated, maxApply: schedule.max_apply });
+      const d = decideAutoApply({ mode: schedule.mode, requireApproval: schedule.require_approval || !autoOn, verified: p.verified, applyType: p.job.apply_type, ats: p.job.url ? parseAtsUrl(p.job.url)?.ats ?? null : null, caps, capState: state, automatedThisRun: automated, maxApply: schedule.max_apply });
       if (d.action === "leave") { out.awaitingApproval++; ctx.stat(`left_${d.code}`); continue; }
       const r = await deps.approve(p.applicationId, ctx.id);
       if (!r.ok && r.status === 409 && /applied to .* recently/.test(r.error)) { out.awaitingApproval++; ctx.stat("left_cooldown"); continue; }

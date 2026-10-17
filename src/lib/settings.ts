@@ -20,7 +20,7 @@ export const DEFAULTS = {
   /** reuse or adapt resumes made for similar jobs instead of writing each from scratch */
   tailoring: { reuse_enabled: true, reuse_similarity: 0.85, adapt_similarity: 0.4 },
   /** which parts of your resume the agent may change for each job; the rest always stays as in your master resume */
-  tailoring_scope: { headline: true, summary: true, bullets: true, skills: true },
+  tailoring_scope: { headline: true, summary: true, highlights: true, bullets: true, skills: true },
   /** keep the database small: clear the description of skipped jobs after N days; delete per-job rejection log lines after N days (0 = never) */
   retention: { skipped_days: 30, log_days: 90 },
   /** resume style per country code, e.g. { "de": "europe" }; countries not listed use the default for their region */
@@ -35,6 +35,8 @@ export const DEFAULTS = {
   watchlist: { enabled: true, boards: { greenhouse: [], lever: [], ashby: [], workable: [], recruitee: [] } as Record<string, string[]>, added: {} as Record<string, string> },
   /** hosted scrapers (Apify) for the portals without an API */
   apify: { actors: [] as ApifyActor[], monthly_item_budget: 2500 },
+  /** master switch for everything that submits without you pressing a button (schedules and the hands-free assistant). Off until you turn it on. */
+  autoapply: { enabled: false },
   caps: { daily_total: 15, daily_linkedin: 10, weekly_linkedin: 40, linkedin_automation_enabled: false, local_auto_enabled: false, company_cooldown_days: 14 } as Caps,
 };
 

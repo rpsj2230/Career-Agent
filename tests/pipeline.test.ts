@@ -50,6 +50,26 @@ describe("runPipeline", () => {
     expect(s).toMatchObject({ inserted: 4, scored: 4, prepared: 1, autoApproved: 1, runId: runRow(m).id });
   });
 
+  it("the global Auto-Apply switch off leaves every application waiting, whatever the schedule says", async () => {
+    const { deps, calls } = setup([job(1), job(2)], { autoApplyEnabled: async () => false });
+    const s = await runPipeline(sched(), deps, { trigger: "schedule" });
+    expect(calls.prepared).toHaveLength(2); // still found, scored and prepared
+    expect(calls.approved).toEqual([]);
+    expect(s).toMatchObject({ autoApproved: 0, awaitingApproval: 2 });
+  });
+
+  it("the global Auto-Apply switch on lets the schedule approve as before", async () => {
+    const { deps, calls } = setup([job(1)], { autoApplyEnabled: async () => true });
+    await runPipeline(sched(), deps, { trigger: "schedule" });
+    expect(calls.approved).toEqual(["app-j1"]);
+  });
+
+  it("an unreadable Auto-Apply switch counts as off", async () => {
+    const { deps, calls } = setup([job(1)], { autoApplyEnabled: async () => { throw new Error("db down"); } });
+    await runPipeline(sched(), deps, { trigger: "schedule" });
+    expect(calls.approved).toEqual([]);
+  });
+
   it("scan-only schedules never prepare or approve", async () => {
     const { deps, calls } = setup([job(1), job(2)]);
     const s = await runPipeline(sched({ mode: "scan" }), deps, { trigger: "schedule" });

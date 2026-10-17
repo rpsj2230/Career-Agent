@@ -51,6 +51,12 @@ async function heartbeat(sb: SupabaseClient) {
   } catch { /* the heartbeat is a courtesy, never a reason to stop */ }
 }
 
+/** The global Auto-Apply switch (Settings > Auto-Apply). Missing or unreadable counts as off. */
+async function autoApplyOn(sb: SupabaseClient): Promise<boolean> {
+  const { data } = await sb.from("settings").select("value").eq("key", "autoapply").maybeSingle();
+  return (data?.value as { enabled?: boolean } | null)?.enabled === true;
+}
+
 async function loadCaps(sb: SupabaseClient): Promise<AutoCaps> {
   const { data } = await sb.from("settings").select("value").eq("key", "caps").maybeSingle();
   return { daily_total: 15, daily_linkedin: 10, weekly_linkedin: 40, linkedin_automation_enabled: false, local_auto_enabled: false, ...((data?.value as object) ?? {}) };
@@ -267,6 +273,7 @@ async function batch(sb: SupabaseClient): Promise<number> {
   let auto: { caps: AutoCaps; state: AutoState } | null = null;
   if (AUTO) {
     const caps = await loadCaps(sb);
+    if (!(await autoApplyOn(sb))) { say("Auto-Apply is switched off. Turn it on in Settings > Auto-Apply, or run `npm run assist` to press Submit yourself."); return 0; }
     if (!caps.local_auto_enabled) { say("Hands-free mode is switched off. Turn it on in Settings > Application limits, or run `npm run assist` to press Submit yourself."); return 0; }
     auto = { caps, state: await loadAutoState(sb) };
   }

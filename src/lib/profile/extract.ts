@@ -11,7 +11,10 @@ Rules:
 - Keep each bullet as close to the original wording as possible; split long paragraphs into separate bullets.
 - Dates as written (e.g. "Jan 2021", "2019"); use "Present" for current roles.
 - If two sources disagree (dates, titles, employers), keep the more specific one and list the disagreement in "conflicts".
-- Empty string for any basics field that is not present.`;
+- Empty string for any basics field that is not present.
+- Keep the resume's own sections apart. "highlights" are the Career Highlights achievements; "caseStudies" are case study titles; "certifications" are professional certifications; "development" is courses and training; "awards" are awards and recognition.
+- Skills: one entry per skill as {"name", "group", "kind"}. "kind" is "competency" for items under Core Competencies and "technical" for items under Technical Skills; "group" is the sub-heading they sit under (for example "Delivery & Project Management"), or empty.
+- "credentials" is the line of professional credentials under the name (for example "PMP | SFC"); "workStatus" is work authorisation shown on the resume (for example "Employment Pass"), or empty.`;
 
 export type ImportInput = { uploads: Upload[]; pastedText?: string; linkedinUrl?: string };
 
