@@ -148,31 +148,31 @@ export type PortalDef = {
 export const PORTALS: PortalDef[] = [
   {
     key: "linkedin", name: "LinkedIn", via: ["jsearch", "mailbox", "manual"], apply: "assisted",
-    applyNote: "You press submit. Easy Apply automation is opt-in in Settings, capped, and at your own account risk.",
+    applyNote: "Prepared for you. Run the apply assistant on your computer (npm run assist): it fills the form in your own signed-in browser and you press Submit. Fully automatic Easy Apply is opt-in in Settings, capped, and at your own account risk.",
     limitations: ["LinkedIn has no open job-search or application API for individuals, and forbids scraping and automated applying", "Listings reach you through an aggregator feed, alert emails or manual entry; this app never logs in to LinkedIn to read jobs"],
   },
   {
     key: "indeed", name: "Indeed", via: ["jsearch", "mailbox", "manual"], apply: "assisted",
-    applyNote: "Prepared for you; you submit on Indeed.",
+    applyNote: "Prepared for you. The apply assistant (npm run assist) fills the form in your own signed-in browser; you press Submit.",
     limitations: ["No open API for individuals; its terms forbid scraping", "Listings come through an aggregator feed, alert emails or manual entry"],
   },
   {
     key: "glassdoor", name: "Glassdoor", via: ["jsearch", "mailbox", "manual"], apply: "assisted",
-    applyNote: "Prepared for you; you submit on Glassdoor.",
+    applyNote: "Prepared for you. The apply assistant (npm run assist) fills the form in your own signed-in browser; you press Submit.",
     limitations: ["Its job API is closed to new users; its terms forbid scraping", "Listings come through an aggregator feed, alert emails or manual entry"],
   },
   {
     key: "naukri", name: "Naukri", via: ["jsearch", "mailbox", "manual"], apply: "assisted",
-    applyNote: "Login-gated; prepared for you and you submit.",
+    applyNote: "Login-gated. The apply assistant (npm run assist) fills the form in your own signed-in browser; you press Submit.",
     limitations: ["No public API", "Coverage through aggregators varies; alert emails and manual add are the reliable routes"],
   },
   {
     key: "foundit", name: "Foundit (Monster India)", via: ["mailbox", "manual", "jsearch"], apply: "assisted",
-    applyNote: "Login-gated; prepared for you and you submit.", limitations: ["No public API"],
+    applyNote: "Login-gated. The apply assistant (npm run assist) fills the form in your own signed-in browser; you press Submit.", limitations: ["No public API"],
   },
   {
     key: "shine", name: "Shine", via: ["mailbox", "manual"], apply: "assisted",
-    applyNote: "Login-gated; prepared for you and you submit.", limitations: ["No public API"],
+    applyNote: "Login-gated. The apply assistant (npm run assist) fills the form in your own signed-in browser; you press Submit.", limitations: ["No public API"],
   },
   {
     key: "greenhouse", name: "Company career pages (Greenhouse)", via: ["greenhouse"], apply: "automated",

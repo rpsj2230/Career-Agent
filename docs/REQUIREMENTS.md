@@ -146,3 +146,10 @@ Verified by an end-to-end run with a sloppy model (fenced JSON, invented first d
 3. **Model scoring (tokens), best first.** The survivors are ordered by rule-based evidence and at most a fixed number per run (60 in the pipeline) go to the model; the rest wait for the next run. The model's score is bounded by the evidence.
 4. **Model writing (tokens), matches only.** Resume and cover letter are produced only for jobs above your threshold, and reused or adapted from past resumes where similar. Verification, the template, DOCX rendering, form filling, scheduling and notifications use no model.
 5. **ATS.** Single-column plain text, real headings with standard names, no tables, text boxes, images, headers or footers, one font, contact details in the body, "Title, Company, Location" with dates on the same line. Enforced for every style by `tests/ats.test.ts`.
+
+## Big portals (LinkedIn, Indeed, Naukri ...)
+
+- **Finding jobs:** published listings via JSearch (Google for Jobs) and Adzuna, the portals' own job-alert emails (read-only IMAP), and manual add. No scraping of or login to those portals by the server.
+- **Applying:** the apply assistant (`npm run assist`, `worker/assist.ts`) runs on the user's own computer with their own signed-in browser profile, fills the form from the prepared package and stops; the user presses Submit. It records fields, files and outcome. It never presses Submit and never bypasses a CAPTCHA or security check.
+- **Employer systems:** aggregator tracker links are resolved (SSRF-safe) to the employer's own page at prepare time; Greenhouse and Lever pages are switched to automatic applying.
+- Fixed in passing: multi-step forms were scanned with stale control tags, so a second step could fail to fill.

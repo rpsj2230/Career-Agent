@@ -14,6 +14,8 @@ type Field = {
 /** Scan the page (or Easy Apply modal) for fillable controls, tagging each with data-ca-i. Radios are grouped by name. */
 async function scan(page: Page): Promise<Field[]> {
   return page.evaluate(() => {
+    // multi-step forms are scanned once per step: tags from the previous step must go, or two controls share an index
+    document.querySelectorAll("[data-ca-i]").forEach((e) => e.removeAttribute("data-ca-i"));
     const visible = (el: Element) => {
       const r = (el as HTMLElement).getBoundingClientRect();
       const s = getComputedStyle(el as HTMLElement);

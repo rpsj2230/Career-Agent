@@ -3,7 +3,7 @@ export const LOG_KINDS = [
   "run.started", "run.finished", "run.failed",
   "scan.started", "scan.finished", "scan.failed",
   "integration.tested", "integration.error", "integration.changed",
-  "job.matched", "job.rejected", "job.duplicate", "job.score_failed",
+  "job.matched", "job.rejected", "job.duplicate", "job.link_resolved", "job.score_failed",
   "resume.generated", "cover.generated",
   "application.prepared", "application.approved", "application.submitted", "application.skipped",
   "application.prepare_failed", "application.failed", "application.needs_input", "application.manual", "application.lifecycle", "application.blocked",
