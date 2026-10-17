@@ -12,20 +12,22 @@ import { Badge } from "@/components/ui/badge";
 import { COUNTRY_PRESETS, ROLE_PRESETS, toggleCsv } from "@/lib/standard-questions";
 import { call } from "./api";
 
-type Discovery = { countries: string[]; roles: string[]; greenhouse_boards: string[]; lever_companies: string[]; max_age_days: number; min_rescan_hours?: number };
+type Discovery = { countries: string[]; roles: string[]; greenhouse_boards: string[]; lever_companies: string[]; ashby_orgs?: string[]; workable_accounts?: string[]; recruitee_companies?: string[]; max_age_days: number; min_rescan_hours?: number };
 type Caps = { daily_total: number; daily_linkedin: number; weekly_linkedin: number; linkedin_automation_enabled: boolean; local_auto_enabled?: boolean };
 const csv = (s: string) => s.split(",").map((x) => x.trim()).filter(Boolean);
 
-export function SettingsForm({ discovery, threshold, minEvidence, caps, tailoring, profileTitles }: { discovery: Discovery; threshold: number; minEvidence: number; caps: Caps; tailoring: { reuse_enabled: boolean; reuse_similarity: number; adapt_similarity: number }; profileTitles: string[] }) {
+export function SettingsForm({ discovery, threshold, minEvidence, caps, tailoring, blocklist, profileTitles }: { discovery: Discovery; threshold: number; minEvidence: number; caps: Caps; blocklist: { companies: string[]; keywords: string[]; skip_agencies: boolean }; tailoring: { reuse_enabled: boolean; reuse_similarity: number; adapt_similarity: number }; profileTitles: string[] }) {
   const router = useRouter();
-  const [d, setD] = useState({ ...discovery, countries: discovery.countries.join(", "), roles: discovery.roles.join(", "), greenhouse_boards: discovery.greenhouse_boards.join(", "), lever_companies: discovery.lever_companies.join(", ") });
+  const [d, setD] = useState({ ...discovery, countries: discovery.countries.join(", "), roles: discovery.roles.join(", "), greenhouse_boards: discovery.greenhouse_boards.join(", "), lever_companies: discovery.lever_companies.join(", "), ashby_orgs: (discovery.ashby_orgs ?? []).join(", "), workable_accounts: (discovery.workable_accounts ?? []).join(", "), recruitee_companies: (discovery.recruitee_companies ?? []).join(", ") });
   const [t, setT] = useState(threshold);
   const [me, setMe] = useState(minEvidence);
   const [tl, setTl] = useState(tailoring);
   const [c, setC] = useState(caps);
+  const [bl, setBl] = useState({ companies: blocklist.companies.join(", "), keywords: blocklist.keywords.join(", "), skip_agencies: blocklist.skip_agencies });
+  const saveBlocklist = async () => { if (await call("/api/settings", "PUT", { key: "blocklist", value: { companies: csv(bl.companies), keywords: csv(bl.keywords), skip_agencies: bl.skip_agencies } }, "Blocklist saved")) refresh(); };
   const refresh = () => router.refresh();
 
-  const saveDiscovery = async () => { if (await call("/api/settings", "PUT", { key: "discovery", value: { countries: csv(d.countries), roles: csv(d.roles), greenhouse_boards: csv(d.greenhouse_boards), lever_companies: csv(d.lever_companies), max_age_days: Number(d.max_age_days), min_rescan_hours: Number(d.min_rescan_hours ?? 6) } }, "Discovery settings saved")) refresh(); };
+  const saveDiscovery = async () => { if (await call("/api/settings", "PUT", { key: "discovery", value: { countries: csv(d.countries), roles: csv(d.roles), greenhouse_boards: csv(d.greenhouse_boards), lever_companies: csv(d.lever_companies), ashby_orgs: csv(d.ashby_orgs ?? ""), workable_accounts: csv(d.workable_accounts ?? ""), recruitee_companies: csv(d.recruitee_companies ?? ""), max_age_days: Number(d.max_age_days), min_rescan_hours: Number(d.min_rescan_hours ?? 6) } }, "Discovery settings saved")) refresh(); };
   const saveTailoring = async () => { if (await call("/api/settings", "PUT", { key: "tailoring", value: tl }, "Resume memory saved")) refresh(); };
   const saveScoring = async () => { if (await call("/api/settings", "PUT", { key: "scoring", value: { threshold: Number(t), min_evidence: Number(me) } }, "Threshold saved")) refresh(); };
   const saveCaps = async () => { if (await call("/api/settings", "PUT", { key: "caps", value: { ...c, daily_total: Number(c.daily_total), daily_linkedin: Number(c.daily_linkedin), weekly_linkedin: Number(c.weekly_linkedin) } }, "Limits saved")) refresh(); };
@@ -66,6 +68,9 @@ export function SettingsForm({ discovery, threshold, minEvidence, caps, tailorin
           </div>
           <div className="grid gap-1"><Label htmlFor="g">Greenhouse boards</Label><Input id="g" value={d.greenhouse_boards} placeholder="razorpay, postman" onChange={(e) => setD({ ...d, greenhouse_boards: e.target.value })} /></div>
           <div className="grid gap-1"><Label htmlFor="l">Lever companies</Label><Input id="l" value={d.lever_companies} placeholder="cred, meesho" onChange={(e) => setD({ ...d, lever_companies: e.target.value })} /></div>
+          <div className="grid gap-1"><Label htmlFor="ash">Ashby organisations</Label><Input id="ash" value={d.ashby_orgs as unknown as string} placeholder="ramp, notion" onChange={(e) => setD({ ...d, ashby_orgs: e.target.value as never })} /></div>
+          <div className="grid gap-1"><Label htmlFor="wk">Workable accounts</Label><Input id="wk" value={d.workable_accounts as unknown as string} placeholder="acme, globex" onChange={(e) => setD({ ...d, workable_accounts: e.target.value as never })} /></div>
+          <div className="grid gap-1"><Label htmlFor="rc">Recruitee companies</Label><Input id="rc" value={d.recruitee_companies as unknown as string} placeholder="acme, globex" onChange={(e) => setD({ ...d, recruitee_companies: e.target.value as never })} /></div>
           <div className="grid gap-1"><Label htmlFor="age">Ignore jobs older than (days)</Label>{num(d.max_age_days, (n) => setD({ ...d, max_age_days: n }), "age")}</div>
           <div className="grid gap-1"><Label htmlFor="rescan">Do not search the same thing again within (hours)</Label>{num(d.min_rescan_hours ?? 6, (n) => setD({ ...d, min_rescan_hours: n }), "rescan")}<span className="text-xs text-muted-foreground">Saves free-plan quota and time. Each search remembers when it last ran and then asks only for newer jobs. 0 = always search.</span></div>
           <div className="md:col-span-2"><Button onClick={saveDiscovery}>Save discovery</Button></div>
@@ -75,6 +80,16 @@ export function SettingsForm({ discovery, threshold, minEvidence, caps, tailorin
       <Card>
         <CardHeader><CardTitle>Fit threshold</CardTitle><CardDescription>Jobs scoring below this are skipped (with the reason kept) and never reach your queue.</CardDescription></CardHeader>
         <CardContent className="flex items-end gap-3"><div className="grid gap-1"><Label htmlFor="th">Minimum score (0-100)</Label>{num(t, setT, "th")}</div><div className="grid gap-1"><Label htmlFor="me">Free pre-check minimum (0-60)</Label>{num(me, setMe, "me")}</div><Button onClick={saveScoring}>Save</Button></CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>Blocklist</CardTitle><CardDescription>Jobs matching any of these are skipped for free, before anything else, with the reason kept.</CardDescription></CardHeader>
+        <CardContent className="grid gap-3 md:grid-cols-2">
+          <div className="grid gap-1"><Label htmlFor="blc">Companies (part of the name is enough)</Label><Input id="blc" value={bl.companies} placeholder="acme staffing, globex" onChange={(e) => setBl({ ...bl, companies: e.target.value })} /></div>
+          <div className="grid gap-1"><Label htmlFor="blk">Words in the title or description</Label><Input id="blk" value={bl.keywords} placeholder="unpaid, commission only, internship" onChange={(e) => setBl({ ...bl, keywords: e.target.value })} /></div>
+          <label className="flex items-center gap-2 text-sm md:col-span-2"><Switch checked={bl.skip_agencies} onCheckedChange={(v) => setBl({ ...bl, skip_agencies: v })} /> Skip jobs posted by recruitment agencies</label>
+          <div className="md:col-span-2"><Button onClick={saveBlocklist}>Save blocklist</Button></div>
+        </CardContent>
       </Card>
 
       <Card>

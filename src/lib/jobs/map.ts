@@ -113,3 +113,31 @@ export function mapMcf(r: any): NormalizedJob {
     salary: min || max ? { min: min || undefined, max: max || undefined, currency: "SGD", period: monthly ? "month" : "year" } : undefined,
   };
 }
+
+export function mapAshby(r: any, org: string): NormalizedJob {
+  const location = r.location ?? r.address?.postalAddress?.addressLocality;
+  return {
+    source: `ashby:${org}`, externalId: String(r.id), title: r.title ?? "", company: r.companyName ?? org,
+    location, country: guessCountry(String(location ?? "")), url: r.jobUrl ?? r.applyUrl ?? "",
+    description: r.descriptionPlain ?? htmlToText(r.descriptionHtml ?? ""), postedAt: iso(r.publishedAt ?? r.publishedDate),
+    salaryText: r.compensation?.compensationTierSummary ?? r.compensation?.scrapeableCompensationSalarySummary ?? undefined,
+  };
+}
+
+export function mapWorkable(r: any, account: string): NormalizedJob {
+  const location = [r.city, r.state, r.country].filter(Boolean).join(", ");
+  return {
+    source: `workable:${account}`, externalId: String(r.shortcode ?? r.id), title: r.title ?? "", company: r.company ?? account,
+    location, country: guessCountry(location), url: r.url ?? r.shortlink ?? r.application_url ?? "",
+    description: htmlToText(r.description ?? ""), postedAt: iso(r.published_on ?? r.created_at),
+  };
+}
+
+export function mapRecruitee(r: any, company: string): NormalizedJob {
+  const location = r.location ?? [r.city, r.country].filter(Boolean).join(", ");
+  return {
+    source: `recruitee:${company}`, externalId: String(r.id), title: r.title ?? "", company: r.company_name ?? company,
+    location, country: (typeof r.country_code === "string" && r.country_code.length === 2 ? r.country_code.toLowerCase() : undefined) ?? guessCountry(String(location ?? "")),
+    url: r.careers_url ?? "", description: htmlToText(`${r.description ?? ""}\n${r.requirements ?? ""}`), postedAt: iso(r.published_at ?? r.created_at),
+  };
+}

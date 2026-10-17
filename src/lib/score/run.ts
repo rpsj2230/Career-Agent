@@ -10,9 +10,10 @@ import { withLegacyFallback } from "@/lib/schema";
 import { getSetting } from "@/lib/settings";
 import { JobScore, roundScore } from "@/lib/types";
 import { evidenceText, gatherEvidence, irrelevantReason, judge } from "./rules";
+import { enrichIfThin } from "./enrich";
 import { buildScorePrompt, prefilter, SCORE_SYSTEM, type JobForScoring } from "./prompt";
 
-type JobRow = JobForScoring & { id: string; portal?: string | null; source?: string | null };
+type JobRow = JobForScoring & { id: string; url: string; portal?: string | null; source?: string | null };
 
 /**
  * Score new jobs newest-first until `budgetMs` is used up, inside a recorded run. Every decision is logged with its
@@ -28,6 +29,7 @@ export async function scoreStep(ctx: RunCtx, opts: { limit: number; budgetMs: nu
   const profile = await getProfile();
   if (profile.experience.length === 0) throw new Error("Profile is empty: import and confirm your resume first");
   const { threshold, min_evidence: minEvidence } = await getSetting("scoring");
+  const blocklist = await getSetting("blocklist");
   const { countries, configured } = await loadEffectiveCountries();
   const countryRules = configured ? countries : undefined;
 
@@ -58,7 +60,7 @@ export async function scoreStep(ctx: RunCtx, opts: { limit: number; budgetMs: nu
   for (const job of loaded) {
     if (Date.now() - started > opts.budgetMs) break;
     const ref = { ...jobLogFields(job), run_id: ctx.id };
-    const reason = prefilter(job, profile, countryRules);
+    const reason = prefilter(job, profile, countryRules, blocklist);
     if (reason) {
       await decide(job, "skipped", reason);
       await ctx.log({ kind: "job.rejected", message: `Rejected before scoring: ${reason}`, status: "rejected", ...ref, detail: { stage: "prefilter", title: job.title, reason } });
@@ -81,12 +83,16 @@ export async function scoreStep(ctx: RunCtx, opts: { limit: number; budgetMs: nu
 
   // 2. the model sees the best candidates first, at most `limit` per run; the rest wait (still "new") for the next run
   candidates.sort((x, y) => y.evidence.score - x.evidence.score);
-  let modelCalls = 0;
+  let modelCalls = 0, enriched = 0;
   for (const { job, evidence } of candidates) {
     if (Date.now() - started > opts.budgetMs) break;
     if (modelCalls >= opts.limit) break;
     const ref = { ...jobLogFields(job), run_id: ctx.id };
     modelCalls++;
+    if (enriched < 25) {
+      const full = await enrichIfThin(job);
+      if (full) { job.description = full; enriched++; ctx.stat("descriptions_completed"); }
+    }
     try {
       const scored = await runStructured({ task: "score", schema: JobScore, system: SCORE_SYSTEM, prompt: buildScorePrompt(profile, job, countryRules?.find((c) => c.country === job.country?.toLowerCase()), evidenceText(evidence)), jobId: job.id });
       const model = scored.model;

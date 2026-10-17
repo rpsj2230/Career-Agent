@@ -40,7 +40,7 @@ export async function loadPortalsView() {
   }
 
   const hasConfig = (def: IntegrationDef) =>
-    def.needsConfig === "greenhouse_boards" ? discovery.greenhouse_boards.length > 0 : def.needsConfig === "lever_companies" ? discovery.lever_companies.length > 0 : def.needsConfig === "apify_actors" ? (discovery.apify_actors ?? []).some((a) => a.enabled) : true;
+    def.needsConfig === "greenhouse_boards" ? discovery.greenhouse_boards.length > 0 : def.needsConfig === "lever_companies" ? discovery.lever_companies.length > 0 : def.needsConfig === "other_boards" ? ((discovery.ashby_orgs ?? []).length + (discovery.workable_accounts ?? []).length + (discovery.recruitee_companies ?? []).length + Object.values(discovery.watch ?? {}).flat().length > 0) : def.needsConfig === "apify_actors" ? (discovery.apify_actors ?? []).some((a) => a.enabled) : true;
 
   const integrations: IntegrationView[] = INTEGRATIONS.map((def) => ({
     def,

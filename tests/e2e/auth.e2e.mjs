@@ -177,6 +177,9 @@ check("a scraped job that names the employer's Greenhouse page is switched to it
 check("the token went to Apify as a bearer token and the request used the actor id", mock.seen.external.some((e) => e.host === "api.apify.com" && e.auth === "Bearer APIFY-TOKEN-123" && e.path.includes("someone~linkedin-jobs")), "not seen");
 check("the token is never stored in clear text", !JSON.stringify(mock.rowsOf("settings")).includes("APIFY-TOKEN-123"), "leaked");
 
+const wl = mock.rowsOf("settings").find((x) => x.key === "watchlist")?.value;
+check("a company seen posting a matching job joins the watchlist, so its own board is read directly next time", wl?.boards?.greenhouse?.includes("scrapeco") && mock.rowsOf("activity_log").some((l) => /new company board/.test(l.message ?? "") && l.detail?.added?.some((a) => a.board === "scrapeco")), JSON.stringify(wl));
+
 // MyCareersFuture: free, no key, Singapore
 r = await call("/api/integrations/mcf/test", { method: "POST" }); check("MyCareersFuture Test needs no key and reads the sample job", r.status === 200 && /reachable/.test(r.text), `${r.status} ${r.text}`);
 r = await call("/api/integrations/mcf/scan", { method: "POST" }); check("the MyCareersFuture scan stores Singapore jobs", r.status === 200 && /new/.test(r.text), `${r.status} ${r.text}`);

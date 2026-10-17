@@ -44,7 +44,7 @@ export function AddCountry({ available }: { available: { code: string; name: str
   );
 }
 
-export function CountryCard({ pref, profileTitles, templates }: { pref: CountryPref; profileTitles: string[]; templates: Record<string, string> }) {
+export function CountryCard({ pref, profileTitles, templates, suggested = [] }: { pref: CountryPref; profileTitles: string[]; templates: Record<string, string>; suggested?: { title: string; count: number }[] }) {
   const router = useRouter();
   const info = countryInfo(pref.country);
   const [enabled, setEnabled] = useState(pref.enabled);
@@ -91,6 +91,10 @@ export function CountryCard({ pref, profileTitles, templates }: { pref: CountryP
         <div className="grid gap-1 md:col-span-2">
           <Label htmlFor={`t-${pref.country}`}>Target job titles</Label>
           <Textarea id={`t-${pref.country}`} rows={2} value={titles} onChange={(e) => setTitles(e.target.value)} placeholder="Product Manager, Senior Product Manager" />
+          {suggested.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1 text-xs"><span className="text-muted-foreground">Found in your matches:</span>
+              {suggested.map((t) => <button type="button" key={t.title} onClick={() => setTitles(parseList(`${titles}, ${t.title}`).join(", "))} title={`${t.count} matching jobs had this title`}><Badge variant="outline">+ {t.title} ({t.count})</Badge></button>)}</div>
+          )}
           {profileTitles.length > 0 && (
             <div className="flex flex-wrap items-center gap-1 text-xs"><span className="text-muted-foreground">From your profile:</span>
               {profileTitles.map((t) => <button type="button" key={t} onClick={() => setTitles(parseList(`${titles}, ${t}`).join(", "))}><Badge variant="secondary">+ {t}</Badge></button>)}</div>

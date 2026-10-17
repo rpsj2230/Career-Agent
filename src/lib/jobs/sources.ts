@@ -2,7 +2,7 @@ import { ADZUNA_COUNTRIES, explainHttpFailure, type IntegrationId } from "@/lib/
 import { countryQueries, type EffectiveCountry } from "@/lib/country-config";
 import { ApifyActor, mapApifyItem, runActor, templateVars, type ApifyFetch } from "./apify";
 import { imapSource, scanMailbox, type MailboxConfig, type MailSource } from "./mailbox";
-import { mapMcf, mapAdzuna, mapArbeitnow, mapGreenhouse, mapJobicy, mapJSearch, mapLever, mapRemoteOk, mapRemotive } from "./map";
+import { mapAshby, mapRecruitee, mapWorkable, mapMcf, mapAdzuna, mapArbeitnow, mapGreenhouse, mapJobicy, mapJSearch, mapLever, mapRemoteOk, mapRemotive } from "./map";
 import type { NormalizedJob } from "./normalize";
 
 export type DiscoverySettings = {
@@ -10,6 +10,11 @@ export type DiscoverySettings = {
   roles: string[];
   greenhouse_boards: string[];
   lever_companies: string[];
+  ashby_orgs?: string[];
+  workable_accounts?: string[];
+  recruitee_companies?: string[];
+  /** companies discovered by the agent (jobs/ats.ts); read with the same title filter as feeds */
+  watch?: Partial<Record<"greenhouse" | "lever" | "ashby" | "workable" | "recruitee", string[]>>;
   max_age_days: number;
   /** When present, each country is searched with its own titles, locations and remote preference. */
   perCountry?: EffectiveCountry[];
@@ -201,6 +206,21 @@ export function buildScanSpecs(
       } });
     }
   }
+  // companies the agent found on its own: only their jobs that match your titles are kept
+  const watchOnly = (ats: "greenhouse" | "lever") => (s.watch?.[ats] ?? []).filter((b) => !(ats === "greenhouse" ? s.greenhouse_boards : s.lever_companies).some((x) => x.toLowerCase() === b.toLowerCase()));
+  if (want("greenhouse")) for (const board of watchOnly("greenhouse")) {
+    specs.push({ integration: "greenhouse", query: `${board} (found)`, fetch: async () => ((await get(`https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(board)}/jobs?content=true`)).jobs ?? []).map((r: unknown) => mapGreenhouse(r, board)).filter(matchesTitle) });
+  }
+  if (want("lever")) for (const company of watchOnly("lever")) {
+    specs.push({ integration: "lever", query: `${company} (found)`, fetch: async () => { const d = await get(`https://api.lever.co/v0/postings/${encodeURIComponent(company)}?mode=json`); return (Array.isArray(d) ? d : []).map((r: unknown) => mapLever(r, company)).filter(matchesTitle); } });
+  }
+  if (want("boards")) {
+    const list = (own: string[] | undefined, found: string[] | undefined) => [...new Set([...(own ?? []), ...(found ?? [])])];
+    for (const org of list(s.ashby_orgs, s.watch?.ashby)) specs.push({ integration: "boards", query: `ashby: ${org}`, fetch: async () => ((await get(`https://api.ashbyhq.com/posting-api/job-board/${encodeURIComponent(org)}?includeCompensation=true`)).jobs ?? []).map((r: unknown) => mapAshby(r, org)).filter(matchesTitle) });
+    for (const acct of list(s.workable_accounts, s.watch?.workable)) specs.push({ integration: "boards", query: `workable: ${acct}`, fetch: async () => ((await get(`https://apply.workable.com/api/v1/widget/accounts/${encodeURIComponent(acct)}?details=true`)).jobs ?? []).map((r: unknown) => mapWorkable(r, acct)).filter(matchesTitle) });
+    for (const co of list(s.recruitee_companies, s.watch?.recruitee)) specs.push({ integration: "boards", query: `recruitee: ${co}`, fetch: async () => ((await get(`https://${encodeURIComponent(co)}.recruitee.com/api/offers/`)).offers ?? []).map((r: unknown) => mapRecruitee(r, co)).filter(matchesTitle) });
+  }
+
   // whatever a source returns, only jobs inside this search's window go on to be stored
   return specs.map((spec) => {
     const days = windowDays(s, spec);
@@ -269,6 +289,15 @@ export async function testIntegration(id: IntegrationId, creds: IntegrationCreds
         const first = (d.results ?? [])[0];
         if (!first) return { ok: false, message: "MyCareersFuture answered, but the response had no jobs in the form this app expects. Its search may have changed; use Adzuna and JobStreet alerts for Singapore meanwhile." };
         return { ok: true, message: `MyCareersFuture is reachable (${d.total ?? "some"} jobs; the sample "${String(first.title).slice(0, 60)}" was read correctly).` };
+      }
+      case "boards": {
+        const first = s.ashby_orgs?.[0] ? ["ashby", s.ashby_orgs[0]] : s.workable_accounts?.[0] ? ["workable", s.workable_accounts[0]] : s.recruitee_companies?.[0] ? ["recruitee", s.recruitee_companies[0]] : null;
+        if (!first) return { ok: false, message: "No Ashby, Workable or Recruitee companies are listed yet. Add one in Settings > Job discovery." };
+        const [kind, name] = first;
+        const url = kind === "ashby" ? `https://api.ashbyhq.com/posting-api/job-board/${encodeURIComponent(name)}` : kind === "workable" ? `https://apply.workable.com/api/v1/widget/accounts/${encodeURIComponent(name)}` : `https://${encodeURIComponent(name)}.recruitee.com/api/offers/`;
+        const d = await get(url);
+        const n = (d.jobs ?? d.offers ?? []).length;
+        return { ok: true, message: `${kind} board "${name}" is reachable (${n} open job(s)).` };
       }
       case "manual": return { ok: true, message: "Manual entry needs nothing to connect." };
       case "mailbox": {
