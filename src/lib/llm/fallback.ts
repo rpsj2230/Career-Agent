@@ -73,6 +73,10 @@ export const timeoutFor = (m: Pick<ModelRow, "provider">): number | undefined =>
  * used only when every hosted model has failed or run out of quota. When it is not set (Vercel, your laptop without
  * Ollama) the local row is switched off so a dead localhost address is never attempted.
  */
+/** The local model lives on the scheduled runner (it starts Ollama itself); the website cannot reach that address, so a test from the website is meaningless. */
+export const isRunnerOnlyModel = (m: Pick<ModelRow, "provider" | "base_url">, env: Record<string, string | undefined>): boolean =>
+  m.provider === "ollama" && !env.LOCAL_MODEL?.trim() && (!m.base_url || /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:|\/|$)/i.test(m.base_url));
+
 export function withLocalFallback(rows: ModelRow[], env: Record<string, string | undefined>): ModelRow[] {
   const local = env.LOCAL_MODEL?.trim();
   return rows.map((m) => {

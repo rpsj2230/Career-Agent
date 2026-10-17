@@ -2,7 +2,7 @@ import { generateText, Output } from "ai";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db, must } from "@/lib/db";
-import type { ModelRow } from "@/lib/llm/fallback";
+import { isRunnerOnlyModel, type ModelRow } from "@/lib/llm/fallback";
 import { resolveKeys } from "@/lib/llm/keys";
 import { buildModel } from "@/lib/llm/registry";
 
@@ -14,6 +14,9 @@ export async function POST(request: Request) {
   if (!parsed.success) return NextResponse.json({ error: "label required" }, { status: 400 });
   const row = must<ModelRow | null>(await db().from("model_configs").select("*").eq("label", parsed.data.label).maybeSingle(), "find model");
   if (!row) return NextResponse.json({ error: "Unknown model" }, { status: 404 });
+  if (isRunnerOnlyModel(row, process.env)) {
+    return NextResponse.json({ ok: true, note: `${row.label} cannot be tested from the website. It runs on the scheduled GitHub runner, which starts its own copy of Ollama only when the hosted models have all failed. Nothing is wrong; you do not need to set anything up for it.` });
+  }
   const key = (await resolveKeys([row])).get(row.label);
   if (!key && row.api_key_env !== null) return NextResponse.json({ error: `No key yet for ${row.label}. Paste one in Edit.` }, { status: 422 });
 
