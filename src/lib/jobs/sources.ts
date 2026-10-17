@@ -180,7 +180,8 @@ export function buildScanSpecs(
     for (const actor of (s.apify_actors ?? []).filter((a) => a.enabled)) {
       // one run per search; an actor whose input never mentions a title or location is run once
       const uses = JSON.stringify(actor.input);
-      const searches = /\{\{(title|location|country|country_name)\}\}/.test(uses) ? queries : queries.slice(0, 1);
+      const wanted = actor.countries?.length ? queries.filter((q) => actor.countries.includes(q.country)) : queries;
+      const searches = /\{\{(title|location|country|country_lower|country_name)\}\}/.test(uses) ? wanted : wanted.slice(0, 1);
       for (const q of searches) {
         specs.push({ integration: "apify", country: q.country, query: `${actor.portal}: ${label(q)}`, fetch: async () => {
           const left = s.apify_budget ? await s.apify_budget.remaining() : Number.MAX_SAFE_INTEGER;

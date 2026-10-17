@@ -20,6 +20,8 @@ export const ApifyActor = z.object({
   input: z.record(z.string(), z.unknown()).default({}),
   max_items: z.number().int().min(1).max(500).default(50),
   enabled: z.boolean().default(true),
+  /** only run this scraper for these countries (two-letter codes); empty = every country you search */
+  countries: z.array(z.string().trim().toLowerCase().regex(/^[a-z]{2}$/)).max(60).default([]),
 });
 export type ApifyActor = z.infer<typeof ApifyActor>;
 export const ApifySettings = z.object({
@@ -28,7 +30,8 @@ export const ApifySettings = z.object({
   monthly_item_budget: z.number().int().min(0).max(1_000_000).default(2500),
 });
 
-export type TemplateVars = { title: string; location: string; country: string; country_name: string; days: number; max_items: number };
+/** `posted_bucket` and `posted_days` round the number of days up to the choices scrapers usually offer ("24h" / "week" / "month", and 1 / 3 / 7 / 14). */
+export type TemplateVars = { title: string; location: string; country: string; country_lower: string; country_name: string; days: number; max_items: number; posted_bucket: string; posted_days: number };
 
 /** Fill the placeholders anywhere in a JSON input. A value that is exactly one placeholder keeps its type (numbers stay numbers). */
 export function fillTemplate(input: unknown, v: TemplateVars): unknown {
@@ -43,7 +46,11 @@ export function fillTemplate(input: unknown, v: TemplateVars): unknown {
 }
 
 export const templateVars = (q: { title: string; location?: string; country: string }, days: number, maxItems: number): TemplateVars =>
-  ({ title: q.title, location: q.location ?? COUNTRY_NAME_MAP[q.country] ?? q.country.toUpperCase(), country: q.country.toUpperCase(), country_name: COUNTRY_NAME_MAP[q.country] ?? q.country.toUpperCase(), days, max_items: maxItems });
+  ({
+    title: q.title, location: q.location ?? COUNTRY_NAME_MAP[q.country] ?? q.country.toUpperCase(), country: q.country.toUpperCase(), country_lower: q.country.toLowerCase(),
+    country_name: COUNTRY_NAME_MAP[q.country] ?? q.country.toUpperCase(), days, max_items: maxItems,
+    posted_bucket: days <= 1 ? "24h" : days <= 7 ? "week" : "month", posted_days: [1, 3, 7, 14].find((d) => d >= days) ?? 14,
+  });
 
 const iso = (v: unknown): string | undefined => {
   if (v == null || v === "") return undefined;

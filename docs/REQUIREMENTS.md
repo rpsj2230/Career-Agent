@@ -210,3 +210,9 @@ Verified by an end-to-end run with a sloppy model (fenced JSON, invented first d
 
 - The dashboard has an **Apply assistant** card (running / not running, applications waiting) with a **Run assistant now** button. The button leaves a request; the watcher on the computer checks every 30 seconds, answers it immediately regardless of working hours, and records the result. The watcher reports in every 30 seconds, so "running" means it reported within 3 minutes.
 - `scripts/autostart/install.sh` (macOS launchd, Linux systemd user service) and `install.ps1` (Windows Task Scheduler) start the watcher at sign-in, so no command needs typing. See `docs/ASSISTANT_AUTOSTART.md`.
+
+## Recommended Apify scrapers
+
+- The Portals page offers one-click rows for LinkedIn (`harvestapi~linkedin-job-search`), Indeed (`valig~indeed-jobs-scraper`), Naukri (`automation-lab~naukri-scraper`, India only) and SEEK (`datafetch_labs~seek-jobs-scraper`, Australia only). They were chosen from public Apify Store listings (no login or cookies, documented input, recently maintained); they are third-party and can change, so the first scan confirms each.
+- Each scraper row can be limited to chosen countries, so a scraper is only run where it applies and no budget is spent elsewhere.
+- Extra input placeholders: `{{country_lower}}`, `{{posted_bucket}}` ("24h", "week", "month") and `{{posted_days}}` (1, 3, 7 or 14).
