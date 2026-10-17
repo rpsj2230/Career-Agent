@@ -153,3 +153,9 @@ Verified by an end-to-end run with a sloppy model (fenced JSON, invented first d
 - **Applying:** the apply assistant (`npm run assist`, `worker/assist.ts`) runs on the user's own computer with their own signed-in browser profile, fills the form from the prepared package and stops; the user presses Submit. It records fields, files and outcome. It never presses Submit and never bypasses a CAPTCHA or security check.
 - **Employer systems:** aggregator tracker links are resolved (SSRF-safe) to the employer's own page at prepare time; Greenhouse and Lever pages are switched to automatic applying.
 - Fixed in passing: multi-step forms were scanned with stale control tags, so a second step could fail to fill.
+
+## Automation without manual steps
+
+- **Fetching:** hosted scrapers (Apify) read LinkedIn, Naukri, Indeed, SEEK/JobStreet/JobsDB and similar portals on every schedule, on Apify's servers; no portal account is used. Actors and their input templates are configured on the Portals page. Fetching across integrations runs in parallel; storing stays sequential so cross-source duplicates are impossible.
+- **Applying:** Greenhouse/Lever by the cloud worker; other portals by the local assistant in hands-free mode (`npm run assist:watch`), opt-in, limited by the daily/weekly caps, human-paced, unattended-safe (hands back unanswered questions, stops at a CAPTCHA or security check, switches LinkedIn automation off after a checkpoint).
+- **No application is lost:** a worker that dies leaves an application in "submitting"; after 75 minutes it is handed back as needing you, with the reason (`src/lib/apply/reaper.ts`).

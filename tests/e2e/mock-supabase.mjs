@@ -154,7 +154,7 @@ export const externalFixtures = {
   failHosts: new Set(),
 };
 function external(host, path, url, req, res) {
-  seen.external.push({ host, path, key: req.headers["x-rapidapi-key"] ?? null, query: Object.fromEntries(url.searchParams) });
+  seen.external.push({ host, path, key: req.headers["x-rapidapi-key"] ?? null, auth: req.headers.authorization ?? null, query: Object.fromEntries(url.searchParams) });
   if (externalFixtures.failHosts.has(host)) return send(res, 429, { message: "quota" });
   if (host === "api.adzuna.com") return send(res, 200, { count: externalFixtures.adzunaCount, results: externalFixtures.adzunaResults });
   if (host === "remotive.com") return send(res, 200, { "job-count": 1, jobs: [{ id: 7, title: "Remote Product Manager", company_name: "Gamma", url: "https://remotive.com/remote-jobs/7", description: "<p>Fully remote.</p>".repeat(10), candidate_required_location: "Worldwide", publication_date: new Date().toISOString() }] });
@@ -162,6 +162,14 @@ function external(host, path, url, req, res) {
   if (host === "www.arbeitnow.com") return send(res, 200, { data: [{ slug: "pm-berlin-1", title: "Product Manager", company_name: "Berlin GmbH", description: "<p>" + "Own the roadmap. ".repeat(10) + "</p>", location: "Berlin", remote: false, url: "https://www.arbeitnow.com/view/pm-berlin-1", created_at: Math.floor(Date.now() / 1000) - 3600 }, { slug: "plumber", title: "Plumber", company_name: "Pipes AG", description: "<p>x</p>", location: "Berlin", remote: false, url: "https://www.arbeitnow.com/view/plumber", created_at: Math.floor(Date.now() / 1000) }] });
   if (host === "remoteok.com") return send(res, 200, [{ legal: "Remote OK terms" }, { id: "ro1", position: "Product Manager", company: "Remote Co", location: "Worldwide", description: "<p>" + "Fully remote role. ".repeat(10) + "</p>", url: "https://remoteok.com/remote-jobs/ro1", date: new Date().toISOString(), salary_min: 100000, salary_max: 130000 }]);
   if (host === "jobicy.com") return send(res, 200, { jobs: [{ id: 501, url: "https://jobicy.com/jobs/501", jobTitle: "Product Manager", companyName: "Jobi Inc", jobGeo: "Singapore", jobDescription: "<p>" + "Lead product. ".repeat(10) + "</p>", pubDate: new Date().toISOString(), annualSalaryMin: "90000", annualSalaryMax: "110000", salaryCurrency: "SGD" }] });
+  if (host === "api.apify.com") {
+    if (path.startsWith("/v2/users/me")) return send(res, 200, { data: { username: "tester" } });
+    return send(res, 200, [
+      { id: "li-1001", title: "Product Manager", companyName: "Apify Pte Ltd", location: "Singapore", jobUrl: "https://www.linkedin.com/jobs/view/1001", descriptionText: "Own the roadmap and partner with engineering. ".repeat(8), postedAt: new Date().toISOString() },
+      { id: "li-1002", title: "Senior Product Manager", companyName: "Scrape Co", location: "Singapore", jobUrl: "https://www.linkedin.com/jobs/view/1002", applyUrl: "https://boards.greenhouse.io/scrapeco/jobs/55", descriptionText: "Lead payments product. ".repeat(10), postedAt: new Date().toISOString() },
+      { title: "no link", companyName: "Broken" },
+    ]);
+  }
   if (host === "boards-api.greenhouse.io") return send(res, 200, { jobs: [] });
   return send(res, 404, { message: `no fake for ${host}` });
 }

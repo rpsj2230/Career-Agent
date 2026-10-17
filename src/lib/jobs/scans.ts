@@ -16,7 +16,7 @@ export type ScanDeps = {
 export type RunScansResult = { outcomes: ScanOutcome[]; skipped: number; legacy: boolean };
 
 /**
- * Run every scan, one at a time. Each scan is recorded before it starts and finalised whether it succeeds or
+ * Run every scan (fetching in parallel across integrations, storing one at a time). Each scan is recorded before it starts and finalised whether it succeeds or
  * fails, a failure in one never stops the others, and integration status is updated from the results.
  * `budgetMs` stops starting new scans once the time is used up and reports how many were left (`skipped`),
  * so a time-limited caller can tell the user to continue instead of silently dropping work.
@@ -28,12 +28,33 @@ export async function runScans(specs: ScanSpec[], deps: ScanDeps, opts: { budget
   let skipped = 0;
   let legacy = false;
 
+  // Fetching is the slow part (network, and for hosted scrapers minutes), so each integration's requests run in the order given
+  // but different integrations run at the same time. Storing stays strictly one scan after another, in the original order, so
+  // two sources finding the same job can never both insert it.
+  type Fetched = { jobs: NormalizedJob[] } | { error: string } | { skipped: true };
+  const pending = new Map<ScanSpec, Promise<Fetched>>();
+  const groups = new Map<string, ScanSpec[]>();
+  for (const spec of specs) groups.set(spec.integration, [...(groups.get(spec.integration) ?? []), spec]);
+  for (const list of groups.values()) {
+    let chain: Promise<unknown> = Promise.resolve();
+    for (const spec of list) {
+      const p: Promise<Fetched> = chain.then(async () => {
+        if (opts.budgetMs !== undefined && now() - started > opts.budgetMs) return { skipped: true } as const;
+        try { return { jobs: await spec.fetch() }; } catch (e) { return { error: e instanceof Error ? e.message : String(e) }; }
+      });
+      pending.set(spec, p);
+      chain = p;
+    }
+  }
+
   for (const spec of specs) {
-    if (opts.budgetMs !== undefined && now() - started > opts.budgetMs) { skipped++; continue; }
+    const got = await pending.get(spec)!;
+    if ("skipped" in got) { skipped++; continue; }
     const meta = { integration: spec.integration, country: spec.country, query: spec.query };
     const scanId = await deps.startScan(meta);
     try {
-      const jobs = await spec.fetch();
+      if ("error" in got) throw new Error(got.error);
+      const jobs = got.jobs;
       const r = await deps.ingest(jobs, scanId);
       legacy ||= !!r.legacy;
       const counts: ScanCounts = { fetched: jobs.length, inserted: r.inserted, duplicates: r.duplicates, stale: r.stale, invalid: r.invalid };

@@ -95,6 +95,27 @@ It never presses Submit, never solves or bypasses a CAPTCHA or security check (i
 Use your installed Chrome with `ASSIST_CHANNEL=chrome npm run assist`. Portals' terms restrict automation in general; because
 you review and press Submit, and it runs from your own device, the risk is much lower than a server bot, but it is not zero.
 
+### Fully automatic (no commands, no clicking)
+The whole loop can run without you:
+
+1. **Fetching** runs on the GitHub schedule. Portals with an API are read directly. For LinkedIn, Naukri, Indeed, SEEK/JobStreet/JobsDB and
+   others, connect **Hosted scrapers (Apify)** on the Portals page: paste your Apify token, then add one row per scraper from the Apify
+   Store (its id, the portal it reads, and its input with `{{title}}`, `{{location}}`, `{{country}}`, `{{days}}`, `{{max_items}}` where it
+   expects them). They run on every schedule on Apify's servers, so none of your accounts is involved.
+2. **Scoring, tailoring and approval** run in the same schedule (create it with *Approve automatically* if you want no review step;
+   unverified documents are never approved automatically).
+3. **Applying**: Greenhouse and Lever pages are submitted by the cloud worker. Everything else (LinkedIn, Naukri, Indeed, ...) is submitted
+   by the assistant on your computer in **hands-free mode**: switch it on in *Settings > Application limits*, then run once
+   `npm run assist` to sign in to each portal, and start `npm run assist:watch`. It checks every 20 minutes (`ASSIST_POLL_MINUTES`),
+   only inside the hours you choose (`ASSIST_HOURS=9-21`), submits only within your daily limits, pauses 45-120 seconds between
+   applications, hands back anything it cannot answer, and stops at the first CAPTCHA or security check.
+   To start it when you log in: macOS, add a Login Item or a launchd agent that runs `npm run assist:watch` in this folder;
+   Windows, a Task Scheduler task "At log on" running the same command; Linux, a `systemd --user` service. Your computer must be on and
+   awake. Setting `ASSIST_HEADLESS=1` hides the window but some portals detect headless browsers; the default is a visible window.
+
+Hands-free applying is against most portals' terms and can get an account warned or restricted. Keep the limits low, and prefer the
+default mode (you press Submit) on LinkedIn.
+
 ## Development
 
 ```bash

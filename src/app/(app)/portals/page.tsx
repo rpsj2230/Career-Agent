@@ -5,6 +5,8 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ApifyActors } from "@/components/app/apify-actors";
+import { getSetting } from "@/lib/settings";
 import { integrationById } from "@/lib/integrations/catalog";
 import { loadPortalsView } from "@/lib/integrations/view";
 import { portalLabel } from "@/lib/jobs/portal";
@@ -16,7 +18,7 @@ const when = (d: string | null | undefined) => fmtDateTime(d, undefined, "never"
 const APPLY = { automated: "Auto-apply where allowed", assisted: "You submit", none: "n/a" } as const;
 
 export default async function PortalsPage() {
-  const v = await loadPortalsView();
+  const [v, apify] = await Promise.all([loadPortalsView(), getSetting("apify")]);
   const working = v.portals.filter((p) => p.status === "ok").length;
   const feeds = v.integrations.filter((i) => i.def.discovers && i.def.available);
   const feedsOk = feeds.filter((i) => i.status === "ok").length;
@@ -92,9 +94,11 @@ export default async function PortalsPage() {
             <CardContent className="grid gap-3 text-sm">
               <div className="grid gap-3 md:grid-cols-2">
                 <div><div className="mb-1 font-medium">To connect</div><ol className="list-decimal pl-5 text-muted-foreground">{i.def.setup.map((s) => <li key={s}>{s}</li>)}</ol>
-                  {i.def.needsConfig && <p className="mt-1 text-xs"><Link className="underline" href="/settings">Settings &gt; Job discovery</Link> holds the list of {i.def.needsConfig === "greenhouse_boards" ? "boards" : "companies"}.</p>}</div>
+                  {i.def.needsConfig === "apify_actors" && <p className="mt-1 text-xs">Scrapers are set up below.</p>}
+                  {i.def.needsConfig && i.def.needsConfig !== "apify_actors" && <p className="mt-1 text-xs"><Link className="underline" href="/settings">Settings &gt; Job discovery</Link> holds the list of {i.def.needsConfig === "greenhouse_boards" ? "boards" : "companies"}.</p>}</div>
                 <div><div className="mb-1 font-medium">Limits</div><ul className="list-disc pl-5 text-muted-foreground">{i.def.limitations.map((l) => <li key={l}>{l}</li>)}</ul></div>
               </div>
+              {i.def.id === "apify" && <ApifyActors actors={apify.actors} />}
               {i.def.available && i.def.id !== "manual" && (
                 <div className="grid gap-1 rounded-md bg-muted/50 p-3 text-xs">
                   <div>Last scan: {when(i.state?.last_scan_at)} · Last success: {when(i.state?.last_ok_at)} · Jobs found in total: {i.state?.jobs_found_total ?? 0}</div>

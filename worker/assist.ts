@@ -9,6 +9,10 @@
  * press the portal's own Submit button, and the application is recorded. It never presses Submit, never handles a password
  * (you sign in yourself, once; the browser keeps the session in a local profile folder), and when a CAPTCHA or security check
  * appears it waits for you to deal with it.
+ *
+ * Hands-free mode (switch it on in Settings, then run `npm run assist:auto`, or `npm run assist:watch` to keep it running in
+ * the background): it also presses Submit itself, but only within your daily limits, only when every required question was
+ * answered, only after a pause that looks like a person, and it stops at the first CAPTCHA or security check.
  */
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -20,7 +24,8 @@ import { chromium, type BrowserContext, type Page } from "playwright";
 import { confirmationSnippet, type FieldEntry, type SubmissionRecord } from "../src/lib/apply/submission";
 import { MasterProfile } from "../src/lib/types";
 import { finalStepVisible, nextStep, openApplyForm } from "./assist-lib";
-import { fillForm } from "./form";
+import { autoDecision, humanPause, withinHours, type AutoCaps, type AutoState } from "./assist-policy";
+import { clickSubmit, fillForm } from "./form";
 import { CONFIRMATION, detectBlock, type Answer } from "./match";
 
 const need = (k: string) => { const v = process.env[k]; if (!v) throw new Error(`${k} is not set. Put it in .env.local (see the README, "Apply assistant").`); return v; };
@@ -35,6 +40,22 @@ const ask = (q: string, signal?: AbortSignal) => new Promise<string>((resolve) =
   signal?.addEventListener("abort", () => resolve(""), { once: true });
 });
 const say = (s: string) => console.log(s);
+const AUTO = process.env.ASSIST_MODE === "auto";
+const WATCH = process.env.ASSIST_WATCH === "1";
+
+async function loadCaps(sb: SupabaseClient): Promise<AutoCaps> {
+  const { data } = await sb.from("settings").select("value").eq("key", "caps").maybeSingle();
+  return { daily_total: 15, daily_linkedin: 10, weekly_linkedin: 40, linkedin_automation_enabled: false, local_auto_enabled: false, ...((data?.value as object) ?? {}) };
+}
+/** What has already been sent automatically (from this or any other machine), for the limits. */
+async function loadAutoState(sb: SupabaseClient): Promise<AutoState> {
+  const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString();
+  const { data } = await sb.from("applications").select("submitted_at, portal").eq("method", "automated").eq("status", "submitted").gte("submitted_at", weekAgo);
+  const midnight = new Date(); midnight.setUTCHours(0, 0, 0, 0);
+  const rows = (data ?? []) as { submitted_at: string; portal: string | null }[];
+  const today = rows.filter((r) => new Date(r.submitted_at) >= midnight);
+  return { submittedToday: today.length, linkedinToday: today.filter((r) => r.portal === "linkedin").length, linkedinThisWeek: rows.filter((r) => r.portal === "linkedin").length };
+}
 
 async function logAct(sb: SupabaseClient, e: Record<string, unknown>) {
   try { await sb.from("activity_log").insert({ level: "info", detail: {}, ...e }); } catch { /* the log never changes the outcome */ }
@@ -69,10 +90,21 @@ async function blocked(page: Page) {
   return detectBlock(page.url(), body, captcha);
 }
 
-async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRow, i: number, total: number): Promise<"done" | "later" | "skipped" | "quit"> {
+type Outcome = "done" | "later" | "skipped" | "quit" | "stop";
+class Handback extends Error {
+  constructor(message: string, public stopAll = false) { super(message); }
+}
+
+/** One application: open it, fill it, then either wait for you (assist) or press Submit within the limits (hands-free). */
+async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRow, i: number, total: number, auto: { caps: AutoCaps; state: AutoState } | null): Promise<Outcome> {
   const { data: job } = await sb.from("jobs").select("*").eq("id", app.job_id).single();
   if (!job) { say("  (job missing, skipped)"); return "later"; }
   say(`\n[${i}/${total}] ${job.title} at ${job.company}  (${job.portal ?? job.source})\n  ${job.url}`);
+
+  if (auto) {
+    const d = autoDecision(job.portal, auto.caps, auto.state);
+    if (!d.go) { say(`  Left for later: ${d.reason}.`); return "later"; }
+  }
 
   const { data: profileRow } = await sb.from("profile").select("data").eq("id", 1).single();
   const profile = MasterProfile.parse(profileRow?.data ?? {});
@@ -90,11 +122,43 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
   let steps = 0;
   let page = await context.newPage();
   const before = new Set(context.pages());
+  const fileInfo = (role: "resume" | "cover_letter", f: { path: string; storage_path: string }) => ({ role, name: basename(f.path), bytes: statSync(f.path).size, sha256: sha256(f.path), storage_path: f.storage_path });
+  const record = (outcome: SubmissionRecord["outcome"], method: "assisted" | "automated", confirmation: SubmissionRecord["confirmation"], error: string | null, note: string): SubmissionRecord => ({
+    version: 1, method, outcome, started_at: startedAt, finished_at: new Date().toISOString(), target_url: job.url, final_url: page.isClosed() ? null : page.url(),
+    fields: entered, files: [fileInfo("resume", files.resume!), ...(files.cover ? [fileInfo("cover_letter", files.cover)] : [])], unanswered, confirmation, error, steps, note,
+  });
+  const screenshot = async (name: string) => {
+    try { const path = `screenshots/${app.id}/${name}.png`; await sb.storage.from("documents").upload(path, await page.screenshot({ fullPage: true }), { contentType: "image/png", upsert: true }); return path; } catch { return null; }
+  };
+  const submitted = async (method: "assisted" | "automated", confirmed: boolean, note: string) => {
+    const text = await page.innerText("body").catch(() => "");
+    const shot = await screenshot("confirmation");
+    const now = new Date();
+    const rec = record("submitted", method, confirmed || CONFIRMATION.test(text) ? { text: confirmationSnippet(text, CONFIRMATION), screenshot: shot } : null, null, note);
+    const patch = { status: "submitted", method, submitted_at: now.toISOString(), lifecycle: "applied", screenshot_path: shot };
+    const { error } = await sb.from("applications").update({ ...patch, submission: rec }).eq("id", app.id);
+    if (error) await sb.from("applications").update(patch).eq("id", app.id);
+    await sb.from("jobs").update({ status: "applied" }).eq("id", job.id);
+    await sb.from("apply_events").insert({ application_id: app.id, kind: method === "automated" ? "submitted_hands_free" : "submitted_with_assistant", detail: { fields: entered.length } });
+    await logAct(sb, { kind: "application.submitted", message: `${method === "automated" ? "Submitted automatically by the apply assistant" : "Submitted by you with the apply assistant"}: ${job.title} at ${job.company}`, status: "submitted", application_id: app.id, job_id: job.id, company: job.company, country: job.country, portal: job.portal, detail: { method, assistant: true, fields: entered.length } });
+  };
+  /** Unattended and stuck: say exactly why and leave it for you. */
+  const handBack = async (message: string) => {
+    const shot = await screenshot("last-state");
+    const patch = { status: "needs_input", error: message, screenshot_path: shot };
+    const { error } = await sb.from("applications").update({ ...patch, submission: record("needs_input", "automated", null, message, "The apply assistant stopped and handed this back to you.") }).eq("id", app.id);
+    if (error) await sb.from("applications").update(patch).eq("id", app.id);
+    await sb.from("apply_events").insert({ application_id: app.id, kind: "needs_input", detail: { message } });
+    await logAct(sb, { kind: "application.needs_input", level: "warn", message: `Needs you: ${message}`, status: "needs_input", application_id: app.id, job_id: job.id, company: job.company, country: job.country, portal: job.portal, detail: { assistant: true, message } });
+    say(`  Handed back to you: ${message}`);
+  };
+
   try {
     await page.goto(job.url, { waitUntil: "domcontentloaded", timeout: 45_000 });
     for (let attempt = 0; attempt < 3; attempt++) {
       const b = await blocked(page);
       if (!b) break;
+      if (auto) throw new Handback(b === "login" ? "The portal asked for a sign-in: open the assistant once without hands-free mode and sign in" : b === "captcha" ? "The page shows a CAPTCHA; please do this one yourself" : "The portal shows a security check; automatic applying was stopped for safety", b === "checkpoint");
       await waitForHuman(page, b === "login" ? "This portal wants you to sign in." : b === "captcha" ? "There is a CAPTCHA." : "The portal shows a security check.");
     }
     const opened = await openApplyForm(page);
@@ -102,7 +166,7 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
     if (fresh.length) page = fresh[fresh.length - 1]; // the apply button opened a new tab
     await page.waitForLoadState("domcontentloaded").catch(() => undefined);
     await sleep(1200);
-    if (opened === "none") say("  No apply button found on this page. The form may be on the employer's site: use the open window.");
+    if (opened === "none" && !auto) say("  No apply button found on this page. The form may be on the employer's site: use the open window.");
 
     for (let step = 0; step < 8; step++) {
       const r = await fillForm(page, fctx);
@@ -113,14 +177,39 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
       await sleep(900);
     }
   } catch (e) {
+    if (e instanceof Handback) { await handBack(e.message); await page.close().catch(() => undefined); return e.stopAll ? "stop" : "later"; }
+    if (auto) { await handBack(`Could not prepare the page automatically (${e instanceof Error ? e.message.split("\n")[0] : e})`); await page.close().catch(() => undefined); return "later"; }
     say(`  Could not finish preparing this page automatically (${e instanceof Error ? e.message.split("\n")[0] : e}). The window is open: you can still complete it by hand.`);
   }
 
   say(`  Filled ${entered.length} field(s) from your package.`);
   if (unanswered.length) say(`  Needs you: ${unanswered.join("; ")}`);
-  say("  Review the form in the browser window, then press the portal's own Submit button yourself.");
 
-  // Wait for you. The page's confirmation message also counts, so you need only press Submit.
+  // ---- hands-free: press Submit only when everything required was answered, then check the portal confirmed it
+  if (auto) {
+    let problem: string | null = null;
+    if (unanswered.length) problem = `Needs you: ${unanswered.join("; ")}`;
+    else if (entered.length === 0) problem = "No application form was found on this page (it may need a sign-in, or the role may be closed); apply on the employer's site";
+    else if (!(await finalStepVisible(page))) problem = "Could not reach the final step of the form";
+    if (problem) { await handBack(problem); await page.close().catch(() => undefined); return "later"; }
+    const baseline = CONFIRMATION.test(await page.innerText("body").catch(() => ""));
+    if (!(await clickSubmit(page))) { await handBack("Could not find the submit button"); await page.close().catch(() => undefined); return "later"; }
+    const ok = await page.waitForFunction(({ src, needFormGone }) => {
+      if (!new RegExp(src, "i").test(document.body.innerText)) return false;
+      if (!needFormGone) return true;
+      return ![...document.querySelectorAll("form input:not([type=hidden]), form textarea, form select")].some((el) => (el as HTMLElement).offsetParent !== null);
+    }, { src: CONFIRMATION.source, needFormGone: baseline }, { timeout: 25_000 }).then(() => true, () => false);
+    if (!ok) { await handBack("Pressed submit, but no confirmation message was detected; check your email or the portal before retrying"); await page.close().catch(() => undefined); return "later"; }
+    await submitted("automated", true, "Submitted automatically by the apply assistant running on your computer, within your daily limits.");
+    auto.state.submittedToday++;
+    if (job.portal === "linkedin") { auto.state.linkedinToday++; auto.state.linkedinThisWeek++; }
+    say("  Submitted and confirmed by the portal.");
+    await page.close().catch(() => undefined);
+    return "done";
+  }
+
+  // ---- assist: wait for you. The page's confirmation message also counts, so you need only press Submit.
+  say("  Review the form in the browser window, then press the portal's own Submit button yourself.");
   const confirmed = new Promise<"detected">((resolve) => {
     const poll = async () => {
       for (;;) {
@@ -140,28 +229,9 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
   const choice = answer === "detected" ? "s" : answer;
   if (answer === "detected") say("  Confirmation detected: recorded as submitted.");
 
-  let outcome: "done" | "later" | "skipped" | "quit" = "later";
+  let outcome: Outcome = "later";
   if (choice === "s") {
-    const text = await page.innerText("body").catch(() => "");
-    let shot: string | null = null;
-    try {
-      shot = `screenshots/${app.id}/confirmation.png`;
-      await sb.storage.from("documents").upload(shot, await page.screenshot({ fullPage: true }), { contentType: "image/png", upsert: true });
-    } catch { shot = null; }
-    const now = new Date();
-    const fileInfo = (role: "resume" | "cover_letter", f: { path: string; storage_path: string }) => ({ role, name: basename(f.path), bytes: statSync(f.path).size, sha256: sha256(f.path), storage_path: f.storage_path });
-    const record: SubmissionRecord = {
-      version: 1, method: "assisted", outcome: "submitted", started_at: startedAt, finished_at: now.toISOString(), target_url: job.url, final_url: page.isClosed() ? null : page.url(),
-      fields: entered, files: [fileInfo("resume", files.resume), ...(files.cover ? [fileInfo("cover_letter", files.cover)] : [])], unanswered,
-      confirmation: CONFIRMATION.test(text) ? { text: confirmationSnippet(text, CONFIRMATION), screenshot: shot } : null, error: null, steps,
-      note: "Prepared by the apply assistant on your computer: it filled the form and you reviewed it and pressed Submit yourself.",
-    };
-    const patch = { status: "submitted", method: "assisted", submitted_at: now.toISOString(), lifecycle: "applied", screenshot_path: shot };
-    const { error } = await sb.from("applications").update({ ...patch, submission: record }).eq("id", app.id);
-    if (error) await sb.from("applications").update(patch).eq("id", app.id);
-    await sb.from("jobs").update({ status: "applied" }).eq("id", job.id);
-    await sb.from("apply_events").insert({ application_id: app.id, kind: "submitted_with_assistant", detail: { fields: entered.length } });
-    await logAct(sb, { kind: "application.submitted", message: `Submitted by you with the apply assistant: ${job.title} at ${job.company}`, status: "submitted", application_id: app.id, job_id: job.id, company: job.company, country: job.country, portal: job.portal, detail: { method: "assisted", assistant: true, fields: entered.length } });
+    await submitted("assisted", false, "Prepared by the apply assistant on your computer: it filled the form and you reviewed it and pressed Submit yourself.");
     say("  Recorded as submitted.");
     outcome = "done";
   } else if (choice === "k") {
@@ -173,8 +243,8 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
   return outcome;
 }
 
-async function main() {
-  const sb = createClient(need("SUPABASE_URL"), need("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false } });
+/** One pass over everything waiting. Returns how many were recorded as submitted. */
+async function batch(sb: SupabaseClient): Promise<number> {
   const limit = Math.max(1, Math.min(50, Number(process.env.ASSIST_LIMIT ?? 10) || 10));
   const only = process.env.APPLICATION_ID?.trim();
   let q = sb.from("applications").select("id, job_id, resume_doc_id, cover_doc_id, answers").eq("status", "assisted_pending").order("approved_at", { ascending: true }).limit(limit);
@@ -182,8 +252,15 @@ async function main() {
   const { data, error } = await q;
   if (error) throw error;
   const apps = (data ?? []) as AppRow[];
-  if (!apps.length) { say("Nothing is waiting. Approve applications in the dashboard first (they appear here as \"assisted\")."); rl.close(); return; }
-  say(`${apps.length} application(s) are waiting. A browser window will open; sign in to each portal there the first time (your session is kept in a local profile).`);
+  if (!apps.length) { say(WATCH ? `${new Date().toLocaleTimeString()}  Nothing is waiting.` : "Nothing is waiting. Approve applications in the dashboard first (they appear here as \"assisted\")."); return 0; }
+
+  let auto: { caps: AutoCaps; state: AutoState } | null = null;
+  if (AUTO) {
+    const caps = await loadCaps(sb);
+    if (!caps.local_auto_enabled) { say("Hands-free mode is switched off. Turn it on in Settings > Application limits, or run `npm run assist` to press Submit yourself."); return 0; }
+    auto = { caps, state: await loadAutoState(sb) };
+  }
+  say(`${apps.length} application(s) are waiting.${auto ? " Hands-free mode is on." : " A browser window will open; sign in to each portal there the first time (your session is kept in a local profile)."}`);
 
   const profileDir = process.env.ASSIST_PROFILE_DIR || join(homedir(), ".career-agent", "browser");
   mkdirSync(profileDir, { recursive: true });
@@ -195,15 +272,39 @@ async function main() {
   let done = 0;
   try {
     for (const [i, app] of apps.entries()) {
-      if (i > 0) await sleep(Number(process.env.ASSIST_PAUSE_MS ?? 4000 + Math.random() * 6000));
-      const r = await assistOne(sb, context, app, i + 1, apps.length);
+      if (i > 0) await sleep(auto ? Number(process.env.ASSIST_AUTO_PAUSE_MS ?? humanPause()) : Number(process.env.ASSIST_PAUSE_MS ?? 4000 + Math.random() * 6000));
+      const r = await assistOne(sb, context, app, i + 1, apps.length, auto);
       if (r === "done") done++;
       if (r === "quit") break;
+      if (r === "stop") {
+        // a security check: hands-free LinkedIn is switched off until you turn it back on
+        await sb.from("settings").upsert({ key: "caps", value: { ...(await loadCaps(sb)), linkedin_automation_enabled: false }, updated_at: new Date().toISOString() });
+        say("  A portal showed a security check. Automatic LinkedIn applying has been switched off; the rest of this run was cancelled.");
+        break;
+      }
     }
   } finally {
     await context.close().catch(() => undefined);
-    rl.close();
   }
+  return done;
+}
+
+async function main() {
+  const sb = createClient(need("SUPABASE_URL"), need("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false } });
+  if (WATCH) {
+    if (!AUTO) throw new Error("Watch mode needs hands-free mode: use `npm run assist:watch` (and switch hands-free on in Settings).");
+    const pollMs = Math.max(1, Number(process.env.ASSIST_POLL_MINUTES ?? 20)) * 60_000;
+    say(`Watching for approved applications every ${pollMs / 60_000} minute(s)${process.env.ASSIST_HOURS ? `, working hours ${process.env.ASSIST_HOURS}` : ""}. Press Ctrl+C to stop.`);
+    for (;;) {
+      if (withinHours(new Date(), process.env.ASSIST_HOURS)) {
+        try { const n = await batch(sb); if (n) say(`${new Date().toLocaleTimeString()}  ${n} application(s) submitted this round.`); }
+        catch (e) { console.error(`round failed (will try again): ${e instanceof Error ? e.message : e}`); }
+      }
+      await sleep(pollMs);
+    }
+  }
+  const done = await batch(sb);
+  rl.close();
   say(`\nFinished. ${done} application(s) recorded as submitted.`);
 }
 

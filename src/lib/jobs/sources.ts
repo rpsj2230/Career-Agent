@@ -1,5 +1,6 @@
 import { ADZUNA_COUNTRIES, explainHttpFailure, type IntegrationId } from "@/lib/integrations/catalog";
 import { countryQueries, type EffectiveCountry } from "@/lib/country-config";
+import { ApifyActor, mapApifyItem, runActor, templateVars, type ApifyFetch } from "./apify";
 import { imapSource, scanMailbox, type MailboxConfig, type MailSource } from "./mailbox";
 import { mapAdzuna, mapArbeitnow, mapGreenhouse, mapJobicy, mapJSearch, mapLever, mapRemoteOk, mapRemotive } from "./map";
 import type { NormalizedJob } from "./normalize";
@@ -12,6 +13,8 @@ export type DiscoverySettings = {
   max_age_days: number;
   /** When present, each country is searched with its own titles, locations and remote preference. */
   perCountry?: EffectiveCountry[];
+  /** hosted scrapers to run (Settings: Portals > Hosted scrapers) */
+  apify_actors?: ApifyActor[];
 };
 
 type Query = { country: string; title: string; location?: string; remote: EffectiveCountry["remote"] };
@@ -25,11 +28,12 @@ export function searchQueries(s: DiscoverySettings): Query[] {
 export type IntegrationCreds = {
   adzuna?: { app_id: string; app_key: string };
   jsearch?: { rapidapi_key: string };
+  apify?: { token: string };
   mailbox?: MailboxConfig;
 };
 
 /** Replaceable pieces, so scans can be tested without the network. */
-export type ScanDeps = { fetchImpl?: FetchLike; mailSource?: (cfg: MailboxConfig) => MailSource };
+export type ScanDeps = { fetchImpl?: FetchLike; mailSource?: (cfg: MailboxConfig) => MailSource; apifyFetch?: ApifyFetch };
 
 /** One recorded unit of work: a single integration, country and query. */
 export type ScanSpec = { integration: IntegrationId; country?: string; query?: string; fetch: () => Promise<NormalizedJob[]> };
@@ -69,7 +73,7 @@ export function buildScanSpecs(
   s: DiscoverySettings,
   creds: IntegrationCreds,
   enabled: (id: IntegrationId) => boolean,
-  opts: { only?: IntegrationId; fetchImpl?: FetchLike; mailSource?: (cfg: MailboxConfig) => MailSource } = {},
+  opts: { only?: IntegrationId; fetchImpl?: FetchLike; mailSource?: (cfg: MailboxConfig) => MailSource; apifyFetch?: ApifyFetch } = {},
 ): ScanSpec[] {
   const get = jsonFetcher(opts.fetchImpl);
   const want = (id: IntegrationId) => enabled(id) && (!opts.only || opts.only === id);
@@ -131,6 +135,21 @@ export function buildScanSpecs(
     specs.push({ integration: "jobicy", query: "remote feed", fetch: async () => ((await get("https://jobicy.com/api/v2/remote-jobs?count=50")).jobs ?? []).map(mapJobicy).filter(matchesTitle) });
   }
 
+  if (want("apify") && creds.apify) {
+    const { token } = creds.apify;
+    for (const actor of (s.apify_actors ?? []).filter((a) => a.enabled)) {
+      // one run per search; an actor whose input never mentions a title or location is run once
+      const uses = JSON.stringify(actor.input);
+      const searches = /\{\{(title|location|country|country_name)\}\}/.test(uses) ? queries : queries.slice(0, 1);
+      for (const q of searches) {
+        specs.push({ integration: "apify", country: q.country, query: `${actor.portal}: ${label(q)}`, fetch: async () => {
+          const items = await runActor(token, actor, templateVars(q, s.max_age_days, actor.max_items), opts.apifyFetch);
+          return items.map((i) => mapApifyItem(i, actor, q.country)).filter((j): j is NormalizedJob => j !== null);
+        } });
+      }
+    }
+  }
+
   if (want("mailbox") && creds.mailbox) {
     const cfg = creds.mailbox;
     specs.push({ integration: "mailbox", query: `${cfg.folder || "INBOX"} (alert emails)`, fetch: async () => (await scanMailbox((opts.mailSource ?? imapSource)(cfg), { sinceDays: Math.min(s.max_age_days, 30) })).jobs });
@@ -156,7 +175,7 @@ export function buildScanSpecs(
 }
 
 /** A minimal real request per integration, so "Test" proves the credentials and the endpoint work. */
-export async function testIntegration(id: IntegrationId, creds: IntegrationCreds, s: DiscoverySettings, fetchImpl?: FetchLike, deps: Pick<ScanDeps, "mailSource"> = {}): Promise<{ ok: boolean; message: string }> {
+export async function testIntegration(id: IntegrationId, creds: IntegrationCreds, s: DiscoverySettings, fetchImpl?: FetchLike, deps: Pick<ScanDeps, "mailSource" | "apifyFetch"> = {}): Promise<{ ok: boolean; message: string }> {
   const get = jsonFetcher(fetchImpl);
   try {
     switch (id) {
@@ -198,6 +217,14 @@ export async function testIntegration(id: IntegrationId, creds: IntegrationCreds
       case "jobicy": {
         const d = await get("https://jobicy.com/api/v2/remote-jobs?count=5");
         return { ok: true, message: `Jobicy is reachable (${(d.jobs ?? []).length} jobs in the test response).` };
+      }
+      case "apify": {
+        if (!creds.apify) return { ok: false, message: "Enter your Apify API token first." };
+        const r = await (deps.apifyFetch ?? (fetch as unknown as ApifyFetch))("https://api.apify.com/v2/users/me", { method: "GET", headers: { Authorization: `Bearer ${creds.apify.token}` }, signal: AbortSignal.timeout(15_000) });
+        if (r.status === 401 || r.status === 403) return { ok: false, message: "Apify rejected the token. Copy it again from Apify > Settings > Integrations." };
+        if (!r.ok) return { ok: false, message: `Apify returned HTTP ${r.status}.` };
+        const n = (s.apify_actors ?? []).filter((a) => a.enabled).length;
+        return { ok: true, message: n ? `Apify accepted the token. ${n} scraper(s) are set up and will run on each scan.` : "Apify accepted the token, but no scrapers are set up yet. Add one under Scrapers below." };
       }
       case "manual": return { ok: true, message: "Manual entry needs nothing to connect." };
       case "mailbox": {
