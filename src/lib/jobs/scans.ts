@@ -47,8 +47,21 @@ export async function runScans(specs: ScanSpec[], deps: ScanDeps, opts: { budget
     }
   }
 
+  // The wait for a fetch is capped by what is left of the budget, so a slow source (a hosted scraper can take minutes) can never
+  // push a web request past the host's limit. Whatever arrives later is simply not stored this time and is found by the next scan.
+  const TIMED_OUT = Symbol("timed out");
+  const within = async (p: Promise<Fetched>): Promise<Fetched | typeof TIMED_OUT> => {
+    if (opts.budgetMs === undefined) return p;
+    const msLeft = Math.max(0, opts.budgetMs - (now() - started));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const limit = new Promise<typeof TIMED_OUT>((res) => { timer = setTimeout(() => res(TIMED_OUT), msLeft); });
+    try { return await Promise.race([p, limit]); } finally { clearTimeout(timer); }
+  };
+
   for (const spec of specs) {
-    const got = await pending.get(spec)!;
+    const waited = await within(pending.get(spec)!);
+    if (waited === TIMED_OUT) { skipped++; continue; }
+    const got = waited;
     if ("skipped" in got) { skipped++; continue; }
     const meta = { integration: spec.integration, country: spec.country, query: spec.query };
     const scanId = await deps.startScan(meta);
