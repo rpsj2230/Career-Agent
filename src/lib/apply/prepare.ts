@@ -5,6 +5,10 @@ import { db, must } from "@/lib/db";
 import { withLegacyFallback } from "@/lib/schema";
 import { runStructured } from "@/lib/llm/registry";
 import { getProfile } from "@/lib/profile/store";
+import { countryAnswers, type CountryPref } from "@/lib/country-prefs";
+import { listCountryPrefs } from "@/lib/country-prefs-store";
+import { styleFor } from "@/lib/tailor/template";
+import { getSetting } from "@/lib/settings";
 import { renderCoverLetterDocx, renderResumeDocx } from "@/lib/tailor/docx";
 import { loadLibrary } from "@/lib/tailor/memory-store";
 import { DEFAULT_THRESHOLDS, type Library } from "@/lib/tailor/memory";
@@ -44,15 +48,17 @@ export async function prepareApplication(jobId: string, runId: string | null = n
   const profile = await getProfile();
   if (profile.experience.length === 0) throw new Error("Profile is empty: import and confirm your resume first");
   const bank = must<{ question: string; answer: string }[]>(await db().from("answer_bank").select("question,answer"), "load answer bank");
+  const countryPref = job.country ? (await listCountryPrefs().catch(() => ({ rows: [] as CountryPref[] }))).rows.find((c) => c.country === job.country!.toLowerCase()) : undefined;
   const run = runStructured as unknown as Runner;
+  const style = styleFor(job.country, (await getSetting("resume_templates").catch(() => ({}))) as Record<string, string>);
 
   // memory: reuse or adapt a resume made for a similar job before spending tokens on a fresh one
   const library: Library = await loadLibrary(jobId).catch(() => ({ past: [], enabled: false }));
-  const resume = await tailorResumeSmart(profile, job, run, library);
+  const resume = await tailorResumeSmart(profile, { ...job, style }, run, library);
   const prov = resume.provenance;
   // a cover letter is about one company: it is only carried over when the old job was near-identical
   const carryFrom = prov.mode === "reused" && prov.from && prov.from.similarity >= (library.thresholds?.reuse ?? DEFAULT_THRESHOLDS.reuse) ? library.past.find((p) => p.jobId === prov.from!.jobId) : undefined;
-  const cover = await writeCoverLetterSmart(profile, job, run, carryFrom?.cover ? { text: carryFrom.cover.text, sourceIds: carryFrom.cover.sourceIds, fromCompany: carryFrom.company, fromTitle: carryFrom.title } : null);
+  const cover = await writeCoverLetterSmart(profile, { ...job, style }, run, carryFrom?.cover ? { text: carryFrom.cover.text, sourceIds: carryFrom.cover.sourceIds, fromCompany: carryFrom.company, fromTitle: carryFrom.title } : null);
 
   // Two requests can prepare the same job at once (a double click, or the pipeline and a button). The database allows one
   // application per job; the loser finds the winner's application and returns it instead of failing.
@@ -64,11 +70,11 @@ export async function prepareApplication(jobId: string, runId: string | null = n
     cv = await nextVersion(jobId, "cover_letter");
     resumePath = `${jobId}/resume-v${rv}.docx`;
     coverPath = `${jobId}/cover-letter-v${cv}.docx`;
-    await upload(resumePath, await renderResumeDocx(profile, resume.content));
-    await upload(coverPath, await renderCoverLetterDocx(profile, cover.content, job.company));
+    await upload(resumePath, await renderResumeDocx(profile, resume.content, style));
+    await upload(coverPath, await renderCoverLetterDocx(profile, cover.content, job.company, style));
 
     const resumeDoc = must<{ id: string }>(
-      await db().from("documents").insert({ job_id: jobId, kind: "resume", version: rv, content: resume.content, diff: resume.diff, verification: { ...resume.verification, reuse: prov }, storage_path: resumePath, model: resume.model }).select("id").single(),
+      await db().from("documents").insert({ job_id: jobId, kind: "resume", version: rv, content: resume.content, diff: resume.diff, verification: { ...resume.verification, reuse: prov, style: style.id }, storage_path: resumePath, model: resume.model }).select("id").single(),
       "save resume doc",
     );
     const coverDoc = must<{ id: string }>(
@@ -78,7 +84,7 @@ export async function prepareApplication(jobId: string, runId: string | null = n
     const scoreRow = must<{ score: number; model: string | null; detail: { summary?: string; matchedSkills?: string[]; gaps?: string[] } } | null>(
       await db().from("job_scores").select("score,model,detail").eq("job_id", jobId).maybeSingle(), "load score",
     );
-    appRow = { job_id: jobId, resume_doc_id: resumeDoc.id, cover_doc_id: coverDoc.id, answers: buildAnswers(bank, profile.preferences, profile), status: "prepared" };
+    appRow = { job_id: jobId, resume_doc_id: resumeDoc.id, cover_doc_id: coverDoc.id, answers: buildAnswers(bank, profile.preferences, profile, countryAnswers(countryPref)), status: "prepared" };
     app = must<{ id: string }>(
       await withLegacyFallback(
         () => db().from("applications").insert({

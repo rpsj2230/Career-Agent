@@ -1,3 +1,4 @@
+import { COUNTRY_NAME_MAP } from "@/lib/countries";
 /** Query-string filters for the Jobs and Applications lists. Everything is validated; unknown values are dropped. */
 
 export const JOB_VIEWS = {
@@ -57,7 +58,7 @@ export const COUNTRY_NAMES: Record<string, string> = {
   in: "India", sg: "Singapore", ae: "UAE", gb: "United Kingdom", us: "United States", au: "Australia", ca: "Canada", de: "Germany", nl: "Netherlands",
   ie: "Ireland", fr: "France", es: "Spain", it: "Italy", nz: "New Zealand", za: "South Africa", pl: "Poland", br: "Brazil", mx: "Mexico", ch: "Switzerland", at: "Austria", be: "Belgium",
 };
-export const countryLabel = (c: string | null | undefined) => (c ? COUNTRY_NAMES[c.toLowerCase()] ?? c.toUpperCase() : "Unknown");
+export const countryLabel = (c: string | null | undefined) => (c ? COUNTRY_NAMES[c.toLowerCase()] ?? COUNTRY_NAME_MAP[c.toLowerCase()] ?? c.toUpperCase() : "Unknown");
 
 /** A single optional two-letter country from the query string; anything else is ignored. */
 export function parseCountry(sp: SP): string | undefined {

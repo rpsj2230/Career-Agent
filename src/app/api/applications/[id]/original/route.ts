@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db, must } from "@/lib/db";
 import { renderResumeDocx } from "@/lib/tailor/docx";
+import { STYLES } from "@/lib/tailor/template";
 import { masterAsTailored } from "@/lib/tailor/sections";
 import { MasterProfile } from "@/lib/types";
 
@@ -15,6 +16,6 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const parsed = MasterProfile.safeParse(row.profile_snapshot?.profile);
   if (!parsed.success) return NextResponse.json({ error: "The original resume was not captured for this application (it was prepared before snapshots existed)." }, { status: 404 });
-  const buf = await renderResumeDocx(parsed.data, masterAsTailored(parsed.data));
+  const buf = await renderResumeDocx(parsed.data, masterAsTailored(parsed.data), { ...STYLES[0], maxBullets: 99 });
   return new NextResponse(new Uint8Array(buf), { headers: { "Content-Type": DOCX, "Content-Disposition": `attachment; filename="original-resume.docx"`, "Cache-Control": "private, no-store" } });
 }

@@ -5,4 +5,10 @@ export const DEFAULT_MODELS: Omit<ModelRow, "id">[] = [
   { label: "gemini-flash", provider: "google", base_url: "https://generativelanguage.googleapis.com/v1beta/openai", model: "gemini-flash-latest", api_key_env: "GEMINI_API_KEY", tasks: ["score", "tailor", "extract"], priority: 10, daily_cap: 200, enabled: true },
   { label: "gemini-flash-lite", provider: "google", base_url: "https://generativelanguage.googleapis.com/v1beta/openai", model: "gemini-flash-lite-latest", api_key_env: "GEMINI_API_KEY", tasks: ["score", "tailor", "extract"], priority: 12, daily_cap: 300, enabled: true },
   { label: "groq-llama", provider: "groq", base_url: "https://api.groq.com/openai/v1", model: "llama-3.3-70b-versatile", api_key_env: "GROQ_API_KEY", tasks: ["score", "tailor", "extract"], priority: 20, daily_cap: 500, enabled: true },
+  // Added after a 2026 review of free tiers. A row without a key is skipped automatically; use the Test button on the Models page
+  // to confirm each id works for you (provider limits and model names change often).
+  { label: "groq-gpt-oss", provider: "groq", base_url: "https://api.groq.com/openai/v1", model: "openai/gpt-oss-120b", api_key_env: "GROQ_API_KEY", tasks: ["score", "tailor", "extract"], priority: 18, daily_cap: 400, enabled: true },
+  { label: "nvidia-llama", provider: "nvidia", base_url: "https://integrate.api.nvidia.com/v1", model: "meta/llama-3.3-70b-instruct", api_key_env: "NVIDIA_API_KEY", tasks: ["score", "tailor", "extract"], priority: 35, daily_cap: 500, enabled: true },
+  { label: "openrouter-free", provider: "openrouter", base_url: "https://openrouter.ai/api/v1", model: "meta-llama/llama-3.3-70b-instruct:free", api_key_env: "OPENROUTER_API_KEY", tasks: ["score", "tailor", "extract"], priority: 40, daily_cap: 45, enabled: true },
+  { label: "mistral-small", provider: "mistral", base_url: "https://api.mistral.ai/v1", model: "mistral-small-latest", api_key_env: "MISTRAL_API_KEY", tasks: ["score", "tailor", "extract"], priority: 50, daily_cap: 200, enabled: true },
 ];

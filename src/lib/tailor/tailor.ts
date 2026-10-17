@@ -4,12 +4,13 @@ import { CoverLetter, ResumePatchSchema, TailoredResume, type MasterProfile, typ
 import { vocabulary } from "@/lib/docs/verify";
 import { applyPatch, baseResumeBlock, carryCoverLetter, decideReuse, estimateTokens, DEFAULT_THRESHOLDS, type Library, type Provenance } from "./memory";
 import { tokenize } from "./similarity";
+import { styleFor, styleInstruction, type ResumeStyle } from "./template";
 
 export type Runner = <S extends z.ZodType>(o: {
   task: Task; schema: S; system: string; prompt: string; jobId?: string;
 }) => Promise<{ output: z.infer<S>; model: string }>;
 
-export type JobText = { id?: string; title: string; company: string; description: string };
+export type JobText = { id?: string; title: string; company: string; description: string; /** country style for wording (spelling, bullets per role) */ style?: ResumeStyle };
 
 const RULES = `HARD RULES (a deterministic checker rejects violations):
 1. Use ONLY facts from the CANDIDATE FACTS list. Every sentence you write must cite the ids of the facts it is based on in "sourceIds".
@@ -29,7 +30,7 @@ export function factsBlock(p: MasterProfile): string {
   return lines.join("\n");
 }
 
-const jobBlock = (j: JobText) => `JOB\nTitle: ${j.title}\nCompany: ${j.company}\nDescription:\n${j.description.slice(0, 6000)}`;
+const jobBlock = (j: JobText) => `JOB\nTitle: ${j.title}\nCompany: ${j.company}\nDescription:\n${j.description.slice(0, 6000)}${j.style ? `\n\nWRITING STYLE: ${styleInstruction(j.style)}` : ""}`;
 const feedback = (r: VerifyResult) => `\n\nYOUR PREVIOUS ATTEMPT WAS REJECTED. Fix every problem and return the full corrected output:\n${r.issues.map((i) => `- ${i.where}: ${i.problem}`).join("\n")}`;
 
 export type TailorOutcome<T> = { content: T; verification: VerifyResult & { attempts: number }; model: string };
@@ -93,7 +94,8 @@ export async function tailorResumeSmart(p: MasterProfile, job: JobText & { descr
   const from = { jobId: d.from.past.jobId, title: d.from.past.title, company: d.from.past.company, similarity: Math.round(d.from.similarity * 100) / 100 };
   const allow = [job.company, job.title];
 
-  if (d.mode === "reuse") {
+  const sameSpelling = !job.style || styleFor(d.from.past.country).spelling === job.style.spelling;
+  if (d.mode === "reuse" && sameSpelling) {
     const content = structuredClone(d.from.past.content);
     const v = verifyTailored(p, content, allow);
     if (v.ok) return { content, model: "memory", verification: { ...v, attempts: 0 }, diff: buildDiff(p, content), provenance: { mode: "reused", from, modelCalls: 0, tokensSavedEstimate: freshTokens } };

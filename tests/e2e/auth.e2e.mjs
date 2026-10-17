@@ -425,6 +425,7 @@ r = await call(`/api/schedules/${askId}`, { method: "DELETE" });
   check("a near-identical job is prepared from a past verified resume", r.status === 200 && r.json?.verified === true, `${r.status} ${r.text}`);
   const rdoc = mock.rowsOf("documents").find((d) => d.job_id === rj.id && d.kind === "resume");
   check("...with no model call for the resume and the reuse recorded", tailorCalls() === t0 && rdoc?.verification?.reuse?.mode === "reused" && rdoc.verification.reuse.modelCalls === 0 && rdoc.verification.reuse.tokensSavedEstimate > 0, JSON.stringify(rdoc?.verification?.reuse));
+  check("the resume records the country style it was built with (Singapore: standard A4)", rdoc?.verification?.style === "standard", JSON.stringify(rdoc?.verification?.style));
   const rapp = mock.rowsOf("applications").find((a) => a.job_id === rj.id);
   r = await call(`/applications/${rapp.id}`);
   check("the application page says it was reused, from which job and how much was saved", /Reused from/.test(r.text) && r.text.includes("tokens saved"), "badge missing");

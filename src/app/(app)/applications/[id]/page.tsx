@@ -12,6 +12,7 @@ import { db, must } from "@/lib/db";
 import { countryLabel } from "@/lib/filters";
 import { portalLabel } from "@/lib/jobs/portal";
 import { getProfile } from "@/lib/profile/store";
+import { styleById } from "@/lib/tailor/template";
 import { masterAsTailored, resumeView } from "@/lib/tailor/sections";
 import { fmtDate, fmtDateTime } from "@/lib/time";
 import { CoverLetter, MasterProfile, TailoredResume } from "@/lib/types";
@@ -19,7 +20,7 @@ import { CoverLetter, MasterProfile, TailoredResume } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-type Doc = { id: string; kind: string; version: number; content: any; diff: DiffRow[] | null; verification: { ok: boolean; issues: { where: string; problem: string }[]; reuse?: { mode: string; from?: { title: string; company: string; similarity: number } | null; modelCalls: number; tokensSavedEstimate: number } } | null; storage_path: string | null; model: string | null; created_at: string };
+type Doc = { id: string; kind: string; version: number; content: any; diff: DiffRow[] | null; verification: { ok: boolean; issues: { where: string; problem: string }[]; style?: string; reuse?: { mode: string; from?: { title: string; company: string; similarity: number } | null; modelCalls: number; tokensSavedEstimate: number } } | null; storage_path: string | null; model: string | null; created_at: string };
 
 const Row = ({ k, children }: { k: string; children: React.ReactNode }) => (
   <TableRow><TableCell className="w-48 align-top text-muted-foreground">{k}</TableCell><TableCell className="whitespace-normal break-words">{children}</TableCell></TableRow>
@@ -46,7 +47,8 @@ export default async function ApplicationPage({ params }: { params: Promise<{ id
   const usingLiveProfile = !snapProfile.success;
   const tailoredParsed = resume ? TailoredResume.safeParse(resume.content) : null;
   const coverParsed = cover ? CoverLetter.safeParse(cover.content) : null;
-  const tailoredView = tailoredParsed?.success ? resumeView(profile, tailoredParsed.data) : null;
+  const style = styleById(resume?.verification?.style);
+  const tailoredView = tailoredParsed?.success ? resumeView(profile, tailoredParsed.data, style) : null;
   const originalView = snapProfile.success ? resumeView(snapProfile.data, masterAsTailored(snapProfile.data)) : null;
   const diff = summariseDiff(resume?.diff);
   const sub = submissionView(app);
@@ -134,7 +136,7 @@ export default async function ApplicationPage({ params }: { params: Promise<{ id
             {issues.length > 0 && <ul className="list-disc pl-5 text-sm text-destructive">{issues.map((i, k) => <li key={k}>{i.where}: {i.problem}</li>)}</ul>}
             {usingLiveProfile && <p className="text-xs text-muted-foreground">This application has no profile snapshot, so names and dates in the preview come from your current profile.</p>}
             {resume && !tailoredView && <p className="text-sm text-muted-foreground">The resume text is stored in an unexpected format, so it cannot be previewed here. The DOCX download is the exact file.</p>}
-            {tailoredView && <details open><summary className="cursor-pointer text-sm font-medium">Tailored resume (as sent)</summary><div className="mt-2"><ResumePreview view={tailoredView} /></div></details>}
+            {tailoredView && <details open><summary className="cursor-pointer text-sm font-medium">Tailored resume (as sent)</summary><div className="mt-2"><ResumePreview view={tailoredView} style={style} /></div></details>}
             {originalView
               ? <details><summary className="cursor-pointer text-sm font-medium">Original resume (your master profile when this was prepared)</summary><div className="mt-2"><ResumePreview view={originalView} /></div></details>
               : <p className="text-sm text-muted-foreground">The original resume was not captured for this application (it was prepared before snapshots existed).</p>}

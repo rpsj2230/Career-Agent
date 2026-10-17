@@ -1,47 +1,78 @@
-import { AlignmentType, Document, HeadingLevel, Packer, Paragraph, TextRun } from "docx";
+import { AlignmentType, BorderStyle, Document, Packer, Paragraph, TabStopType, TextRun } from "docx";
 import type { CoverLetter, MasterProfile, TailoredResume } from "@/lib/types";
 import { resumeView } from "./sections";
+import { STYLES, type ResumeStyle, type SectionId } from "./template";
+
+const FONT = "Calibri";
+const INK = "1F2937";
+const MUTED = "4B5563";
+const MARGIN = 1000; // twips (about 0.7 in)
+const PAGE = { A4: { width: 11906, height: 16838 }, Letter: { width: 12240, height: 15840 } } as const;
+const textWidth = (page: ResumeStyle["page"]) => PAGE[page].width - 2 * MARGIN;
+
+const run = (text: string, o: { bold?: boolean; italics?: boolean; size?: number; color?: string } = {}) =>
+  new TextRun({ text, font: FONT, size: o.size ?? 21, bold: o.bold, italics: o.italics, color: o.color ?? INK });
 
 const heading = (text: string) =>
-  new Paragraph({ heading: HeadingLevel.HEADING_2, spacing: { before: 240, after: 80 }, children: [new TextRun({ text: text.toUpperCase(), bold: true, size: 22 })] });
-const body = (text: string) => new Paragraph({ spacing: { after: 80 }, children: [new TextRun({ text, size: 21 })] });
-const bullet = (text: string) => new Paragraph({ bullet: { level: 0 }, spacing: { after: 40 }, children: [new TextRun({ text, size: 21 })] });
+  new Paragraph({
+    keepNext: true,
+    spacing: { before: 200, after: 80 },
+    border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: "9CA3AF", space: 2 } },
+    children: [run(text.toUpperCase(), { bold: true, size: 21, color: INK })],
+  });
+const body = (text: string) => new Paragraph({ spacing: { after: 60, line: 264 }, children: [run(text)] });
+const bullet = (text: string) => new Paragraph({ bullet: { level: 0 }, spacing: { after: 30, line: 259 }, children: [run(text)] });
 
-export function resumeParagraphs(p: MasterProfile, t: TailoredResume): Paragraph[] {
-  const v = resumeView(p, t);
-  const out: Paragraph[] = [
-    new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: v.name, bold: true, size: 36 })] }),
-    new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: v.headline, size: 24 })] }),
-    new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 120 }, children: [new TextRun({ text: v.contact, size: 19 })] }),
-    heading("Summary"), body(v.summary),
+export function resumeParagraphs(p: MasterProfile, t: TailoredResume, style: ResumeStyle = STYLES[0]): Paragraph[] {
+  const v = resumeView(p, t, style);
+  const width = textWidth(style.page);
+  const header: Paragraph[] = [
+    new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 20 }, children: [run(v.name, { bold: true, size: 40 })] }),
+    ...(v.headline ? [new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 40 }, children: [run(v.headline, { size: 24, color: MUTED })] })] : []),
+    new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 60 }, children: [run(v.contact, { size: 19, color: MUTED })] }),
   ];
-  if (v.skills.length) out.push(heading("Skills"), body(v.skills.join(", ")));
-  out.push(heading("Experience"));
-  for (const e of v.experience) {
-    out.push(
-      new Paragraph({ spacing: { before: 120 }, children: [
-        new TextRun({ text: `${e.title}, ${e.company}`, bold: true, size: 22 }),
-        new TextRun({ text: `   ${e.dates}${e.location ? `  |  ${e.location}` : ""}`, size: 20 }),
-      ] }),
-      ...e.bullets.map(bullet),
-    );
-  }
-  if (v.education.length) out.push(heading("Education"), ...v.education.map(body));
-  if (v.certifications.length) out.push(heading("Certifications"), ...v.certifications.map(bullet));
-  return out;
+  const blocks: Record<SectionId, () => Paragraph[]> = {
+    summary: () => (v.summary ? [heading(style.summaryLabel), body(v.summary)] : []),
+    skills: () => (v.skills.length ? [heading("Skills"), body(v.skills.join("  •  "))] : []),
+    experience: () => {
+      const out: Paragraph[] = [heading("Experience")];
+      for (const e of v.experience) {
+        out.push(
+          new Paragraph({ keepNext: true, spacing: { before: 110, after: 10 }, tabStops: [{ type: TabStopType.RIGHT, position: width }], children: [run(e.title, { bold: true }), run(`  ·  ${e.company}`, { bold: true }), run(`\t${e.dates}`, { color: MUTED })] }),
+          ...(e.location ? [new Paragraph({ keepNext: true, spacing: { after: 30 }, children: [run(e.location, { italics: true, size: 19, color: MUTED })] })] : []),
+          ...e.bullets.map(bullet),
+        );
+      }
+      return out;
+    },
+    education: () => (v.education.length ? [heading("Education"), ...v.education.map(body)] : []),
+    certifications: () => (v.certifications.length ? [heading("Certifications"), ...v.certifications.map(bullet)] : []),
+  };
+  return [...header, ...style.sections.flatMap((s) => blocks[s]())];
 }
 
-export async function renderResumeDocx(p: MasterProfile, t: TailoredResume): Promise<Buffer> {
-  return Packer.toBuffer(new Document({ sections: [{ properties: { page: { margin: { top: 720, bottom: 720, left: 900, right: 900 } } }, children: resumeParagraphs(p, t) }] }));
+export async function renderResumeDocx(p: MasterProfile, t: TailoredResume, style: ResumeStyle = STYLES[0]): Promise<Buffer> {
+  const { width, height } = PAGE[style.page];
+  return Packer.toBuffer(new Document({
+    creator: p.basics.name || "Resume",
+    title: `${p.basics.name} - Resume`,
+    styles: { default: { document: { run: { font: FONT, size: 21 } } } },
+    sections: [{ properties: { page: { size: { width, height }, margin: { top: 800, bottom: 800, left: MARGIN, right: MARGIN } } }, children: resumeParagraphs(p, t, style) }],
+  }));
 }
 
-export async function renderCoverLetterDocx(p: MasterProfile, c: CoverLetter, company: string): Promise<Buffer> {
-  const paras = c.text.split(/\n{2,}/).map((x) => new Paragraph({ spacing: { after: 160 }, children: [new TextRun({ text: x.trim(), size: 22 })] }));
-  return Packer.toBuffer(new Document({ sections: [{ children: [
-    new Paragraph({ children: [new TextRun({ text: p.basics.name, bold: true, size: 26 })] }),
-    new Paragraph({ spacing: { after: 240 }, children: [new TextRun({ text: [p.basics.email, p.basics.phone].filter(Boolean).join("  |  "), size: 20 })] }),
-    new Paragraph({ spacing: { after: 240 }, children: [new TextRun({ text: `Application to ${company}`, size: 22 })] }),
-    ...paras,
-    new Paragraph({ children: [new TextRun({ text: p.basics.name, size: 22 })] }),
-  ] }] }));
+export async function renderCoverLetterDocx(p: MasterProfile, c: CoverLetter, company: string, style: ResumeStyle = STYLES[0]): Promise<Buffer> {
+  const { width, height } = PAGE[style.page];
+  const paras = c.text.split(/\n{2,}/).map((x) => new Paragraph({ spacing: { after: 160, line: 276 }, children: [run(x.trim(), { size: 22 })] }));
+  return Packer.toBuffer(new Document({
+    creator: p.basics.name || "Cover letter",
+    styles: { default: { document: { run: { font: FONT, size: 22 } } } },
+    sections: [{ properties: { page: { size: { width, height }, margin: { top: 1200, bottom: 1200, left: 1300, right: 1300 } } }, children: [
+      new Paragraph({ spacing: { after: 20 }, children: [run(p.basics.name, { bold: true, size: 28 })] }),
+      new Paragraph({ spacing: { after: 280 }, children: [run([p.basics.email, p.basics.phone, p.basics.location].filter(Boolean).join("  |  "), { size: 20, color: MUTED })] }),
+      new Paragraph({ spacing: { after: 240 }, children: [run(`Application to ${company}`, { bold: true, size: 22 })] }),
+      ...paras,
+      new Paragraph({ spacing: { before: 120 }, children: [run(p.basics.name, { size: 22 })] }),
+    ] }],
+  }));
 }

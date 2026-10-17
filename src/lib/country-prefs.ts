@@ -51,3 +51,26 @@ export type CountryPrefRow = CountryPref & { updated_at?: string };
 export const defaultPref = (country: string, currency: string | null): CountryPref => ({
   country, enabled: true, titles: [], industries: [], locations: [], remote: "any", salary_min: null, salary_max: null, currency, work_authorisation: null, notes: null,
 });
+
+const fmt = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: 0 });
+
+/**
+ * Answers that depend on the country being applied to, taken from that country's entry on the Countries page:
+ * the salary you expect there (in that country's currency) and your work authorisation there. They are used instead of
+ * the single general answer, so a Singapore form gets SGD and your Singapore status, a German form gets EUR and your EU status.
+ */
+export function countryAnswers(pref: Pick<CountryPref, "country" | "salary_min" | "salary_max" | "currency" | "work_authorisation"> | undefined): { question: string; answer: string; re: RegExp }[] {
+  if (!pref) return [];
+  const out: { question: string; answer: string; re: RegExp }[] = [];
+  const cur = pref.currency ?? "";
+  if (pref.salary_min !== null || pref.salary_max !== null) {
+    const range = pref.salary_min !== null && pref.salary_max !== null && pref.salary_max !== pref.salary_min ? `${fmt(pref.salary_min)} - ${fmt(pref.salary_max)}` : fmt((pref.salary_min ?? pref.salary_max)!);
+    out.push({ question: `Expected salary (${cur || pref.country.toUpperCase()}, per year)`, answer: `${cur} ${range} per year`.trim(), re: /expected.*(ctc|salary|compensation|pay)|salary expectation/i });
+  }
+  const auth = WORK_AUTH.find((w) => w.value === pref.work_authorisation);
+  if (auth) {
+    out.push({ question: "Work authorisation / visa status", answer: auth.label, re: /visa|authori[sz]ation|right to work|eligible to work/i });
+    out.push({ question: "Will you now or in the future require visa sponsorship?", answer: auth.sponsorship ? "Yes" : "No", re: /sponsor/i });
+  }
+  return out;
+}

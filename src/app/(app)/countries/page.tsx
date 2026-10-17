@@ -9,7 +9,7 @@ import { getSetting } from "@/lib/settings";
 export const dynamic = "force-dynamic";
 
 export default async function CountriesPage() {
-  const [{ rows, missing }, profile, discovery] = await Promise.all([listCountryPrefs(), getProfile(), getSetting("discovery")]);
+  const [{ rows, missing }, profile, discovery, templates] = await Promise.all([listCountryPrefs(), getProfile(), getSetting("discovery"), getSetting("resume_templates")]);
   const have = new Set(rows.map((r) => r.country));
   const available = COUNTRIES.filter((c) => !have.has(c.code)).map((c) => ({ code: c.code, name: c.name }));
   const profileTitles = [...new Set(profile.experience.map((e) => e.title.trim()).filter(Boolean))].slice(0, 6);
@@ -27,7 +27,7 @@ export default async function CountriesPage() {
       )}
       <AddCountry available={available} />
       <div className="grid gap-4">
-        {rows.map((r) => <CountryCard key={r.country} pref={r} profileTitles={profileTitles} />)}
+        {rows.map((r) => <CountryCard key={r.country} pref={r} profileTitles={profileTitles} templates={templates} />)}
       </div>
     </div>
   );
