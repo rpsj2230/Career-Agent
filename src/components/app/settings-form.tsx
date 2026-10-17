@@ -17,7 +17,7 @@ type Scoring = { threshold: number; min_evidence: number; batch_size: number; ro
 type Caps = { daily_total: number; daily_linkedin: number; weekly_linkedin: number; linkedin_automation_enabled: boolean; local_auto_enabled?: boolean; company_cooldown_days?: number };
 const csv = (s: string) => s.split(",").map((x) => x.trim()).filter(Boolean);
 
-export function SettingsForm({ discovery, scoring, caps, tailoring, blocklist, profileTitles }: { discovery: Discovery; scoring: Scoring; caps: Caps; blocklist: { companies: string[]; keywords: string[]; skip_agencies: boolean }; tailoring: { reuse_enabled: boolean; reuse_similarity: number; adapt_similarity: number }; profileTitles: string[] }) {
+export function SettingsForm({ discovery, scoring, caps, tailoring, blocklist, replies, profileTitles }: { discovery: Discovery; scoring: Scoring; caps: Caps; blocklist: { companies: string[]; keywords: string[]; skip_agencies: boolean }; replies: { enabled: boolean }; tailoring: { reuse_enabled: boolean; reuse_similarity: number; adapt_similarity: number }; profileTitles: string[] }) {
   const router = useRouter();
   const [d, setD] = useState({ ...discovery, countries: discovery.countries.join(", "), roles: discovery.roles.join(", "), greenhouse_boards: discovery.greenhouse_boards.join(", "), lever_companies: discovery.lever_companies.join(", "), ashby_orgs: (discovery.ashby_orgs ?? []).join(", "), workable_accounts: (discovery.workable_accounts ?? []).join(", "), recruitee_companies: (discovery.recruitee_companies ?? []).join(", ") });
   const [t, setT] = useState(scoring.threshold);
@@ -25,6 +25,7 @@ export function SettingsForm({ discovery, scoring, caps, tailoring, blocklist, p
   const [sc, setSc] = useState({ batch_size: scoring.batch_size, routing: scoring.routing, escalate_borderline: scoring.escalate_borderline, learning: scoring.learning });
   const [tl, setTl] = useState(tailoring);
   const [c, setC] = useState(caps);
+  const [rp, setRp] = useState(replies.enabled);
   const [bl, setBl] = useState({ companies: blocklist.companies.join(", "), keywords: blocklist.keywords.join(", "), skip_agencies: blocklist.skip_agencies });
   const saveBlocklist = async () => { if (await call("/api/settings", "PUT", { key: "blocklist", value: { companies: csv(bl.companies), keywords: csv(bl.keywords), skip_agencies: bl.skip_agencies } }, "Blocklist saved")) refresh(); };
   const refresh = () => router.refresh();
@@ -90,6 +91,11 @@ export function SettingsForm({ discovery, scoring, caps, tailoring, blocklist, p
             <label className="flex items-center gap-2"><Switch checked={sc.learning} onCheckedChange={(v) => setSc({ ...sc, learning: v })} /> Learn from my skips, interviews and rejections</label>
           </div>
         </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>Reply tracking</CardTitle><CardDescription>Uses the job-alert mailbox you connected on the Portals page. When an employer writes back, the application is marked as interview, rejected or offer for you, and you are told about interviews and offers. Mail is read read-only and in memory; only the result and the subject line are kept. Off until you turn it on.</CardDescription></CardHeader>
+        <CardContent className="flex items-center gap-3"><label className="flex items-center gap-2 text-sm"><Switch checked={rp} onCheckedChange={async (v) => { setRp(v); await call("/api/settings", "PUT", { key: "replies", value: { enabled: v } }, v ? "Reply tracking is on" : "Reply tracking is off"); }} /> Update my applications from employers&apos; replies</label></CardContent>
       </Card>
 
       <Card>

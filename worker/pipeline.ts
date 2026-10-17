@@ -9,6 +9,7 @@ import { appendFileSync } from "node:fs";
 import { failStaleRuns } from "../src/lib/activity";
 import { sendTelegram as notifyTelegram } from "../src/lib/notify";
 import { reapStuckApplications } from "../src/lib/apply/reaper";
+import { trackReplies } from "../src/lib/mail/track";
 import { applyRetention } from "../src/lib/jobs/retention";
 import { liveDeps } from "../src/lib/pipeline/deps";
 import { pipelineSummaryText, runPipeline, type PipelineSummary } from "../src/lib/pipeline/run";
@@ -37,6 +38,8 @@ async function main() {
   if (swept) console.log(`Marked ${swept} stalled run(s) as failed.`);
   const reaped = await reapStuckApplications().catch((e) => { console.error("could not check for stuck applications (not fatal):", e instanceof Error ? e.message : e); return 0; });
   if (reaped) console.log(`Handed back ${reaped} application(s) whose worker stopped before finishing.`);
+  const replies = await trackReplies();
+  if (replies.updated.length) console.log(`Replies: ${replies.updated.map((u) => `${u.company} (${u.reply})`).join(", ")}`);
   const id = process.env.SCHEDULE_ID?.trim();
   let list: ScheduleRow[];
   if (id) {

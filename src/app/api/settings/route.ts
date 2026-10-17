@@ -16,6 +16,7 @@ const Schemas = {
     .refine((t) => t.adapt_similarity < t.reuse_similarity, "The adapt level must be lower than the reuse level"),
   retention: z.object({ skipped_days: z.number().int().min(0).max(3650), log_days: z.number().int().min(0).max(3650) }),
   resume_templates: z.record(z.string().regex(/^[a-z]{2}$/), z.enum(STYLES.map((x) => x.id) as [string, ...string[]])),
+  replies: z.object({ enabled: z.boolean() }),
   blocklist: z.object({ companies: list.default([]), keywords: list.default([]), skip_agencies: z.boolean().default(false) }),
   apify: ApifySettings,
   watchlist: z.object({ enabled: z.boolean(), boards: z.record(z.string(), z.array(z.string().max(80)).max(300)), added: z.record(z.string(), z.string()).default({}) }),

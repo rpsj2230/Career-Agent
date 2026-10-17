@@ -23,6 +23,8 @@ export const DEFAULTS = {
   retention: { skipped_days: 30, log_days: 90 },
   /** resume style per country code, e.g. { "de": "europe" }; countries not listed use the default for their region */
   resume_templates: {} as Record<string, string>,
+  /** read your mailbox (read-only, in memory) to update applications when an employer replies; off until you turn it on */
+  replies: { enabled: false },
   /** never show these: company names, words in the title or description, and (optionally) recruitment agencies */
   blocklist: { companies: [] as string[], keywords: [] as string[], skip_agencies: false },
   /** companies found posting matching jobs, whose own boards are read directly (see jobs/ats.ts) */

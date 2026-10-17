@@ -2,12 +2,15 @@ import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import { ALERT_SENDER_DOMAINS, parseAlertEmail, type AlertMail } from "./email-parse";
 import type { NormalizedJob } from "./normalize";
+import type { ReplyMail } from "@/lib/mail/replies";
 
 export type MailboxConfig = { host: string; user: string; password: string; port?: number; folder?: string };
 
 /** The one thing the scan needs from a mailbox, so it can be replaced in tests. */
 export interface MailSource {
   fetchRecent(o: { sinceDays: number; max: number }): Promise<AlertMail[]>;
+  /** recent messages from anyone, read in memory only, to spot replies to your applications (opt-in; see mail/track.ts) */
+  fetchReplies?(o: { sinceDays: number; max: number }): Promise<ReplyMail[]>;
 }
 
 /** Messages a person can act on, in place of the raw socket errors. */
@@ -54,6 +57,40 @@ export function imapSource(cfg: MailboxConfig): MailSource {
                 date: parsed.date ?? (msg.internalDate instanceof Date ? msg.internalDate : undefined),
                 messageId: parsed.messageId,
               });
+            }
+          }
+        } finally { lock.release(); }
+      } catch (e) {
+        throw new Error(explainImapError(e, cfg));
+      } finally {
+        await client.logout().catch(() => client.close());
+      }
+      return out;
+    },
+
+    async fetchReplies({ sinceDays, max }) {
+      const port = cfg.port ?? 993;
+      const client = new ImapFlow({
+        host: cfg.host, port, secure: port === 993, auth: { user: cfg.user, pass: cfg.password }, logger: false,
+        socketTimeout: 60_000, greetingTimeout: 15_000, connectionTimeout: 15_000,
+      });
+      client.on("error", () => undefined);
+      const out: ReplyMail[] = [];
+      try {
+        await client.connect();
+        const lock = await client.getMailboxLock(cfg.folder || "INBOX", { readOnly: true });
+        try {
+          const found = await client.search({ since: new Date(Date.now() - sinceDays * 86_400_000) }, { uid: true });
+          const uids = (found || []).slice(-max);
+          if (uids.length) {
+            for await (const msg of client.fetch(uids, { source: true, internalDate: true }, { uid: true })) {
+              if (!msg.source) continue;
+              const parsed = await simpleParser(msg.source);
+              // newsletters and mailing lists never carry a reply to an application
+              if (parsed.headers.get("list-unsubscribe") || parsed.headers.get("list") || /bulk|list|junk/i.test(String(parsed.headers.get("precedence") ?? ""))) continue;
+              const from = parsed.from?.text ?? "";
+              if (from.toLowerCase().includes(cfg.user.toLowerCase())) continue;
+              out.push({ from, subject: parsed.subject ?? "", text: (parsed.text ?? "").slice(0, 3000), date: parsed.date ?? (msg.internalDate instanceof Date ? msg.internalDate : undefined), messageId: parsed.messageId });
             }
           }
         } finally { lock.release(); }

@@ -14,6 +14,7 @@
     "gen:migrations": "node scripts/gen-migrations.mjs",
     "assist": "tsx --env-file-if-exists=.env.local worker/assist.ts",
     "assist:auto": "ASSIST_MODE=auto tsx --env-file-if-exists=.env.local worker/assist.ts",
+    "canary": "tsx --env-file-if-exists=.env.local worker/canary.ts",
     "assist:watch": "ASSIST_MODE=auto ASSIST_WATCH=1 tsx --env-file-if-exists=.env.local worker/assist.ts"
   },
   "dependencies": {

@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { loadDashboard } from "@/lib/dashboard-store";
+import { loadApplyStats } from "@/lib/apply/stats-store";
+import { assistantStatus } from "@/lib/apply/assistant-health";
 import { parsePeriod, PERIODS, type Breakdown } from "@/lib/dashboard";
 import { db, must } from "@/lib/db";
 import { countryLabel, parseCountry } from "@/lib/filters";
@@ -27,7 +29,7 @@ export default async function Dashboard({ searchParams }: { searchParams: SP }) 
   const sp = await searchParams;
   const country = parseCountry(sp);
   const period = parsePeriod(Array.isArray(sp.period) ? sp.period[0] : sp.period);
-  const [dash, portals, profile, discovery, opts] = await Promise.all([loadDashboard({ period, country }), loadPortalsView(), getProfile(), getSetting("discovery"), filterOptions()]);
+  const [dash, portals, profile, discovery, opts, applyStats, assistant] = await Promise.all([loadDashboard({ period, country }), loadPortalsView(), getProfile(), getSetting("discovery"), filterOptions(), loadApplyStats(30).catch(() => []), assistantStatus().catch(() => null)]);
   const { summary: s, runs, limited } = dash;
   const models = must<{ label: string; enabled: boolean; api_key_env: string | null }[]>(await db().from("model_configs").select("label,enabled,api_key_env"), "models");
   const stored = await storedKeyLabels();
@@ -176,6 +178,22 @@ export default async function Dashboard({ searchParams }: { searchParams: SP }) 
           </ul></CardContent>
         )}
       </Card>
+
+      {(applyStats.length > 0 || assistant) && (
+        <Card>
+          <CardHeader><CardTitle className="text-base">How applying is going (last 30 days)</CardTitle><CardDescription>Where applications were sent, how many went through, and the most common reasons the rest stopped. {assistant ? assistant.text : ""}</CardDescription></CardHeader>
+          {applyStats.length > 0 && (
+            <CardContent className="grid gap-2 text-sm">
+              {applyStats.map((c) => (
+                <div key={c.channel} className="grid gap-0.5 rounded-md border p-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2"><b>{c.label}</b><span>{c.submitted} of {c.attempts} submitted ({c.rate}%){c.needsYou ? ` · ${c.needsYou} needed you` : ""}{c.failed ? ` · ${c.failed} failed` : ""}</span></div>
+                  {c.topReasons.length > 0 && <div className="text-xs text-muted-foreground">Most common stops: {c.topReasons.map((r) => `${r.reason} (${r.count})`).join("; ")}</div>}
+                </div>
+              ))}
+            </CardContent>
+          )}
+        </Card>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>

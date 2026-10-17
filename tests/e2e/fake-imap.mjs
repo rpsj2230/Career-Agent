@@ -13,7 +13,7 @@ export function startFakeImap({ user = "me@example.com", password = "app-pass", 
     const quoted = (s) => (s.startsWith('"') ? s.slice(1, -1) : s);
     const mailsOf = () => folders[selected] ?? [];
     const rfc822 = (m) => Buffer.from(
-      `From: ${m.from}\r\nTo: ${user}\r\nSubject: ${m.subject}\r\nDate: ${m.date.toUTCString()}\r\nMessage-ID: <${m.uid}@fake>\r\nMIME-Version: 1.0\r\nContent-Type: text/html; charset=utf-8\r\n\r\n${m.html}`, "utf8");
+      `From: ${m.from}\r\nTo: ${user}\r\nSubject: ${m.subject}\r\nDate: ${m.date.toUTCString()}\r\nMessage-ID: <${m.uid}@fake>\r\n${Object.entries(m.headers ?? {}).map(([k, v]) => `${k}: ${v}\r\n`).join("")}MIME-Version: 1.0\r\nContent-Type: text/html; charset=utf-8\r\n\r\n${m.html}`, "utf8");
     function handle(line) {
       if (pendingAuth) {
         const tag = pendingAuth; pendingAuth = null; log.push(`${tag} <auth response>`);

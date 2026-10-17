@@ -70,3 +70,20 @@ describe("imapSource against a real IMAP conversation", () => {
     await expect(scanMailbox(imapSource({ host: "127.0.0.1", port: 1, user: "a", password: "b" }), { sinceDays: 30 })).rejects.toThrow(/Could not connect to 127.0.0.1/);
   });
 });
+
+describe("reading replies (opt-in)", () => {
+  it("reads recent mail from anyone, skips newsletters and your own messages, and never changes the mailbox", async () => {
+    const f = await startFakeImap({ folders: { INBOX: [
+      { uid: 1, from: "hr@acme.com", subject: "Interview invitation", date: day(1), html: "<p>We would like to schedule a call.</p>" },
+      { uid: 2, from: "me@example.com", subject: "Re: Interview invitation", date: day(1), html: "<p>Sure</p>" },
+      { uid: 3, from: "news@shop.example", subject: "Sale", date: day(1), html: "<p>Buy</p>", headers: { "List-Unsubscribe": "<mailto:u@shop.example>" } },
+    ] } });
+    try {
+      const mails = await imapSource({ host: "127.0.0.1", port: f.port, user: "me@example.com", password: "app-pass" }).fetchReplies!({ sinceDays: 30, max: 50 });
+      expect(mails.map((m) => m.subject)).toEqual(["Interview invitation"]);
+      expect(mails[0].text).toMatch(/schedule a call/);
+      expect(f.state.mutations).toEqual([]);
+      expect(f.log.some((l: string) => /\bSTORE\b|\bEXPUNGE\b|\bMOVE\b|\bCOPY\b|\bDELETE\b/i.test(l))).toBe(false);
+    } finally { await f.close(); }
+  });
+});
