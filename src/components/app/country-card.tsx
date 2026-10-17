@@ -11,6 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { COUNTRIES, countryInfo, defaultCurrency } from "@/lib/countries";
 import { defaultPref, parseList, queriesPerSource, REMOTE_LABEL, REMOTE_OPTIONS, WORK_AUTH, type CountryPref } from "@/lib/country-prefs";
+import { STYLES, styleFor } from "@/lib/tailor/template";
 import { call } from "./api";
 
 const selectClass = "h-9 rounded-md border border-input bg-transparent px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
@@ -19,10 +20,13 @@ const CURRENCIES = [...new Set(COUNTRIES.map((c) => c.currency))].sort();
 export function AddCountry({ available }: { available: { code: string; name: string }[] }) {
   const router = useRouter();
   const [code, setCode] = useState("");
+  const [custom, setCustom] = useState("");
+  const chosen = (custom.trim().toLowerCase() || code).toLowerCase();
+  const valid = /^[a-z]{2}$/.test(chosen);
   async function add() {
-    if (!code) return;
-    const ok = await call("/api/country-prefs", "PUT", defaultPref(code, defaultCurrency(code) ?? null), "Country added. Fill in its criteria below.");
-    if (ok) { setCode(""); router.refresh(); }
+    if (!valid) return;
+    const ok = await call("/api/country-prefs", "PUT", defaultPref(chosen, defaultCurrency(chosen) ?? null), "Country added. Fill in its criteria below.");
+    if (ok) { setCode(""); setCustom(""); router.refresh(); }
   }
   return (
     <div className="flex flex-wrap items-end gap-2">
@@ -32,12 +36,15 @@ export function AddCountry({ available }: { available: { code: string; name: str
           {available.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
         </select>
       </label>
-      <Button onClick={add} disabled={!code}>Add</Button>
+      <label className="grid gap-1 text-xs text-muted-foreground">or any other country (two-letter code, e.g. KR)
+        <Input value={custom} maxLength={2} onChange={(e) => setCustom(e.target.value)} className="w-24 uppercase" placeholder="KR" aria-label="Other country code" />
+      </label>
+      <Button onClick={add} disabled={!valid}>Add</Button>
     </div>
   );
 }
 
-export function CountryCard({ pref, profileTitles }: { pref: CountryPref; profileTitles: string[] }) {
+export function CountryCard({ pref, profileTitles, templates }: { pref: CountryPref; profileTitles: string[]; templates: Record<string, string> }) {
   const router = useRouter();
   const info = countryInfo(pref.country);
   const [enabled, setEnabled] = useState(pref.enabled);
@@ -50,6 +57,7 @@ export function CountryCard({ pref, profileTitles }: { pref: CountryPref; profil
   const [currency, setCurrency] = useState(pref.currency ?? defaultCurrency(pref.country) ?? "");
   const [auth, setAuth] = useState(pref.work_authorisation ?? "");
   const [notes, setNotes] = useState(pref.notes ?? "");
+  const [style, setStyle] = useState(templates[pref.country] ?? "");
 
   const body = (): CountryPref => ({
     country: pref.country, enabled, titles: parseList(titles), industries: parseList(industries), locations: parseList(locations), remote,
@@ -58,7 +66,12 @@ export function CountryCard({ pref, profileTitles }: { pref: CountryPref; profil
   });
   const q = queriesPerSource(body());
 
-  async function save() { if (await call("/api/country-prefs", "PUT", body(), `${info?.name ?? pref.country} saved`)) router.refresh(); }
+  async function save() {
+    if (!(await call("/api/country-prefs", "PUT", body(), `${info?.name ?? pref.country} saved`))) return;
+    const next = { ...templates }; if (style) next[pref.country] = style; else delete next[pref.country];
+    if (JSON.stringify(next) !== JSON.stringify(templates)) await call("/api/settings", "PUT", { key: "resume_templates", value: next }, "Resume style saved");
+    router.refresh();
+  }
   async function remove() {
     if (window.confirm(`Remove ${info?.name ?? pref.country}? Jobs already found stay.`) && (await call(`/api/country-prefs?country=${pref.country}`, "DELETE", undefined, "Removed"))) router.refresh();
   }
@@ -95,6 +108,9 @@ export function CountryCard({ pref, profileTitles }: { pref: CountryPref; profil
           <div className="grid gap-1"><Label htmlFor={`c-${pref.country}`}>Currency</Label>
             <select id={`c-${pref.country}`} value={currency} onChange={(e) => setCurrency(e.target.value)} className={selectClass}><option value="">-</option>{CURRENCIES.map((c) => <option key={c}>{c}</option>)}</select></div>
         </div>
+        <div className="grid gap-1 md:col-span-2"><Label htmlFor={`s-${pref.country}`}>Resume style for this country</Label>
+          <select id={`s-${pref.country}`} value={style} onChange={(e) => setStyle(e.target.value)} className={selectClass}><option value="">Automatic ({styleFor(pref.country).label})</option>{STYLES.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}</select>
+          <span className="text-xs text-muted-foreground">The layout is the same every time; this sets the page size, spelling, the summary heading and how many bullets each role shows. Your expected salary and visa answers for this country come from the fields above.</span></div>
         <div className="grid gap-1 md:col-span-2"><Label htmlFor={`n-${pref.country}`}>Other criteria for this country</Label><Textarea id={`n-${pref.country}`} rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. avoid startups under 20 people; prefer companies that sponsor employment passes" /></div>
         <div className="flex gap-2 md:col-span-2"><Button onClick={save}>Save {info?.name ?? pref.country}</Button><Button variant="outline" onClick={remove}>Remove</Button></div>
       </CardContent>

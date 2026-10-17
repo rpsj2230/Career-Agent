@@ -15,6 +15,8 @@ export const DEFAULTS = {
   tailoring: { reuse_enabled: true, reuse_similarity: 0.85, adapt_similarity: 0.4 },
   /** keep the database small: clear the description of skipped jobs after N days; delete per-job rejection log lines after N days (0 = never) */
   retention: { skipped_days: 30, log_days: 90 },
+  /** resume style per country code, e.g. { "de": "europe" }; countries not listed use the default for their region */
+  resume_templates: {} as Record<string, string>,
   caps: { daily_total: 15, daily_linkedin: 10, weekly_linkedin: 40, linkedin_automation_enabled: false } as Caps,
 };
 

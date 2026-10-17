@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { STYLES } from "@/lib/tailor/template";
 import { putSetting } from "@/lib/settings";
 import { logConfig } from "@/lib/activity-helpers";
 
@@ -13,6 +14,7 @@ const Schemas = {
   tailoring: z.object({ reuse_enabled: z.boolean(), reuse_similarity: z.number().min(0.5).max(1), adapt_similarity: z.number().min(0.1).max(0.9) })
     .refine((t) => t.adapt_similarity < t.reuse_similarity, "The adapt level must be lower than the reuse level"),
   retention: z.object({ skipped_days: z.number().int().min(0).max(3650), log_days: z.number().int().min(0).max(3650) }),
+  resume_templates: z.record(z.string().regex(/^[a-z]{2}$/), z.enum(STYLES.map((x) => x.id) as [string, ...string[]])),
   caps: z.object({
     daily_total: z.number().int().min(0).max(100), daily_linkedin: z.number().int().min(0).max(50),
     weekly_linkedin: z.number().int().min(0).max(200), linkedin_automation_enabled: z.boolean(),

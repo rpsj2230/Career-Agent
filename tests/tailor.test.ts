@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { tailorResume, writeCoverLetter, type Runner } from "@/lib/tailor/tailor";
-import { renderCoverLetterDocx, renderResumeDocx, resumeParagraphs } from "@/lib/tailor/docx";
+import mammoth from "mammoth";
+import { renderCoverLetterDocx, renderResumeDocx } from "@/lib/tailor/docx";
 import { MasterProfile, type TailoredResume } from "@/lib/types";
 
 const profile = MasterProfile.parse({
@@ -43,9 +44,9 @@ describe("writeCoverLetter", () => {
 });
 
 describe("docx", () => {
-  it("takes company and dates from the profile and orders skills as tailored", () => {
-    const texts = JSON.stringify(resumeParagraphs(profile, good));
-    expect(texts).toContain("PM, Acme");
+  it("takes company and dates from the profile and orders skills as tailored", async () => {
+    const texts = (await mammoth.extractRawText({ buffer: await renderResumeDocx(profile, good) })).value;
+    expect(texts).toContain("PM  ·  Acme");
     expect(texts.indexOf("Roadmapping")).toBeLessThan(texts.indexOf("SQL"));
   });
   it("produces valid zip packages", async () => {

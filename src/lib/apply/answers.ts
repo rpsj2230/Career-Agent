@@ -36,12 +36,14 @@ export function deriveProfileAnswers(p: MasterProfile, nowYear = NOW_YEAR()): { 
 }
 
 /** Answer bank first; common India/visa questions are filled from profile preferences when not in the bank. */
-export function buildAnswers(bank: { question: string; answer: string }[], prefs: MasterProfile["preferences"], profile?: MasterProfile): Answer[] {
+export function buildAnswers(bank: { question: string; answer: string }[], prefs: MasterProfile["preferences"], profile?: MasterProfile, countrySpecific: { question: string; answer: string; re: RegExp }[] = []): Answer[] {
   const out: Answer[] = bank.filter((b) => b.answer.trim()).map((b) => ({ question: b.question, answer: b.answer, source: "answer_bank" as const }));
   const has = (re: RegExp) => out.some((a) => re.test(a.question));
   const add = (question: string, answer: string | undefined, re: RegExp) => {
     if (answer && !has(re)) out.push({ question, answer, source: "profile" });
   };
+  // answers for the job's own country come before the general ones, so they win over them (your answer bank still wins over both)
+  for (const c of countrySpecific) add(c.question, c.answer, c.re);
   add("Current CTC", prefs.currentCtc, /current.*(ctc|salary)/i);
   add("Expected CTC", prefs.expectedCtc, /expected.*(ctc|salary)/i);
   add("Notice period", prefs.noticePeriod, /notice/i);

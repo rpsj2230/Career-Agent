@@ -1,6 +1,7 @@
 import mammoth from "mammoth";
 import { describe, expect, it } from "vitest";
 import { buildJobSnapshot, buildProfileSnapshot } from "@/lib/apply/snapshot";
+import { STYLES } from "@/lib/tailor/template";
 import { renderResumeDocx } from "@/lib/tailor/docx";
 import { masterAsTailored, resumeText, resumeView } from "@/lib/tailor/sections";
 import { MasterProfile } from "@/lib/types";
@@ -38,9 +39,9 @@ describe("resume view", () => {
   });
   it("the preview text and the DOCX file contain exactly the same lines", async () => {
     for (const t of [tailored, masterAsTailored(profile)]) {
-      const docx = (await mammoth.extractRawText({ buffer: await renderResumeDocx(profile, t) })).value;
+      const docx = (await mammoth.extractRawText({ buffer: await renderResumeDocx(profile, t, STYLES[0]) })).value;
       const docLines = docx.split(/\n+/).map((l) => l.trim()).filter(Boolean);
-      const previewLines = resumeText(resumeView(profile, t)).map((l) => l.replace(/\s+/g, " ").trim()).filter(Boolean);
+      const previewLines = resumeText(resumeView(profile, t, STYLES[0]), STYLES[0]).map((l) => l.replace(/\s+/g, " ").trim()).filter(Boolean);
       expect(docLines.map((l) => l.replace(/\s+/g, " "))).toEqual(previewLines);
     }
   });
