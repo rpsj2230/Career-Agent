@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { MasterUpload } from "@/components/app/master-upload";
 import { ScopeToggles } from "@/components/app/scope-toggles";
 import { TemplateMap } from "@/components/app/template-map";
 import { DEFAULT_SCOPE, SAMPLE_PROFILE } from "@/lib/tailor/scope";
@@ -42,7 +41,7 @@ export default async function ResumesPage({ searchParams }: { searchParams: Prom
       </div>
 
       <Card>
-        <CardHeader><CardTitle>Master resume</CardTitle><CardDescription>Your own resume file, kept exactly as you uploaded it. If no tailored resume can be made for a job (for example every model is down), this file is attached instead, so an application is never left without a resume. Without an uploaded file, your profile laid out in the template below is used.</CardDescription></CardHeader>
+        <CardHeader><CardTitle>Master resume</CardTitle><CardDescription>The resume file you uploaded on the Profile page, kept exactly as it was. If no tailored resume can be made for a job (for example every model is down), this file is attached instead, so an application is never left without a resume. Without an uploaded file, your profile laid out in the template below is used.</CardDescription></CardHeader>
         <CardContent className="grid gap-3">
           {master ? (
             <div className="flex flex-wrap items-center gap-3 text-sm">
@@ -50,8 +49,8 @@ export default async function ResumesPage({ searchParams }: { searchParams: Prom
               <span className="font-medium">{master.name}</span><span className="text-muted-foreground">{Math.round(master.size / 1024)} KB, {fmtDate(master.uploaded_at, tz)}</span>
               <Button asChild size="sm" variant="outline"><a href="/api/resumes/master?file=original">Download</a></Button>
             </div>
-          ) : <p className="text-sm"><Badge variant="secondary">None yet</Badge> Upload your resume here, or import it on the <Link className="underline" href="/profile">Profile</Link> page (the file is kept automatically).</p>}
-          <MasterUpload has={!!master} />
+          ) : <p className="text-sm"><Badge variant="secondary">None yet</Badge> Upload your master resume on the <Link className="underline" href="/profile">Profile</Link> page.</p>}
+          <p className="text-xs text-muted-foreground">The master resume is uploaded once, on the <Link className="underline" href="/profile">Profile</Link> page. That one upload fills your profile, builds the template below and is kept here as the fallback. To change it, import a new file there.</p>
         </CardContent>
       </Card>
 

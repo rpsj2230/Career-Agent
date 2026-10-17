@@ -1,4 +1,5 @@
 import { searchingCountries } from "@/lib/country-summary";
+import { ProfileEditor } from "@/components/app/profile-editor";
 import { AnswerBankEditor, DraftReview, ImportBox, PreferencesForm } from "@/components/app/profile-forms";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,7 +35,7 @@ export default async function ProfilePage() {
       )}
 
       <Card>
-        <CardHeader><CardTitle>{empty ? "Import your profile" : "Re-import or add another source"}</CardTitle><CardDescription>Upload your resume and/or your LinkedIn data export (Settings, Data privacy, Get a copy of your data).</CardDescription></CardHeader>
+        <CardHeader><CardTitle>{empty ? "Import your profile" : "Re-import your profile"}</CardTitle><CardDescription>Upload your master resume once (it fills your profile and builds the master resume template), plus your LinkedIn PDF for extra skills.</CardDescription></CardHeader>
         <CardContent><ImportBox /></CardContent>
       </Card>
 
@@ -43,7 +44,7 @@ export default async function ProfilePage() {
           <CardHeader><CardTitle>{profile.basics.name || "Your profile"}</CardTitle><CardDescription>{profile.basics.headline} · {profile.basics.location}</CardDescription></CardHeader>
           <CardContent className="grid gap-3 text-sm">
             <p>{profile.basics.summary}</p>
-            <div className="flex flex-wrap gap-1">{profile.skills.map((s) => <Badge key={s.id} variant="secondary">{s.name}</Badge>)}</div>
+            <div className="flex flex-wrap gap-1">{profile.skills.map((s) => <Badge key={s.id} variant={s.extra ? "outline" : "secondary"}>{s.name}</Badge>)}</div>
             <p className="text-xs text-muted-foreground">Each responsibility or achievement below is one &quot;fact&quot;. Every fact is used: for matching jobs to you, and as the only material the agent may draw on when it builds a resume or cover letter for a job. Open a role to read its facts.</p>
             <div className="grid gap-2">
               {profile.experience.map((e) => (
@@ -53,9 +54,18 @@ export default async function ProfilePage() {
                 </details>
               ))}
               {profile.education.length > 0 && <details className="rounded-md border p-2"><summary className="cursor-pointer font-medium">Education ({profile.education.length})</summary><ul className="ml-5 mt-2 list-disc space-y-1">{profile.education.map((d) => <li key={d.id}>{d.degree}, {d.school}{d.start || d.end ? ` (${[d.start, d.end].filter(Boolean).join(" - ")})` : ""}</li>)}</ul></details>}
-              {profile.certifications.length > 0 && <details className="rounded-md border p-2"><summary className="cursor-pointer font-medium">Certifications and awards ({profile.certifications.length})</summary><ul className="ml-5 mt-2 list-disc space-y-1">{profile.certifications.map((c) => <li key={c.id}>{c.name}</li>)}</ul></details>}
+              {([["Career highlights", profile.highlights.map((h) => h.text)], ["Case studies", profile.caseStudies.map((c) => c.title)], ["Certifications", profile.certifications.map((c) => c.name)], ["Professional development", profile.development.map((c) => c.name)], ["Awards and recognition", profile.awards.map((c) => c.name)]] as [string, string[]][]).filter(([, xs]) => xs.length > 0).map(([label, xs]) => (
+                <details key={label} className="rounded-md border p-2"><summary className="cursor-pointer font-medium">{label} ({xs.length})</summary><ul className="ml-5 mt-2 list-disc space-y-1">{xs.map((x, i) => <li key={i}>{x}</li>)}</ul></details>
+              ))}
             </div>
           </CardContent>
+        </Card>
+      )}
+
+      {!empty && (
+        <Card>
+          <CardHeader><CardTitle>Edit your profile</CardTitle><CardDescription>Add, change or remove skills, or edit any field. Changes are used for job search, scoring and tailoring straight away.</CardDescription></CardHeader>
+          <CardContent><ProfileEditor key={JSON.stringify(profile).length} profile={profile} /></CardContent>
         </Card>
       )}
 

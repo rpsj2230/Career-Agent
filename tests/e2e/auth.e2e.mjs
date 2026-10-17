@@ -356,6 +356,10 @@ dueNow(autoId);
 r = await call("/api/cron/due", { auth: false, headers: { Authorization: `Bearer ${SECRET}` } }); check("the tick endpoint sees the due schedule", r.json?.due === 1 && r.json.schedules[0] === "Auto", `${r.text}`);
 r = await call("/api/cron/discover", { auth: false, headers: { Authorization: `Bearer ${SECRET}` } }); check("the old fixed-time job stands down once a schedule is active", r.json?.skipped !== undefined, r.text);
 
+// Auto-Apply is off by default: nothing may submit by itself until it is switched on
+r = await call("/api/settings", { method: "PUT", body: { key: "autoapply", value: { enabled: false } } }); check("the Auto-Apply switch can be saved (off)", r.status === 200, `${r.status} ${r.text}`);
+r = await call("/api/settings", { method: "PUT", body: { key: "autoapply", value: { enabled: true } } }); check("the Auto-Apply switch can be turned on", r.status === 200, `${r.status} ${r.text}`);
+r = await call("/api/settings", { method: "PUT", body: { key: "autoapply", value: { enabled: "yes" } } }); check("a malformed Auto-Apply value is refused", r.status === 400, `${r.status} ${r.text}`);
 let w = await runWorker();
 check("the pipeline worker exits cleanly", w.code === 0, `${w.code} ${w.text.slice(-800)}`);
 const sch1 = mock.rowsOf("schedules").find((x) => x.id === autoId);

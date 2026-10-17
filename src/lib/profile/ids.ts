@@ -13,13 +13,14 @@ const kind = z.preprocess((v) => {
   return k.includes("tech") ? "technical" : k.includes("comp") ? "competency" : undefined;
 }, z.enum(["competency", "technical"]).optional());
 // A skill is a plain name, {name, group, kind}, or a whole heading {group, kind, items: [...]} that is spread into one skill per item.
-const skillItem = z.object({ name: text, group: optText, kind });
+const flag = z.preprocess((v) => (v === true || String(v).toLowerCase() === "true" ? true : undefined), z.boolean().optional());
+const skillItem = z.object({ name: text, group: optText, kind, extra: flag });
 const skillList = z.preprocess((v) => {
   const xs = v == null ? [] : Array.isArray(v) ? v : [v];
   return xs.flatMap((x) => {
     if (x && typeof x === "object" && Array.isArray((x as { items?: unknown }).items)) {
       const g = x as { items: unknown[]; group?: unknown; kind?: unknown };
-      return g.items.map((name) => ({ name, group: g.group, kind: g.kind }));
+      return g.items.map((name) => ({ name, group: g.group, kind: g.kind, extra: (g as { extra?: unknown }).extra }));
     }
     return [typeof x === "object" && x ? x : { name: x }];
   });
@@ -56,12 +57,15 @@ function dedupe(xs: string[]): string[] {
 
 function dedupeSkills(xs: ExtractedProfile["skills"]) {
   const seen = new Set<string>();
-  const out: { name: string; group?: string; kind?: "competency" | "technical" }[] = [];
+  const out: { name: string; group?: string; kind?: "competency" | "technical"; extra?: boolean }[] = [];
+  // a supplementary skill that the master resume already lists is not added twice, whichever source came first
+  const resumeNames = new Set(xs.filter((s) => !s.extra).map((s) => s.name.trim().toLowerCase()));
   for (const s of xs) {
-    const k = `${s.kind ?? ""}|${s.name.trim().toLowerCase()}`;
-    if (!s.name.trim() || seen.has(k)) continue;
+    const name = s.name.trim().toLowerCase();
+    const k = `${s.kind ?? ""}|${name}`;
+    if (!name || seen.has(k) || (s.extra && resumeNames.has(name))) continue;
     seen.add(k);
-    out.push({ name: s.name.trim(), ...(s.group ? { group: s.group.trim() } : {}), ...(s.kind ? { kind: s.kind } : {}) });
+    out.push({ name: s.name.trim(), ...(s.group ? { group: s.group.trim() } : {}), ...(s.kind ? { kind: s.kind } : {}), ...(s.extra ? { extra: true } : {}) });
   }
   return out;
 }

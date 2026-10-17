@@ -62,7 +62,7 @@ export function masterAsTailored(p: MasterProfile): TailoredResume {
     headline: p.basics.headline,
     summary: { text: p.basics.summary, sourceIds: ["summary"] },
     experience: p.experience.map((e) => ({ experienceId: e.id, bullets: e.bullets.map((x) => ({ text: x.text, sourceIds: [x.id] })) })),
-    skillIds: p.skills.map((s) => s.id),
+    skillIds: p.skills.filter((s) => !s.extra).map((s) => s.id),
     certificationIds: p.certifications.map((c) => c.id),
     highlightIds: p.highlights.map((h) => h.id),
   };

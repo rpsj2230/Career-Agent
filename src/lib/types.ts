@@ -24,7 +24,7 @@ export const Education = z.object({
 export const Named = z.object({ id: z.string(), name: z.string().min(1) });
 
 /** A skill, optionally filed under a heading ("Delivery & Project Management") in either the Core Competencies or the Technical Skills section. */
-export const Skill = Named.extend({ group: z.string().optional(), kind: z.enum(["competency", "technical"]).optional() });
+export const Skill = Named.extend({ group: z.string().optional(), kind: z.enum(["competency", "technical"]).optional(), /** found only outside the master resume (e.g. your LinkedIn PDF): used for matching and available to tailoring, but not printed in the master template */ extra: z.boolean().optional() });
 export const CaseStudy = z.object({ id: z.string(), title: z.string().min(1), url: z.string().optional() });
 
 export const MasterProfile = z.object({

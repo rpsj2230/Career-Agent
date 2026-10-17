@@ -67,10 +67,13 @@ dates of birth from anything you upload.
 A **Claude subscription does not provide API access**; the optional `claude-sonnet` row needs API credits.
 
 ### Your profile
-Profile page -> any combination of: your LinkedIn link, your LinkedIn profile **pasted** (open your own profile, show all
-sections, select all, copy, paste), a LinkedIn **Save to PDF** or the LinkedIn **data export** (.zip), and your resume
-(PDF/DOCX). LinkedIn has no public profile API, blocks anonymous fetches and forbids scraping, so these routes
-(which use only data you provide) are what is supported. The result is a **draft**: review and edit it, then Confirm.
+Profile page -> upload your **master resume** (PDF/DOCX) once. It sets the profile's sections and wording, becomes the
+master resume template on the Resumes page and is kept as the fallback resume. Optionally add **supporting documents**:
+your LinkedIn **Save to PDF**, a second resume or the LinkedIn **data export** (.zip). These only add skills the master
+resume lacks (used for job search and scoring, not printed in the template) and list anything else for you to review.
+LinkedIn has no public profile API and forbids scraping, so only data you provide is used. The result is a **draft**:
+review and edit it, then Confirm. Afterwards "Edit your profile" lets you add, change or remove skills, or edit the whole
+profile as JSON.
 The answer bank comes pre-listed with the standard application questions; facts already on your profile are filled in automatically.
 
 ### India portals
