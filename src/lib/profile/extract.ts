@@ -27,7 +27,7 @@ export async function importProfile(input: ImportInput, preferences: MasterProfi
   for (const u of input.uploads) parts.push(`===== SOURCE: ${u.name} =====\n${await uploadToText(u)}`);
   if (pasted) parts.push(`===== SOURCE: LinkedIn profile (copied from the profile page) =====\n${pasted}`);
 
-  const { output, model } = await runStructured({ task: "extract", schema: ExtractedProfile, system: SYSTEM, prompt: parts.join("\n\n") });
+  const { output, model } = await runStructured({ task: "extract", schema: ExtractedProfile, system: SYSTEM, prompt: parts.join("\n\n"), budgetMs: 50_000 });
   const profile = assignIds(output, preferences);
   if (linkedin && !profile.basics.links.some((l) => normalizeLinkedInUrl(l) === linkedin)) profile.basics.links.unshift(linkedin);
   return { profile, conflicts: output.conflicts, model };

@@ -43,3 +43,19 @@ describe("runWithFallback", () => {
     await expect(runWithFallback("score", [], async () => 1)).rejects.toThrow(/No model available/);
   });
 });
+
+describe("request deadline", () => {
+  const row = (label: string) => ({ label, provider: "x", model: "m", base_url: "", api_key_env: null, tasks: ["extract"], priority: 1, daily_cap: null, enabled: true, id: label }) as never;
+  it("stops trying models once the time is nearly used up and says so", async () => {
+    const tried: string[] = [];
+    await expect(runWithFallback("extract", [row("a"), row("b")], async (m) => { tried.push((m as { label: string }).label); throw new Error("slow"); }, undefined, Date.now() + 2_000))
+      .rejects.toThrow(/out of time/);
+    expect(tried).toEqual([]); // 2 s left is below the 3 s needed for an attempt
+  });
+  it("gives each attempt only the time that is left", async () => {
+    let seen = 0;
+    await runWithFallback("extract", [row("a")], async (_m, remaining) => { seen = remaining ?? 0; return 1; }, undefined, Date.now() + 30_000);
+    expect(seen).toBeGreaterThan(20_000);
+    expect(seen).toBeLessThanOrEqual(30_000);
+  });
+});

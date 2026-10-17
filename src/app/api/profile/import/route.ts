@@ -8,7 +8,8 @@ export const maxDuration = 60;
 
 /** Upload resume(s) / LinkedIn export zip. Result is saved as a DRAFT for the user to review. */
 export async function POST(request: Request) {
-  const form = await request.formData();
+  let form: FormData;
+  try { form = await request.formData(); } catch { return NextResponse.json({ error: "The upload could not be read. Try again with smaller files." }, { status: 400 }); }
   const files = form.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
   const pasted = String(form.get("pasted") ?? "");
   const linkedinUrl = String(form.get("linkedinUrl") ?? "");
