@@ -356,6 +356,10 @@ dueNow(autoId);
 r = await call("/api/cron/due", { auth: false, headers: { Authorization: `Bearer ${SECRET}` } }); check("the tick endpoint sees the due schedule", r.json?.due === 1 && r.json.schedules[0] === "Auto", `${r.text}`);
 r = await call("/api/cron/discover", { auth: false, headers: { Authorization: `Bearer ${SECRET}` } }); check("the old fixed-time job stands down once a schedule is active", r.json?.skipped !== undefined, r.text);
 
+// target roles live on the profile only: saving them there clears the older copy in Settings
+r = await call("/api/settings", { method: "PUT", body: { key: "discovery", value: { countries: ["sg"], roles: ["Old Role"], greenhouse_boards: [], lever_companies: [], max_age_days: 30 } } }); check("an older Settings role list can be saved", r.status === 200, `${r.status} ${r.text}`);
+r = await call("/api/profile/preferences", { method: "PUT", body: { countries: ["sg"], roles: ["Product Manager", "Old Role"] } }); check("target roles are saved on the profile", r.status === 200, `${r.status} ${r.text}`);
+check("the older Settings copy of the roles is cleared", (mock.rowsOf("settings").find((x) => x.key === "discovery")?.value.roles ?? []).length === 0, JSON.stringify(mock.rowsOf("settings").find((x) => x.key === "discovery")));
 // Auto-Apply is off by default: nothing may submit by itself until it is switched on
 r = await call("/api/settings", { method: "PUT", body: { key: "autoapply", value: { enabled: false } } }); check("the Auto-Apply switch can be saved (off)", r.status === 200, `${r.status} ${r.text}`);
 r = await call("/api/settings", { method: "PUT", body: { key: "autoapply", value: { enabled: true } } }); check("the Auto-Apply switch can be turned on", r.status === 200, `${r.status} ${r.text}`);

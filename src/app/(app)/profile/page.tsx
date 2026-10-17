@@ -7,12 +7,17 @@ import { db, must } from "@/lib/db";
 import { getDraft, getProfile } from "@/lib/profile/store";
 import { HandbackAnswers } from "@/components/app/handback-answers";
 import { loadHandbacks } from "@/lib/apply/handbacks-store";
+import { dedupeList } from "@/lib/country-prefs";
+import { getSetting } from "@/lib/settings";
 import { mergeStandard } from "@/lib/standard-questions";
 
 export const dynamic = "force-dynamic";
 
 export default async function ProfilePage() {
-  const [profile, draft, searching] = await Promise.all([getProfile(), getDraft(), searchingCountries()]);
+  const [profile, draft, searching, discovery] = await Promise.all([getProfile(), getDraft(), searchingCountries(), getSetting("discovery")]);
+  const titles = [...new Set(profile.experience.map((e) => e.title.trim()).filter(Boolean))].slice(0, 6);
+  // roles that were typed on the old Settings field are shown here too, and move to the profile on the next save
+  const prefs = { ...profile.preferences, roles: dedupeList([...profile.preferences.roles, ...discovery.roles]) };
   const bank = must<{ question: string; answer: string }[]>(await db().from("answer_bank").select("question,answer").order("question"), "load answers");
   const handbacks = await loadHandbacks().catch(() => []);
   const empty = profile.experience.length === 0;
@@ -71,7 +76,7 @@ export default async function ProfilePage() {
 
       <Card>
         <CardHeader><CardTitle>Preferences</CardTitle><CardDescription>Used for discovery, scoring and pre-filled application answers.</CardDescription></CardHeader>
-        <CardContent><PreferencesForm prefs={profile.preferences} searching={searching} /></CardContent>
+        <CardContent><PreferencesForm prefs={prefs} searching={searching} profileTitles={titles} /></CardContent>
       </Card>
 
       <Card>
