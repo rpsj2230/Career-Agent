@@ -1,3 +1,4 @@
+import type { ApifyActor } from "@/lib/jobs/apify";
 import "server-only";
 import { db, must } from "@/lib/db";
 
@@ -6,6 +7,8 @@ export type Caps = {
   daily_linkedin: number;
   weekly_linkedin: number;
   linkedin_automation_enabled: boolean;
+  /** let the apply assistant on your computer press Submit by itself (within the caps); otherwise it stops for you */
+  local_auto_enabled?: boolean;
 };
 
 export const DEFAULTS = {
@@ -18,7 +21,9 @@ export const DEFAULTS = {
   retention: { skipped_days: 30, log_days: 90 },
   /** resume style per country code, e.g. { "de": "europe" }; countries not listed use the default for their region */
   resume_templates: {} as Record<string, string>,
-  caps: { daily_total: 15, daily_linkedin: 10, weekly_linkedin: 40, linkedin_automation_enabled: false } as Caps,
+  /** hosted scrapers (Apify) for the portals without an API */
+  apify: { actors: [] as ApifyActor[] },
+  caps: { daily_total: 15, daily_linkedin: 10, weekly_linkedin: 40, linkedin_automation_enabled: false, local_auto_enabled: false } as Caps,
 };
 
 export async function getSetting<K extends keyof typeof DEFAULTS>(key: K): Promise<(typeof DEFAULTS)[K]> {

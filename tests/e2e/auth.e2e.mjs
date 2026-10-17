@@ -164,10 +164,23 @@ const js = mock.rowsOf("jobs").find((j) => j.external_id === "js1");
 check("the job's origin portal is the publisher (LinkedIn), not the employer link or the API", js?.portal === "linkedin" && js.source.startsWith("jsearch"), JSON.stringify(js));
 check("JSearch received the key in the header", mock.seen.external.some((e) => e.host === "jsearch.p.rapidapi.com" && e.key === "RAPID-KEY-789"), "key not seen");
 
+// hosted scrapers (Apify): the portals without an API are read automatically
+r = await call("/api/settings", { method: "PUT", body: { key: "apify", value: { actors: [{ id: "bad id", portal: "linkedin" }] } } }); check("a malformed scraper id is rejected", r.status === 400, `${r.status} ${r.text}`);
+r = await call("/api/settings", { method: "PUT", body: { key: "apify", value: { actors: [{ id: "someone~linkedin-jobs", portal: "linkedin", input: { keywords: "{{title}}", location: "{{location}}", rows: "{{max_items}}" }, max_items: 20 }] } } }); check("a scraper is saved", r.status === 200, `${r.status} ${r.text}`);
+r = await call("/api/integrations/apify/scan", { method: "POST" }); check("a scan without the token says what to connect", r.status !== 200 || /token|connect|needs/i.test(r.text), `${r.status} ${r.text}`);
+r = await call("/api/integrations/apify/credentials", { method: "PUT", body: { values: { token: "APIFY-TOKEN-123" } } }); check("Apify token saved", r.status === 200, r.status);
+r = await call("/api/integrations/apify/test", { method: "POST" }); check("Apify Test accepts the token and counts the scrapers", r.status === 200 && /accepted the token/.test(r.text) && /1 scraper/.test(r.text), `${r.status} ${r.text}`);
+r = await call("/api/integrations/apify/scan", { method: "POST" }); check("the Apify scan stores the scraped jobs (an item with no link is skipped)", r.status === 200 && /2 new/.test(r.text), `${r.status} ${r.text}`);
+const li1 = mock.rowsOf("jobs").find((j) => j.external_id === "li-1001"), li2 = mock.rowsOf("jobs").find((j) => j.external_id === "li-1002");
+check("a scraped LinkedIn job keeps LinkedIn as its portal and its own page as the link", li1?.portal === "linkedin" && li1.source.startsWith("apify:someone~linkedin-jobs") && li1.url === "https://www.linkedin.com/jobs/view/1001" && li1.country === "sg", JSON.stringify(li1));
+check("a scraped job that names the employer's Greenhouse page is switched to it, ready for automatic applying", li2?.url === "https://boards.greenhouse.io/scrapeco/jobs/55" && li2.apply_type === "greenhouse", JSON.stringify(li2));
+check("the token went to Apify as a bearer token and the request used the actor id", mock.seen.external.some((e) => e.host === "api.apify.com" && e.auth === "Bearer APIFY-TOKEN-123" && e.path.includes("someone~linkedin-jobs")), "not seen");
+check("the token is never stored in clear text", !JSON.stringify(mock.rowsOf("settings")).includes("APIFY-TOKEN-123"), "leaked");
+
 // ---- Jobs list: origin portal shown, filters in the URL, hostile input ignored
 r = await call("/jobs?view=all"); check("Jobs list shows every stored job with its source", r.status === 200 && r.text.includes("Principal Product Manager") && r.text.includes("Gamma Pte Ltd") && r.text.includes("Delta"), `${r.status}`);
 check("the Source column names the origin portals", r.text.includes("LinkedIn") && r.text.includes("Adzuna"), "portal labels missing");
-check("the filter lists portals that actually exist, with counts", /<option value="linkedin">LinkedIn \(1\)/.test(r.text.replace(/<!-- -->/g, "")), "dropdown missing");
+check("the filter lists portals that actually exist, with counts", /<option value="linkedin">LinkedIn \(3\)/.test(r.text.replace(/<!-- -->/g, "")), JSON.stringify(r.text.replace(/<!-- -->/g, "").match(/<option value="[a-z]+">[^<]*<\/option>/g)));
 r = await call("/jobs?view=all&portal=linkedin"); check("portal filter shows only that portal's jobs", r.text.includes("Delta") && !r.text.includes("Gamma Pte Ltd"), "wrong rows");
 r = await call("/jobs?view=all&country=in"); check("country filter with no matches says so", r.text.includes("Nothing here for these filters"), "empty state missing");
 r = await call("/jobs?view=all&country=sg"); check("country filter keeps matching jobs", r.text.includes("Gamma Pte Ltd") && r.text.includes("Singapore"), "rows missing");
@@ -541,6 +554,41 @@ if (process.env.PLAYWRIGHT_BROWSERS_PATH || process.env.CHROMIUM_PATH) {
   check("the job is marked applied and the submission is logged as made with the assistant", mock.rowsOf("jobs").find((j) => j.id === asst.jobId).status === "applied" && mock.rowsOf("activity_log").some((l) => l.kind === "application.submitted" && l.application_id === asst.appId && l.detail?.assistant === true), "log missing");
   const idle = await runAssist("q");
   check("with nothing waiting it says so and exits", idle.code === 0 && /Nothing is waiting/.test(idle.text), idle.text.slice(-200));
+
+  // ---- hands-free mode (ASSIST_MODE=auto): presses Submit itself, inside the limits, and hands back what it cannot answer
+  const runAuto = (appId, extra = {}) => new Promise((resolve) => {
+    const p = spawn("node_modules/.bin/tsx", ["worker/assist.ts"], {
+      env: { ...process.env, SUPABASE_URL: `http://127.0.0.1:${MOCK}`, SUPABASE_SERVICE_ROLE_KEY: "service-key", CHROMIUM_PATH: process.env.CHROMIUM_PATH ?? `${process.env.PLAYWRIGHT_BROWSERS_PATH}/chromium`, ASSIST_HEADLESS: "1", ASSIST_MODE: "auto", ASSIST_AUTO_PAUSE_MS: "0", APPLICATION_ID: appId, ASSIST_PROFILE_DIR: `${process.env.TMPDIR ?? "/tmp"}/assist-profile-${Date.now()}`, ...extra },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let text = ""; p.stdout.on("data", (d) => (text += d)); p.stderr.on("data", (d) => (text += d));
+    p.on("close", (code) => resolve({ code, text }));
+  });
+  const mkAssisted = (company, fixture, hash = "") => {
+    const x = seedApproved(company, hash, new Date(Date.now() - 4_000).toISOString(), fixture);
+    const row = mock.rowsOf("applications").find((a) => a.id === x.appId);
+    row.status = "assisted_pending"; row.method = "assisted"; row.portal = "naukri";
+    mock.rowsOf("jobs").find((j) => j.id === x.jobId).portal = "naukri";
+    return { ...x, row };
+  };
+  const hf = mkAssisted("HandsFreeCo", "portal-multistep");
+  const off = await runAuto(hf.appId);
+  check("hands-free mode does nothing until it is switched on in Settings", /switched off/.test(off.text) && hf.row.status === "assisted_pending", off.text.slice(-300));
+  r = await call("/api/settings", { method: "PUT", body: { key: "caps", value: { daily_total: 15, daily_linkedin: 10, weekly_linkedin: 40, linkedin_automation_enabled: false, local_auto_enabled: true } } });
+  check("hands-free mode can be switched on", r.status === 200, `${r.status} ${r.text}`);
+  const on = await runAuto(hf.appId);
+  check("hands-free: the form is filled, submitted and confirmed with nobody at the keyboard", on.code === 0 && hf.row.status === "submitted" && hf.row.method === "automated" && hf.row.lifecycle === "applied" && /confirmed by the portal/.test(on.text), `${on.code} ${hf.row.status} ${on.text.slice(-400)}`);
+  check("hands-free: the record says it was automatic and lists what was entered", /automatically/.test(hf.row.submission?.note ?? "") && hf.row.submission.method === "automated" && hf.row.submission.fields.length >= 4 && hf.row.submission.confirmation?.text, JSON.stringify(hf.row.submission)?.slice(0, 300));
+  check("hands-free: the job is applied and the log says it was automatic", mock.rowsOf("jobs").find((j) => j.id === hf.jobId).status === "applied" && mock.rowsOf("activity_log").some((l) => l.kind === "application.submitted" && l.application_id === hf.appId && /automatically/.test(l.message)), "log missing");
+  const stuckAssisted = mkAssisted("AskCo", "lever-like", "#sponsor");
+  const askRun = await runAuto(stuckAssisted.appId);
+  check("hands-free: a question it cannot answer is handed back with the reason, and nothing is sent", stuckAssisted.row.status === "needs_input" && /visa sponsorship/.test(stuckAssisted.row.error ?? "") && !stuckAssisted.row.submitted_at, `${stuckAssisted.row.status} ${stuckAssisted.row.error} ${askRun.text.slice(-300)}`);
+  check("hands-free: the hand-back is logged as needing the user", mock.rowsOf("activity_log").some((l) => l.kind === "application.needs_input" && l.application_id === stuckAssisted.appId), "no log");
+  r = await call("/api/settings", { method: "PUT", body: { key: "caps", value: { daily_total: 0, daily_linkedin: 10, weekly_linkedin: 40, linkedin_automation_enabled: false, local_auto_enabled: true } } });
+  const capped = mkAssisted("CappedCo", "portal-multistep");
+  const capRun = await runAuto(capped.appId);
+  check("hands-free: a reached daily limit leaves the application waiting, never dropped", /Daily limit of 0/.test(capRun.text) && capped.row.status === "assisted_pending", capRun.text.slice(-300));
+  await call("/api/settings", { method: "PUT", body: { key: "caps", value: { daily_total: 15, daily_linkedin: 10, weekly_linkedin: 40, linkedin_automation_enabled: false, local_auto_enabled: false } } });
 } else {
   console.log("SKIP  apply worker checks (set PLAYWRIGHT_BROWSERS_PATH or CHROMIUM_PATH)");
 }

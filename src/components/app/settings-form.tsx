@@ -13,7 +13,7 @@ import { COUNTRY_PRESETS, ROLE_PRESETS, toggleCsv } from "@/lib/standard-questio
 import { call } from "./api";
 
 type Discovery = { countries: string[]; roles: string[]; greenhouse_boards: string[]; lever_companies: string[]; max_age_days: number };
-type Caps = { daily_total: number; daily_linkedin: number; weekly_linkedin: number; linkedin_automation_enabled: boolean };
+type Caps = { daily_total: number; daily_linkedin: number; weekly_linkedin: number; linkedin_automation_enabled: boolean; local_auto_enabled?: boolean };
 const csv = (s: string) => s.split(",").map((x) => x.trim()).filter(Boolean);
 
 export function SettingsForm({ discovery, threshold, minEvidence, caps, tailoring, profileTitles }: { discovery: Discovery; threshold: number; minEvidence: number; caps: Caps; tailoring: { reuse_enabled: boolean; reuse_similarity: number; adapt_similarity: number }; profileTitles: string[] }) {
@@ -93,6 +93,13 @@ export function SettingsForm({ discovery, threshold, minEvidence, caps, tailorin
           <div className="grid gap-1"><Label htmlFor="dl">LinkedIn per day</Label>{num(c.daily_linkedin, (n) => setC({ ...c, daily_linkedin: n }), "dl")}</div>
           <div className="grid gap-1"><Label htmlFor="wl">LinkedIn per week</Label>{num(c.weekly_linkedin, (n) => setC({ ...c, weekly_linkedin: n }), "wl")}</div>
           <label className="flex items-center gap-2 text-sm md:col-span-3"><Switch checked={c.linkedin_automation_enabled} onCheckedChange={(v) => setC({ ...c, linkedin_automation_enabled: v })} /> Allow automated LinkedIn Easy Apply</label>
+          <label className="flex items-center gap-2 text-sm md:col-span-3"><Switch checked={!!c.local_auto_enabled} onCheckedChange={(v) => setC({ ...c, local_auto_enabled: v })} /> Let the apply assistant on my computer press Submit by itself (hands-free, within the limits above)</label>
+          {c.local_auto_enabled && (
+            <Alert variant="destructive" className="md:col-span-3">
+              <AlertTitle>Portal terms</AlertTitle>
+              <AlertDescription>Portals such as LinkedIn, Naukri and Indeed restrict automated applying and can warn, block or ban an account. The assistant runs from your own computer, paces itself, never touches a CAPTCHA or security check and stops at the first one, but the risk is yours. Anything with a question it cannot answer is left for you.</AlertDescription>
+            </Alert>
+          )}
           {c.linkedin_automation_enabled && (
             <Alert variant="destructive" className="md:col-span-3">
               <AlertTitle>Account risk</AlertTitle>

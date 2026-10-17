@@ -15,12 +15,13 @@ import { buildScanSpecs, searchQueries, type DiscoverySettings } from "./sources
  * preference), otherwise Settings > Job discovery / profile preferences as before.
  */
 export async function effectiveDiscovery(): Promise<DiscoverySettings> {
-  const [settings, { countries }] = await Promise.all([getSetting("discovery"), loadEffectiveCountries()]);
+  const [settings, { countries }, apify] = await Promise.all([getSetting("discovery"), loadEffectiveCountries(), getSetting("apify")]);
   return {
     ...settings,
     countries: countries.map((c) => c.country),
     roles: [...new Set(countries.flatMap((c) => c.titles))],
     perCountry: countries,
+    apify_actors: apify.actors,
   };
 }
 

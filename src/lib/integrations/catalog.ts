@@ -5,7 +5,7 @@
  * scrapes LinkedIn, Indeed or Glassdoor, which have no open job-search or apply API for individuals and forbid it.
  */
 
-export type IntegrationId = "adzuna" | "jsearch" | "remotive" | "arbeitnow" | "remoteok" | "jobicy" | "greenhouse" | "lever" | "manual" | "mailbox";
+export type IntegrationId = "adzuna" | "jsearch" | "remotive" | "arbeitnow" | "remoteok" | "jobicy" | "greenhouse" | "lever" | "manual" | "mailbox" | "apify";
 export type ApplyMode = "automated" | "assisted" | "none";
 
 export type CredentialDef = { key: string; label: string; help: string; env?: string; /** not needed for the integration to be ready */ optional?: boolean };
@@ -13,11 +13,11 @@ export type CredentialDef = { key: string; label: string; help: string; env?: st
 export type IntegrationDef = {
   id: IntegrationId;
   name: string;
-  kind: "aggregator API" | "company job-board API" | "email" | "manual";
+  kind: "aggregator API" | "company job-board API" | "email" | "manual" | "hosted scraper";
   summary: string;
   available: boolean;                    // false = planned, shown but cannot be enabled yet
   credentials: CredentialDef[];          // all must be present before scanning
-  needsConfig?: "greenhouse_boards" | "lever_companies"; // list kept in Settings > Job discovery
+  needsConfig?: "greenhouse_boards" | "lever_companies" | "apify_actors"; // list kept in Settings > Job discovery
   discovers: boolean;
   apply: ApplyMode;                      // what this integration's listings support
   countries: "all" | string[];
@@ -100,6 +100,23 @@ export const INTEGRATIONS: IntegrationDef[] = [
     credentials: [], countries: "all",
     setup: ["Settings > Job discovery > Lever companies: add the company slug (jobs.lever.co/SLUG)", "Press Test"],
     limitations: ["Only the companies you list", "Required questions without a saved answer hand the job back to you", "CAPTCHAs are never bypassed"],
+  },
+  {
+    id: "apify", name: "Hosted scrapers (Apify)", kind: "hosted scraper", available: true, discovers: true, apply: "assisted", needsConfig: "apify_actors",
+    summary: "Reads LinkedIn, Naukri, Indeed, SEEK/JobStreet/JobsDB and similar portals automatically, using ready-made scrapers that Apify runs on its own servers against the portals' public pages. This is how the portals without a job-search API are searched on every schedule with no manual step.",
+    credentials: [{ key: "token", label: "Apify API token", help: "Apify > Settings > Integrations (a free plan with monthly credit exists)", env: "APIFY_TOKEN" }],
+    countries: "all",
+    setup: [
+      "Create an Apify account and copy your API token into Connect below",
+      "In the Apify Store find a scraper for each portal you want (search for \"LinkedIn jobs\", \"Naukri\", \"SEEK\", \"Indeed\") and add it under Scrapers below: its id, the portal it reads, and the input from its documentation, using {{title}} {{location}} {{country}} {{days}} {{max_items}} where it expects them",
+      "Press Test, then Scan now to see jobs arrive",
+    ],
+    limitations: [
+      "Third-party scrapers read the portals' public listings. They are maintained by their authors and can break when a portal changes; Test and the scan history show when one stops working",
+      "Each search is one scraper run and uses your Apify credit (a free plan includes some); keep the number of titles and locations modest",
+      "It never uses your portal accounts, so your accounts are not at risk from fetching. Applying is separate (the apply assistant)",
+      "Fields differ between scrapers; the common ones are read automatically, and jobs without a title or link are skipped",
+    ],
   },
   {
     id: "manual", name: "Added manually", kind: "manual", available: true, discovers: false, apply: "assisted",
