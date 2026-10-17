@@ -9,6 +9,8 @@ export type AutoApplyInput = {
   /** both generated documents passed the anti-fabrication check */
   verified: boolean;
   applyType: ApplyType;
+  /** the applicant-tracking system of the posting, when known (Ashby and Workable are applied for automatically too) */
+  ats?: string | null;
   caps: Caps;
   capState: CapState;
   /** automated approvals already made by this run, and the run's limit */
@@ -27,7 +29,7 @@ export function decideAutoApply(i: AutoApplyInput): AutoDecision {
   if (i.mode !== "scan_prepare_apply") return { action: "leave", code: "scan_only", reason: "This schedule only prepares applications; they wait for your approval" };
   if (i.requireApproval) return { action: "leave", code: "approval_required", reason: "This schedule asks for your approval before submitting" };
   if (!i.verified) return { action: "leave", code: "unverified", reason: "The documents contain claims that are not in your profile; review them before approving" };
-  const d = decideApply(i.applyType, i.caps, i.capState);
+  const d = decideApply(i.applyType, i.caps, i.capState, i.ats);
   if (!d.allowed) return { action: "leave", code: "cap", reason: d.reason ?? "Daily limit reached" };
   if (d.mode === "automated" && i.automatedThisRun >= i.maxApply) return { action: "leave", code: "run_limit", reason: `This schedule's limit of ${i.maxApply} automatic submissions per run was reached` };
   return { action: "approve", code: "ok", reason: d.mode === "automated" ? "Approved for automatic submission" : (d.reason ?? "Approved; this portal needs you to press the final submit") };

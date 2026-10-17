@@ -3,12 +3,14 @@ import type { ActivityStore } from "@/lib/activity-store";
 import type { RunTrigger } from "@/lib/activity-types";
 import type { ApproveResult } from "@/lib/apply/approve";
 import type { CapState } from "@/lib/apply/caps";
+import { parseAtsUrl } from "@/lib/jobs/ats";
+import { rankScore } from "./rank";
 import { decideAutoApply } from "@/lib/apply/policy";
 import type { ApplyType } from "@/lib/jobs/normalize";
 import type { ScheduleConfig } from "@/lib/schedule";
 import type { Caps } from "@/lib/settings";
 
-export type QueuedJob = { id: string; title: string; company: string; country: string | null; portal: string | null; apply_type: ApplyType; score: number };
+export type QueuedJob = { id: string; title: string; company: string; country: string | null; portal: string | null; apply_type: ApplyType; score: number; posted_at?: string | null; url?: string };
 
 /** Everything the pipeline needs from the outside world, so its decisions can be tested without a database or models. */
 export type PipelineDeps = {
@@ -18,6 +20,8 @@ export type PipelineDeps = {
   failedPrepareAttempts(jobId: string): Promise<number>;
   prepare(jobId: string, runId: string | null): Promise<{ applicationId: string; verified: boolean }>;
   approve(applicationId: string, runId: string | null): Promise<ApproveResult>;
+  /** applications returned to the queue because you answered the question that stopped them: approved again under the same rules */
+  requeued?(countries: string[]): Promise<{ applicationId: string; verified: boolean; job: QueuedJob }[]>;
   loadCaps(): Promise<{ caps: Caps; state: CapState }>;
   now(): number;
   store?: ActivityStore;
@@ -80,7 +84,7 @@ export async function runPipeline(
     if (schedule.mode === "scan") return;
 
     // 3. prepare applications for the best matches first
-    const candidates = (await deps.queuedJobs(schedule.countries)).sort((a, b) => b.score - a.score);
+    const candidates = (await deps.queuedJobs(schedule.countries)).sort((a, b) => rankScore(b.score, b.posted_at, deps.now()) - rankScore(a.score, a.posted_at, deps.now()));
     const prepared: { applicationId: string; verified: boolean; job: QueuedJob }[] = [];
     for (const job of candidates) {
       if (prepared.length >= schedule.max_prepare) break;
@@ -95,6 +99,8 @@ export async function runPipeline(
         prepared.push({ ...r, job });
         ctx.stat("prepared"); out.prepared++;
       } catch (e) {
+        // closed, no longer a fit, or already applied: the job was closed out with the reason, which is a result, not a failure
+        if (e instanceof Error && e.name === "PreflightStop") { ctx.stat("closed_before_applying"); continue; }
         const error = e instanceof Error ? e.message : String(e);
         out.prepareFailed++; ctx.stat("prepare_failed");
         await ctx.log({ kind: "application.prepare_failed", level: "error", message: `Could not prepare "${job.title}" at ${job.company}: ${error}`, status: "failed", ...ref, detail: { error, title: job.title } });
@@ -104,13 +110,18 @@ export async function runPipeline(
     }
     if (out.prepareFailed) ctx.markPartial(`${out.prepareFailed} application(s) could not be prepared; the jobs stay queued and are retried next run`);
 
+    // applications that were waiting for an answer you have now given go through the same approval rules
+    const again = deps.requeued ? await deps.requeued(schedule.countries).catch(() => []) : [];
+    for (const r of again) if (!prepared.some((p) => p.applicationId === r.applicationId)) prepared.push(r);
+
     // 4. approve, only within what this schedule is allowed to do
     let automated = 0;
     for (const p of prepared) {
       const { caps, state } = await deps.loadCaps();
-      const d = decideAutoApply({ mode: schedule.mode, requireApproval: schedule.require_approval, verified: p.verified, applyType: p.job.apply_type, caps, capState: state, automatedThisRun: automated, maxApply: schedule.max_apply });
+      const d = decideAutoApply({ mode: schedule.mode, requireApproval: schedule.require_approval, verified: p.verified, applyType: p.job.apply_type, ats: p.job.url ? parseAtsUrl(p.job.url)?.ats ?? null : null, caps, capState: state, automatedThisRun: automated, maxApply: schedule.max_apply });
       if (d.action === "leave") { out.awaitingApproval++; ctx.stat(`left_${d.code}`); continue; }
       const r = await deps.approve(p.applicationId, ctx.id);
+      if (!r.ok && r.status === 409 && /applied to .* recently/.test(r.error)) { out.awaitingApproval++; ctx.stat("left_cooldown"); continue; }
       if (!r.ok) { out.blocked++; ctx.stat("approval_blocked"); ctx.markPartial(`An approval was refused: ${r.error}`); continue; }
       if (r.mode === "automated") { automated++; out.autoApproved++; out.readyToSubmit++; ctx.stat("auto_approved"); }
       else { out.manualRequired++; ctx.stat("manual_required"); }

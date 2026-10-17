@@ -5,6 +5,8 @@ import type { LogEntry } from "@/lib/activity-types";
 import { db, must } from "@/lib/db";
 import type { ApplyType } from "@/lib/jobs/normalize";
 import { getSetting } from "@/lib/settings";
+import { parseAtsUrl } from "@/lib/jobs/ats";
+import { recentCompanyApplication } from "./cooldown";
 import { decideApply } from "./caps";
 import { dispatchApply } from "./dispatch";
 import { logEvent } from "./events";
@@ -39,7 +41,17 @@ export async function approveApplication(id: string, o: { override?: boolean; ac
     return { ok: false, status: 409, error: "Verification found claims that are not in your profile. Review them or approve with override.", issues };
   }
   if (!jobRow) return { ok: false, status: 404, error: "Job not found" };
-  const decision = decideApply(jobRow.apply_type, await getSetting("caps"), await loadCapState());
+  const capsNow = await getSetting("caps");
+  if (o.actor === "schedule") {
+    // an automatic approval does not send a second application to a company you just applied to; you can still do that by hand
+    const recent = await recentCompanyApplication(jobRow.company ?? "", capsNow.company_cooldown_days ?? 14, id);
+    if (recent) {
+      const reason = `You applied to ${jobRow.company} recently (${recent.title}); automatic approval waits ${capsNow.company_cooldown_days ?? 14} days between applications to one company. Approve it yourself if you want both.`;
+      await log({ kind: "application.blocked", level: "info", message: `Left for you: ${reason}`, status: "blocked", detail: { reason, recent } });
+      return { ok: false, status: 409, error: reason };
+    }
+  }
+  const decision = decideApply(jobRow.apply_type, capsNow, await loadCapState(), parseAtsUrl((jobRow as { url?: string }).url ?? "")?.ats ?? null);
   if (!decision.allowed) {
     await log({ kind: "application.blocked", level: "warn", message: `Approval blocked: ${decision.reason}`, status: "blocked", detail: { reason: decision.reason } });
     return { ok: false, status: 429, error: decision.reason ?? "Daily limit reached" };

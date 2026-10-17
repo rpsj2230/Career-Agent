@@ -21,7 +21,7 @@ const Schemas = {
   watchlist: z.object({ enabled: z.boolean(), boards: z.record(z.string(), z.array(z.string().max(80)).max(300)), added: z.record(z.string(), z.string()).default({}) }),
   caps: z.object({
     daily_total: z.number().int().min(0).max(100), daily_linkedin: z.number().int().min(0).max(50),
-    weekly_linkedin: z.number().int().min(0).max(200), linkedin_automation_enabled: z.boolean(), local_auto_enabled: z.boolean().default(false),
+    weekly_linkedin: z.number().int().min(0).max(200), linkedin_automation_enabled: z.boolean(), local_auto_enabled: z.boolean().default(false), company_cooldown_days: z.number().int().min(0).max(365).default(14),
   }),
 } as const;
 

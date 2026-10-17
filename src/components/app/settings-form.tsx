@@ -14,7 +14,7 @@ import { call } from "./api";
 
 type Discovery = { countries: string[]; roles: string[]; greenhouse_boards: string[]; lever_companies: string[]; ashby_orgs?: string[]; workable_accounts?: string[]; recruitee_companies?: string[]; max_age_days: number; min_rescan_hours?: number };
 type Scoring = { threshold: number; min_evidence: number; batch_size: number; routing: boolean; escalate_borderline: boolean; learning: boolean };
-type Caps = { daily_total: number; daily_linkedin: number; weekly_linkedin: number; linkedin_automation_enabled: boolean; local_auto_enabled?: boolean };
+type Caps = { daily_total: number; daily_linkedin: number; weekly_linkedin: number; linkedin_automation_enabled: boolean; local_auto_enabled?: boolean; company_cooldown_days?: number };
 const csv = (s: string) => s.split(",").map((x) => x.trim()).filter(Boolean);
 
 export function SettingsForm({ discovery, scoring, caps, tailoring, blocklist, profileTitles }: { discovery: Discovery; scoring: Scoring; caps: Caps; blocklist: { companies: string[]; keywords: string[]; skip_agencies: boolean }; tailoring: { reuse_enabled: boolean; reuse_similarity: number; adapt_similarity: number }; profileTitles: string[] }) {
@@ -118,6 +118,7 @@ export function SettingsForm({ discovery, scoring, caps, tailoring, blocklist, p
           <div className="grid gap-1"><Label htmlFor="dt">Automated per day (all sites)</Label>{num(c.daily_total, (n) => setC({ ...c, daily_total: n }), "dt")}</div>
           <div className="grid gap-1"><Label htmlFor="dl">LinkedIn per day</Label>{num(c.daily_linkedin, (n) => setC({ ...c, daily_linkedin: n }), "dl")}</div>
           <div className="grid gap-1"><Label htmlFor="wl">LinkedIn per week</Label>{num(c.weekly_linkedin, (n) => setC({ ...c, weekly_linkedin: n }), "wl")}</div>
+          <div className="grid gap-1"><Label htmlFor="cd">Days to wait before applying again to the same company</Label>{num(c.company_cooldown_days ?? 14, (n) => setC({ ...c, company_cooldown_days: n }), "cd")}<span className="text-xs text-muted-foreground">Applies to automatic approval only; you can always approve by hand. 0 = no wait.</span></div>
           <label className="flex items-center gap-2 text-sm md:col-span-3"><Switch checked={c.linkedin_automation_enabled} onCheckedChange={(v) => setC({ ...c, linkedin_automation_enabled: v })} /> Allow automated LinkedIn Easy Apply</label>
           <label className="flex items-center gap-2 text-sm md:col-span-3"><Switch checked={!!c.local_auto_enabled} onCheckedChange={(v) => setC({ ...c, local_auto_enabled: v })} /> Let the apply assistant on my computer press Submit by itself (hands-free, within the limits above)</label>
           {c.local_auto_enabled && (

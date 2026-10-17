@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { ActionButton } from "@/components/app/action-button";
+import { parseAtsUrl } from "@/lib/jobs/ats";
 import { AddDescription } from "@/components/app/add-description";
 import { ApplyTypeBadge, ScoreBadge, SourceBadge, StatusBadge } from "@/components/app/badges";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -35,7 +36,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
   const issues = [...(resume?.verification?.issues ?? []), ...(cover?.verification?.issues ?? [])];
   const unverified = issues.length > 0;
   const pending = app && ["prepared", "needs_input", "failed"].includes(app.status);
-  const auto = job.apply_type === "greenhouse" || job.apply_type === "lever";
+  const auto = job.apply_type === "greenhouse" || job.apply_type === "lever" || ["ashby", "workable"].includes(parseAtsUrl(String(job.url ?? ""))?.ats ?? "");
   const tailored = resume?.content as TailoredResume | undefined;
 
   return (

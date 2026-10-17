@@ -3,6 +3,8 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { db, must } from "@/lib/db";
 import { getDraft, getProfile } from "@/lib/profile/store";
+import { HandbackAnswers } from "@/components/app/handback-answers";
+import { loadHandbacks } from "@/lib/apply/handbacks-store";
 import { mergeStandard } from "@/lib/standard-questions";
 
 export const dynamic = "force-dynamic";
@@ -10,10 +12,18 @@ export const dynamic = "force-dynamic";
 export default async function ProfilePage() {
   const [profile, draft] = await Promise.all([getProfile(), getDraft()]);
   const bank = must<{ question: string; answer: string }[]>(await db().from("answer_bank").select("question,answer").order("question"), "load answers");
+  const handbacks = await loadHandbacks().catch(() => []);
   const empty = profile.experience.length === 0;
   return (
     <div className="grid gap-4">
       <h1 className="text-2xl font-semibold">Profile</h1>
+
+      {handbacks.length > 0 && (
+        <Card className="border-amber-500">
+          <CardHeader><CardTitle>Questions the agent could not answer</CardTitle><CardDescription>These stopped applications. Answer each once: it goes into your answer bank, and every application waiting for it returns to your queue with the answer filled in. Consent boxes are never answered for you.</CardDescription></CardHeader>
+          <CardContent><HandbackAnswers groups={handbacks} /></CardContent>
+        </Card>
+      )}
 
       {draft && (
         <Card className="border-amber-500">
