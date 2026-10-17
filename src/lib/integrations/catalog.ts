@@ -5,7 +5,7 @@
  * scrapes LinkedIn, Indeed or Glassdoor, which have no open job-search or apply API for individuals and forbid it.
  */
 
-export type IntegrationId = "adzuna" | "jsearch" | "remotive" | "arbeitnow" | "remoteok" | "jobicy" | "greenhouse" | "lever" | "manual" | "mailbox" | "apify" | "mcf";
+export type IntegrationId = "adzuna" | "jsearch" | "remotive" | "arbeitnow" | "remoteok" | "jobicy" | "greenhouse" | "lever" | "manual" | "mailbox" | "apify" | "mcf" | "boards";
 export type ApplyMode = "automated" | "assisted" | "none";
 
 export type CredentialDef = { key: string; label: string; help: string; env?: string; /** not needed for the integration to be ready */ optional?: boolean };
@@ -21,7 +21,7 @@ export type IntegrationDef = {
   summary: string;
   available: boolean;                    // false = planned, shown but cannot be enabled yet
   credentials: CredentialDef[];          // all must be present before scanning
-  needsConfig?: "greenhouse_boards" | "lever_companies" | "apify_actors"; // list kept in Settings > Job discovery
+  needsConfig?: "greenhouse_boards" | "lever_companies" | "apify_actors" | "other_boards"; // list kept in Settings > Job discovery
   discovers: boolean;
   apply: ApplyMode;                      // what this integration's listings support
   countries: "all" | string[];
@@ -84,6 +84,14 @@ export const INTEGRATIONS: IntegrationDef[] = [
     credentials: [], countries: ["sg"],
     setup: ["Nothing to set up", "Press Test to confirm it is reachable"],
     limitations: ["Singapore only, filtered by your titles from the Countries page", "Salaries there are monthly and are converted for comparison", "Applying is on the portal or the employer's site (assisted)"],
+  },
+  {
+    cost: { kind: "free", note: "Free, public company boards" },
+    id: "boards", name: "Ashby, Workable and Recruitee boards", kind: "company job-board API", available: true, discovers: true, apply: "automated", needsConfig: "other_boards",
+    summary: "Public job boards of companies that use Ashby, Workable or Recruitee. Companies you list here, and companies the agent finds posting matching jobs elsewhere, are read directly from their own board.",
+    credentials: [], countries: "all",
+    setup: ["Settings > Job discovery: add Ashby organisations (jobs.ashbyhq.com/NAME), Workable accounts (apply.workable.com/NAME) or Recruitee companies (NAME.recruitee.com)", "Press Test"],
+    limitations: ["Only listed or discovered companies; jobs are filtered by your titles", "Ashby and Workable forms are filled automatically within the same safety rules (anything unusual is handed back to you); Recruitee forms are prepared for you"],
   },
   {
     cost: { kind: "free", note: "Free, no key" },

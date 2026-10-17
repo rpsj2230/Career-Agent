@@ -171,3 +171,11 @@ Verified by an end-to-end run with a sloppy model (fenced JSON, invented first d
 - Each search (integration + country + query) remembers when it last finished successfully (from `portal_scans`). The next run asks the source only for jobs newer than that, with a day of overlap (Adzuna `max_days_old`, JSearch `date_posted`, Apify `{{days}}`, alert emails since that date); feeds that cannot filter are trimmed to the same window before storing. The first run of a search looks back the full maximum age.
 - A search that ran within `min_rescan_hours` (default 6) is skipped by scheduled runs (the Scan now button always searches), which protects free-plan quotas such as Adzuna's 250 calls a day.
 - `max_age_days` (Settings, default 30, up to 90) is the oldest job ever stored.
+
+## Quality pass: scan and scoring
+
+- **Auto-watchlist:** companies seen posting matching jobs (Greenhouse, Lever, Ashby, Workable, Recruitee) are added to a watchlist and their own boards are read directly on later scans, filtered by your titles. Ashby, Workable and Recruitee boards can also be listed in Settings.
+- **Descriptions:** a job with only a snippet gets its real description from its own employer or ATS page before scoring (never from a job portal).
+- **Blocklist:** companies, words and (optionally) recruitment agencies, applied first and free.
+- **Adaptive search:** searches that repeatedly find nothing new back off up to a day; titles that appear in your matches but are not searched are suggested per country; a source that silently returns nothing for searches that always found something raises one alert a day.
+- **Tokens:** several jobs of one country are scored per model call (default 5), scoring prefers fast models and writing prefers strong ones, scores within 8 points of the threshold are re-checked by a strong model, and your interviews, rejections and manual skips nudge scores by at most 8 points (always shown on the score).

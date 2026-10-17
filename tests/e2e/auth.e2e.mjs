@@ -177,6 +177,9 @@ check("a scraped job that names the employer's Greenhouse page is switched to it
 check("the token went to Apify as a bearer token and the request used the actor id", mock.seen.external.some((e) => e.host === "api.apify.com" && e.auth === "Bearer APIFY-TOKEN-123" && e.path.includes("someone~linkedin-jobs")), "not seen");
 check("the token is never stored in clear text", !JSON.stringify(mock.rowsOf("settings")).includes("APIFY-TOKEN-123"), "leaked");
 
+const wl = mock.rowsOf("settings").find((x) => x.key === "watchlist")?.value;
+check("a company seen posting a matching job joins the watchlist, so its own board is read directly next time", wl?.boards?.greenhouse?.includes("scrapeco") && mock.rowsOf("activity_log").some((l) => /new company board/.test(l.message ?? "") && l.detail?.added?.some((a) => a.board === "scrapeco")), JSON.stringify(wl));
+
 // MyCareersFuture: free, no key, Singapore
 r = await call("/api/integrations/mcf/test", { method: "POST" }); check("MyCareersFuture Test needs no key and reads the sample job", r.status === 200 && /reachable/.test(r.text), `${r.status} ${r.text}`);
 r = await call("/api/integrations/mcf/scan", { method: "POST" }); check("the MyCareersFuture scan stores Singapore jobs", r.status === 200 && /new/.test(r.text), `${r.status} ${r.text}`);
@@ -444,6 +447,24 @@ r = await call(`/api/schedules/${askId}`, { method: "DELETE" });
   check("with room for one model call the strongest rule-based candidate is scored first", strong.status !== "new" && weak.status === "new" && r.json?.scored === 1, JSON.stringify({ s: strong.status, w: weak.status, r: r.json }));
   r = await call("/api/cron/score?limit=40");
   check("the next run picks up what was waiting", mock.rowsOf("jobs").find((j) => j.company === "WeakCo").status !== "new", "still waiting");
+}
+
+// ---- batch scoring: several jobs share one model call; a job the model leaves out is scored on its own
+{
+  const add = (slug, company) => call("/api/jobs/manual", { method: "POST", body: { url: `https://boards.greenhouse.io/${slug}/jobs/1`, title: "Product Manager", company, description: longDesc, country: "sg" } });
+  for (const [slug, company] of [["ba", "BatchA"], ["bb", "BatchB"], ["bc", "BatchC"]]) await add(slug, company);
+  const callsBefore = mock.seen.chatCalls ?? 0, batchesBefore = (mock.seen.batchSizes ?? []).length;
+  r = await call("/api/cron/score?limit=40");
+  const batched = mock.rowsOf("jobs").filter((j) => /^Batch[ABC]$/.test(j.company));
+  check("three jobs are scored in one model call", batched.length === 3 && batched.every((j) => j.status !== "new") && (mock.seen.batchSizes ?? []).slice(batchesBefore).includes(3) && (mock.seen.chatCalls ?? 0) - callsBefore === 1, JSON.stringify({ st: batched.map((j) => j.status), sizes: mock.seen.batchSizes, calls: (mock.seen.chatCalls ?? 0) - callsBefore }));
+  check("each job still gets its own stored score and reason", batched.every((j) => mock.rowsOf("job_scores").some((x) => x.job_id === j.id && x.score >= 60)), "missing scores");
+  mock.fixtures.chatMode = "partial";
+  for (const [slug, company] of [["bd", "BatchD"], ["be", "BatchE"]]) await add(slug, company);
+  const c2 = mock.seen.chatCalls ?? 0;
+  r = await call("/api/cron/score?limit=40");
+  const part = mock.rowsOf("jobs").filter((j) => /^Batch[DE]$/.test(j.company));
+  check("a job the model left out of a batch answer is scored on its own, and nothing is lost", part.length === 2 && part.every((j) => j.status !== "new") && (mock.seen.chatCalls ?? 0) - c2 === 2, JSON.stringify({ st: part.map((j) => j.status), calls: (mock.seen.chatCalls ?? 0) - c2 }));
+  mock.fixtures.chatMode = "normal";
 }
 
 // ---- resume memory: a near-identical job reuses a verified resume with no model call; an unrelated one is written fresh

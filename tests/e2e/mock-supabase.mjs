@@ -296,7 +296,13 @@ export function startMock(port) {
       const mode = externalFixtures.chatMode ?? "normal"; // "sloppy": fenced/odd JSON and a first draft that invents things; "broken": never gets it right
       const retry = /PREVIOUS ATTEMPT WAS REJECTED/.test(prompt);
       seen.chatCalls = (seen.chatCalls ?? 0) + 1; (seen.chatPrompts ??= []).push({ task: /tailor a candidate's resume/.test(system) ? "tailor" : /short cover letter/.test(system) ? "cover" : "score", retry, prompt: prompt.slice(-600) });
-      if (/You assess how well a job matches/.test(system)) {
+      if (/You assess how well a job matches/.test(system) && /Several jobs are given/.test(system)) {
+        // batched scoring: one result per job id, like a model would (a "partial" mode drops the last job, to test the per-job fallback)
+        const blocks = [...prompt.matchAll(/JOB \d+ \(id: ([^)]+)\)([\s\S]*?)(?=\n\n---\n\n|$)/g)];
+        const used = externalFixtures.chatMode === "partial" ? blocks.slice(0, -1) : blocks;
+        (seen.batchSizes ??= []).push(blocks.length);
+        content = JSON.stringify({ results: used.map((b) => { const low = /Principal/.test(b[2]); return { id: b[1], score: low ? 40 : 82, matchedSkills: ["SQL"], gaps: low ? ["Team leadership"] : [], seniorityFit: "ok", locationVisaFit: "ok", salarySignal: "unknown", summary: low ? "Too senior for this profile" : "Strong match" }; }) });
+      } else if (/You assess how well a job matches/.test(system)) {
         const low = /Principal/.test(prompt);
         content = JSON.stringify({ score: low ? 40 : 82, matchedSkills: ["SQL"], gaps: low ? ["Team leadership"] : [], seniorityFit: "ok", locationVisaFit: "ok", salarySignal: "unknown", summary: low ? "Too senior for this profile" : "Strong match" });
         if (mode !== "normal") content = "Sure! Here is my assessment:\n```json\n" + content.replace('"score":82', '"score":"82.5"').replace('"score":40', '"score":"40.2"') + "\n```";

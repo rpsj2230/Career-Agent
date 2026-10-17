@@ -8,11 +8,14 @@ import { loadEffectiveCountries } from "@/lib/country-config-store";
 import { getProfile } from "@/lib/profile/store";
 import { withLegacyFallback } from "@/lib/schema";
 import { getSetting } from "@/lib/settings";
-import { JobScore, roundScore } from "@/lib/types";
+import { BatchScore, JobScore, roundScore } from "@/lib/types";
 import { evidenceText, gatherEvidence, irrelevantReason, judge } from "./rules";
-import { buildScorePrompt, prefilter, SCORE_SYSTEM, type JobForScoring } from "./prompt";
+import { enrichIfThin } from "./enrich";
+import { outcomeBias } from "./learning";
+import { loadOutcomeStats } from "./learning-store";
+import { BATCH_SYSTEM_SUFFIX, buildBatchPrompt, buildScorePrompt, prefilter, SCORE_SYSTEM, type JobForScoring } from "./prompt";
 
-type JobRow = JobForScoring & { id: string; portal?: string | null; source?: string | null };
+type JobRow = JobForScoring & { id: string; url: string; portal?: string | null; source?: string | null };
 
 /**
  * Score new jobs newest-first until `budgetMs` is used up, inside a recorded run. Every decision is logged with its
@@ -27,7 +30,9 @@ export async function scoreStep(ctx: RunCtx, opts: { limit: number; budgetMs: nu
   const started = Date.now();
   const profile = await getProfile();
   if (profile.experience.length === 0) throw new Error("Profile is empty: import and confirm your resume first");
-  const { threshold, min_evidence: minEvidence } = await getSetting("scoring");
+  const scoring = await getSetting("scoring");
+  const { threshold, min_evidence: minEvidence } = scoring;
+  const blocklist = await getSetting("blocklist");
   const { countries, configured } = await loadEffectiveCountries();
   const countryRules = configured ? countries : undefined;
 
@@ -54,11 +59,12 @@ export async function scoreStep(ctx: RunCtx, opts: { limit: number; budgetMs: nu
   };
 
   // 1. free rules: country/remote/pay/visa prefilter, then the evidence check against your profile
-  const candidates: { job: JobRow; evidence: ReturnType<typeof gatherEvidence> }[] = [];
+  type Candidate = { job: JobRow; evidence: ReturnType<typeof gatherEvidence> };
+  const candidates: Candidate[] = [];
   for (const job of loaded) {
     if (Date.now() - started > opts.budgetMs) break;
     const ref = { ...jobLogFields(job), run_id: ctx.id };
-    const reason = prefilter(job, profile, countryRules);
+    const reason = prefilter(job, profile, countryRules, blocklist);
     if (reason) {
       await decide(job, "skipped", reason);
       await ctx.log({ kind: "job.rejected", message: `Rejected before scoring: ${reason}`, status: "rejected", ...ref, detail: { stage: "prefilter", title: job.title, reason } });
@@ -79,37 +85,89 @@ export async function scoreStep(ctx: RunCtx, opts: { limit: number; budgetMs: nu
     candidates.push({ job, evidence });
   }
 
-  // 2. the model sees the best candidates first, at most `limit` per run; the rest wait (still "new") for the next run
+  // 2. the model sees the best candidates first, at most `limit` per run; the rest wait (still "new") for the next run.
+  //    Several jobs of the same country share one request, so the candidate's profile is not paid for again for each job.
   candidates.sort((x, y) => y.evidence.score - x.evidence.score);
-  let modelCalls = 0;
-  for (const { job, evidence } of candidates) {
-    if (Date.now() - started > opts.budgetMs) break;
-    if (modelCalls >= opts.limit) break;
+  const size = Math.max(1, Math.min(8, scoring.batch_size ?? 1));
+  const stats = scoring.learning === false ? new Map() : await loadOutcomeStats().catch(() => new Map());
+  const queue = candidates.slice(0, opts.limit);
+  const critFor = (j: JobRow) => countryRules?.find((c) => c.country === j.country?.toLowerCase());
+  let enriched = 0;
+
+  type Scored = { output: JobScore; model: string; tier: "fast" | "strong" };
+  const scoreOne = (c: Candidate): Promise<Scored> =>
+    runStructured({ task: "score", schema: JobScore, system: SCORE_SYSTEM, prompt: buildScorePrompt(profile, c.job, critFor(c.job), evidenceText(c.evidence)), jobId: c.job.id });
+  const fail = async (c: Candidate, e: unknown) => {
+    // leave the job as 'new' so the next run retries it
+    const error = e instanceof Error ? e.message : String(e);
+    out.failed.push({ id: c.job.id, error });
+    ctx.stat("failed");
+    await ctx.log({ kind: "job.score_failed", level: "error", message: `Could not score "${c.job.title}": ${error}`, status: "failed", ...{ ...jobLogFields(c.job), run_id: ctx.id }, detail: { error, title: c.job.title } });
+    return /No model available|All models failed/.test(error);
+  };
+
+  const finish = async (c: Candidate, r: Scored) => {
+    const { job, evidence } = c;
     const ref = { ...jobLogFields(job), run_id: ctx.id };
-    modelCalls++;
-    try {
-      const scored = await runStructured({ task: "score", schema: JobScore, system: SCORE_SYSTEM, prompt: buildScorePrompt(profile, job, countryRules?.find((c) => c.country === job.country?.toLowerCase()), evidenceText(evidence)), jobId: job.id });
-      const model = scored.model;
-      const judged = judge({ ...scored.output, score: roundScore(scored.output.score) }, evidence, profile);
-      const output = { ...judged.output, score: roundScore(judged.score) };
-      const stored = judged.adjusted ? { ...output, adjustments: judged.notes, modelScore: roundScore(scored.output.score), evidenceScore: evidence.score } : output;
-      must(await db().from("job_scores").upsert({ job_id: job.id, score: output.score, detail: stored, model }).select("job_id"), "save score");
-      const queued = output.score >= threshold;
-      const reasonText = queued ? null : `Fit ${output.score} below threshold ${threshold}: ${output.summary}`;
-      await decide(job, queued ? "queued" : "skipped", reasonText);
-      await ctx.log(queued
-        ? { kind: "job.matched", message: `Matched (fit ${output.score}): ${job.title}`, status: "matched", ...ref, detail: { stage: "fit", score: output.score, threshold, summary: output.summary, matchedSkills: output.matchedSkills, gaps: output.gaps, model, title: job.title, adjustments: judged.notes, evidenceScore: evidence.score } }
-        : { kind: "job.rejected", message: reasonText!, status: "rejected", ...ref, detail: { stage: "fit", score: output.score, threshold, summary: output.summary, gaps: output.gaps, model, title: job.title, adjustments: judged.notes, evidenceScore: evidence.score } });
-      ctx.stat("scored"); ctx.stat(queued ? "matched" : "rejected");
-      out.scored++; out.remaining--;
-      if (queued) out.queued++; else out.skipped++;
-    } catch (e) {
-      // leave the job as 'new' so the next run retries it; stop early if no model is usable at all
-      const error = e instanceof Error ? e.message : String(e);
-      out.failed.push({ id: job.id, error });
-      ctx.stat("failed");
-      await ctx.log({ kind: "job.score_failed", level: "error", message: `Could not score "${job.title}": ${error}`, status: "failed", ...ref, detail: { error, title: job.title } });
-      if (/No model available|All models failed/.test(error)) { ctx.markPartial(error); break; }
+    let { output: raw, model } = r;
+    let judged = judge({ ...raw, score: roundScore(raw.score) }, evidence, profile);
+    // a score close to the threshold decides whether you see the job: have a stronger model look again before settling it
+    if (scoring.escalate_borderline !== false && r.tier === "fast" && Math.abs(judged.score - threshold) <= 8) {
+      try {
+        const again = await runStructured({ task: "score", schema: JobScore, system: SCORE_SYSTEM, prompt: buildScorePrompt(profile, job, critFor(job), evidenceText(evidence)), jobId: job.id, prefer: "strong" });
+        if (again.tier === "strong") { raw = again.output; model = again.model; judged = judge({ ...raw, score: roundScore(raw.score) }, evidence, profile); judged.notes.push(`Re-checked by a stronger model (${model}) because the score was close to your threshold`); ctx.stat("escalated"); }
+      } catch { /* the first answer stands */ }
+    }
+    // what happened to similar jobs before nudges the ranking a little (bounded, and always shown)
+    const learned = outcomeBias(job, stats);
+    let score = judged.score;
+    const notes = [...judged.notes];
+    if (learned.bias !== 0) { score = roundScore(score + learned.bias); notes.push(`Adjusted ${learned.bias > 0 ? "+" : ""}${learned.bias} from your past decisions: ${learned.why.join("; ")}`); ctx.stat("learned_adjustments"); }
+    const output = { ...judged.output, score };
+    const stored = notes.length ? { ...output, adjustments: notes, modelScore: roundScore(raw.score), evidenceScore: evidence.score } : output;
+    must(await db().from("job_scores").upsert({ job_id: job.id, score: output.score, detail: stored, model }).select("job_id"), "save score");
+    const queued = output.score >= threshold;
+    const reasonText = queued ? null : `Fit ${output.score} below threshold ${threshold}: ${output.summary}`;
+    await decide(job, queued ? "queued" : "skipped", reasonText);
+    await ctx.log(queued
+      ? { kind: "job.matched", message: `Matched (fit ${output.score}): ${job.title}`, status: "matched", ...ref, detail: { stage: "fit", score: output.score, threshold, summary: output.summary, matchedSkills: output.matchedSkills, gaps: output.gaps, model, title: job.title, adjustments: notes, evidenceScore: evidence.score } }
+      : { kind: "job.rejected", message: reasonText!, status: "rejected", ...ref, detail: { stage: "fit", score: output.score, threshold, summary: output.summary, gaps: output.gaps, model, title: job.title, adjustments: notes, evidenceScore: evidence.score } });
+    ctx.stat("scored"); ctx.stat(queued ? "matched" : "rejected");
+    out.scored++; out.remaining--;
+    if (queued) out.queued++; else out.skipped++;
+  };
+
+  let stop = false;
+  while (queue.length && !stop) {
+    if (Date.now() - started > opts.budgetMs) break;
+    const first = queue.shift()!;
+    const batch = [first];
+    for (let i = 0; i < queue.length && batch.length < size;) { if (queue[i].job.country === first.job.country) batch.push(...queue.splice(i, 1)); else i++; }
+    for (const c of batch) {
+      if (enriched >= 25) break;
+      const full = await enrichIfThin(c.job);
+      if (full) { c.job.description = full; enriched++; ctx.stat("descriptions_completed"); }
+    }
+
+    const results = new Map<string, Scored>();
+    if (batch.length > 1) {
+      try {
+        const res = await runStructured({ task: "score", schema: BatchScore, system: SCORE_SYSTEM + BATCH_SYSTEM_SUFFIX, prompt: buildBatchPrompt(profile, batch.map((c) => ({ id: c.job.id, job: c.job, evidence: evidenceText(c.evidence) })), critFor(first.job)), jobId: first.job.id });
+        ctx.stat("model_calls"); ctx.stat("jobs_in_batches", batch.length);
+        for (const item of res.output.results) if (batch.some((c) => c.job.id === item.id) && !results.has(item.id)) results.set(item.id, { output: item, model: res.model, tier: res.tier });
+      } catch (e) {
+        if (/No model available|All models failed/.test(e instanceof Error ? e.message : String(e))) { for (const c of batch) await fail(c, e); ctx.markPartial(e instanceof Error ? e.message : String(e)); break; }
+        /* a bad batch answer: every job is scored on its own below */
+      }
+    }
+    for (const c of batch) {
+      let r = results.get(c.job.id);
+      try {
+        if (!r) { r = await scoreOne(c); ctx.stat("model_calls"); }
+        await finish(c, r);
+      } catch (e) {
+        if (await fail(c, e)) { ctx.markPartial(e instanceof Error ? e.message : String(e)); stop = true; break; }
+      }
     }
   }
   if (out.failed.length) ctx.markPartial(`${out.failed.length} job(s) could not be scored`);

@@ -26,7 +26,7 @@ export function isPrivateAddress(ip: string): boolean {
 
 export type ResolveDeps = {
   lookup: (host: string) => Promise<string[]>;
-  fetch: (url: string, init: { redirect: "manual"; signal: AbortSignal; headers: Record<string, string>; method: string }) => Promise<{ status: number; headers: { get(name: string): string | null }; body?: { cancel?: () => Promise<void> } | null }>;
+  fetch: (url: string, init: { redirect: "manual"; signal: AbortSignal; headers: Record<string, string>; method: string }) => Promise<{ status: number; headers: { get(name: string): string | null }; body?: { cancel?: () => Promise<void> } | null; text?: () => Promise<string> }>;
 };
 const liveDeps: ResolveDeps = {
   lookup: async (host) => (await lookup(host, { all: true })).map((a) => a.address),
@@ -74,4 +74,37 @@ export async function upgradeApplyTarget(job: { url: string; apply_type: ApplyTy
   if (!final || final === job.url) return null;
   const type = detectApplyType(final);
   return type === "greenhouse" || type === "lever" ? { url: final, apply_type: type } : null;
+}
+
+/**
+ * Fetch a public page with the same protections as resolveFinalUrl (http/https only, no internal addresses at any hop, a
+ * timeout) and return its final address, status and, when asked, the first `maxBytes` of its text. Null when it cannot be done safely.
+ */
+export async function guardedGet(start: string, o: { deps?: ResolveDeps; maxHops?: number; timeoutMs?: number; maxBytes?: number; body?: boolean; /** checked before every request, including each redirect */ allow?: (url: string) => boolean } = {}): Promise<{ url: string; status: number; text: string } | null> {
+  const deps = o.deps ?? liveDeps;
+  let url = start;
+  for (let hop = 0; hop <= (o.maxHops ?? 6); hop++) {
+    let u: URL;
+    try { u = new URL(url); } catch { return null; }
+    if (u.protocol !== "https:" && u.protocol !== "http:") return null;
+    if (o.allow && !o.allow(url)) return null;
+    const host = u.hostname.replace(/^\[|\]$/g, "");
+    if (/^(localhost|.*\.local|.*\.internal)$/i.test(host)) return null;
+    try {
+      const addrs = isIP(host) ? [host] : await deps.lookup(host);
+      if (!addrs.length || addrs.some(isPrivateAddress)) return null;
+    } catch { return null; }
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), o.timeoutMs ?? 8000);
+    try {
+      const res = await deps.fetch(url, { method: "GET", redirect: "manual", signal: ctrl.signal, headers: { "User-Agent": "Mozilla/5.0 (compatible; CareerAgent link check)", Accept: "text/html,application/xhtml+xml" } });
+      const loc = res.headers.get("location");
+      if (res.status >= 300 && res.status < 400 && loc) { await res.body?.cancel?.().catch(() => undefined); url = new URL(loc, url).href; continue; }
+      let text = "";
+      if (o.body && res.text) text = (await res.text()).slice(0, o.maxBytes ?? 400_000);
+      else await res.body?.cancel?.().catch(() => undefined);
+      return { url, status: res.status, text };
+    } catch { return null; } finally { clearTimeout(timer); }
+  }
+  return null;
 }

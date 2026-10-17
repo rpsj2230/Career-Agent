@@ -9,6 +9,7 @@ import { COUNTRIES } from "@/lib/countries";
 import { listCountryPrefs } from "@/lib/country-prefs-store";
 import { getProfile } from "@/lib/profile/store";
 import { getSetting } from "@/lib/settings";
+import { loadTitleSuggestions } from "@/lib/jobs/adaptive-store";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,7 @@ export default async function CountriesPage() {
   const available = COUNTRIES.filter((c) => !have.has(c.code)).map((c) => ({ code: c.code, name: c.name }));
   const profileTitles = [...new Set(profile.experience.map((e) => e.title.trim()).filter(Boolean))].slice(0, 6);
   const enabled = rows.filter((r) => r.enabled).length;
+  const suggestions = await loadTitleSuggestions(Object.fromEntries(rows.map((r) => [r.country, r.titles]))).catch(() => ({}));
 
   return (
     <div className="grid gap-4">
@@ -48,7 +50,7 @@ export default async function CountriesPage() {
         </Card>
       )}
       <div className="grid gap-4">
-        {rows.map((r) => <CountryCard key={r.country} pref={r} profileTitles={profileTitles} templates={templates} />)}
+        {rows.map((r) => <CountryCard key={r.country} pref={r} profileTitles={profileTitles} templates={templates} suggested={(suggestions as Record<string, { title: string; count: number }[]>)[r.country] ?? []} />)}
       </div>
     </div>
   );

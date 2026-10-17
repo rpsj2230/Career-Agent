@@ -2,11 +2,13 @@ import "server-only";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { z } from "zod";
 import { db, must } from "@/lib/db";
+import { getSetting } from "@/lib/settings";
 import type { Task } from "@/lib/types";
 import { DEFAULT_MODELS } from "./defaults";
 import { callStructured } from "./call";
 import { runWithFallback, selectCandidates, timeoutFor, withLocalFallback, type ModelRow } from "./fallback";
 import { resolveKeys } from "./keys";
+import { defaultPrefer, orderForTier, tierOf, type Tier } from "./tiers";
 
 let ensured = false;
 /** Make sure the verified default models exist (never overwrites rows you edited). Runs once per server instance. */
@@ -52,8 +54,13 @@ export async function runStructured<S extends z.ZodType>(opts: {
   system: string;
   prompt: string;
   jobId?: string;
-}): Promise<{ output: z.infer<S>; model: string }> {
-  const { candidates, keys } = await loadCandidates(opts.task);
+  /** which tier to try first (default: fast for scoring, strong for writing) */
+  prefer?: Tier;
+}): Promise<{ output: z.infer<S>; model: string; tier: Tier }> {
+  const loaded = await loadCandidates(opts.task);
+  const keys = loaded.keys;
+  const routing = (await getSetting("scoring").catch(() => null))?.routing !== false;
+  const candidates = routing ? orderForTier(loaded.candidates, opts.prefer ?? defaultPrefer(opts.task)) : loaded.candidates;
   const { value, used } = await runWithFallback(
     opts.task,
     candidates,
@@ -72,5 +79,5 @@ export async function runStructured<S extends z.ZodType>(opts: {
       });
     },
   );
-  return { output: value.output, model: used.label };
+  return { output: value.output, model: used.label, tier: tierOf(used) };
 }
