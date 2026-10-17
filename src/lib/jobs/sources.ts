@@ -2,7 +2,7 @@ import { ADZUNA_COUNTRIES, explainHttpFailure, type IntegrationId } from "@/lib/
 import { countryQueries, type EffectiveCountry } from "@/lib/country-config";
 import { ApifyActor, mapApifyItem, runActor, templateVars, type ApifyFetch } from "./apify";
 import { imapSource, scanMailbox, type MailboxConfig, type MailSource } from "./mailbox";
-import { mapAdzuna, mapArbeitnow, mapGreenhouse, mapJobicy, mapJSearch, mapLever, mapRemoteOk, mapRemotive } from "./map";
+import { mapMcf, mapAdzuna, mapArbeitnow, mapGreenhouse, mapJobicy, mapJSearch, mapLever, mapRemoteOk, mapRemotive } from "./map";
 import type { NormalizedJob } from "./normalize";
 
 export type DiscoverySettings = {
@@ -15,6 +15,8 @@ export type DiscoverySettings = {
   perCountry?: EffectiveCountry[];
   /** hosted scrapers to run (Settings: Portals > Hosted scrapers) */
   apify_actors?: ApifyActor[];
+  /** monthly job budget for hosted scrapers (see apify-usage.ts); absent = unlimited */
+  apify_budget?: { remaining: () => Promise<number>; record: (n: number) => Promise<void> };
 };
 
 type Query = { country: string; title: string; location?: string; remote: EffectiveCountry["remote"] };
@@ -143,10 +145,24 @@ export function buildScanSpecs(
       const searches = /\{\{(title|location|country|country_name)\}\}/.test(uses) ? queries : queries.slice(0, 1);
       for (const q of searches) {
         specs.push({ integration: "apify", country: q.country, query: `${actor.portal}: ${label(q)}`, fetch: async () => {
-          const items = await runActor(token, actor, templateVars(q, s.max_age_days, actor.max_items), opts.apifyFetch);
+          const left = s.apify_budget ? await s.apify_budget.remaining() : Number.MAX_SAFE_INTEGER;
+          if (left <= 0) throw new Error("The monthly Apify job budget is used up (see Scrapers on the Portals page). It resets next month, or raise the budget if your Apify plan allows.");
+          const max = Math.min(actor.max_items, left);
+          const items = await runActor(token, { ...actor, max_items: max }, templateVars(q, s.max_age_days, max), opts.apifyFetch);
+          await s.apify_budget?.record(items.length);
           return items.map((i) => mapApifyItem(i, actor, q.country)).filter((j): j is NormalizedJob => j !== null);
         } });
       }
+    }
+  }
+
+  if (want("mcf")) {
+    for (const q of queries.filter((q) => q.country === "sg" && q.remote !== "remote_only")) {
+      specs.push({ integration: "mcf", country: "sg", query: label(q), fetch: async () => {
+        const p = new URLSearchParams({ search: q.title, limit: "50", page: "0", sortBy: "new_posting_date" });
+        const data = await get(`https://api.mycareersfuture.gov.sg/v2/jobs?${p}`);
+        return (data.results ?? []).map((r: unknown) => mapMcf(r));
+      } });
     }
   }
 
@@ -225,6 +241,12 @@ export async function testIntegration(id: IntegrationId, creds: IntegrationCreds
         if (!r.ok) return { ok: false, message: `Apify returned HTTP ${r.status}.` };
         const n = (s.apify_actors ?? []).filter((a) => a.enabled).length;
         return { ok: true, message: n ? `Apify accepted the token. ${n} scraper(s) are set up and will run on each scan.` : "Apify accepted the token, but no scrapers are set up yet. Add one under Scrapers below." };
+      }
+      case "mcf": {
+        const d = await get(`https://api.mycareersfuture.gov.sg/v2/jobs?${new URLSearchParams({ search: "manager", limit: "1", page: "0" })}`);
+        const first = (d.results ?? [])[0];
+        if (!first) return { ok: false, message: "MyCareersFuture answered, but the response had no jobs in the form this app expects. Its search may have changed; use Adzuna and JobStreet alerts for Singapore meanwhile." };
+        return { ok: true, message: `MyCareersFuture is reachable (${d.total ?? "some"} jobs; the sample "${String(first.title).slice(0, 60)}" was read correctly).` };
       }
       case "manual": return { ok: true, message: "Manual entry needs nothing to connect." };
       case "mailbox": {

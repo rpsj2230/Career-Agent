@@ -22,7 +22,11 @@ export const ApifyActor = z.object({
   enabled: z.boolean().default(true),
 });
 export type ApifyActor = z.infer<typeof ApifyActor>;
-export const ApifySettings = z.object({ actors: z.array(ApifyActor).max(20).default([]) });
+export const ApifySettings = z.object({
+  actors: z.array(ApifyActor).max(20).default([]),
+  /** most jobs to fetch through Apify in a calendar month (0 = no limit). Keeps scheduled runs inside the free credit. */
+  monthly_item_budget: z.number().int().min(0).max(1_000_000).default(2500),
+});
 
 export type TemplateVars = { title: string; location: string; country: string; country_name: string; days: number; max_items: number };
 

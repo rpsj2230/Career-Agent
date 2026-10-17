@@ -159,3 +159,9 @@ Verified by an end-to-end run with a sloppy model (fenced JSON, invented first d
 - **Fetching:** hosted scrapers (Apify) read LinkedIn, Naukri, Indeed, SEEK/JobStreet/JobsDB and similar portals on every schedule, on Apify's servers; no portal account is used. Actors and their input templates are configured on the Portals page. Fetching across integrations runs in parallel; storing stays sequential so cross-source duplicates are impossible.
 - **Applying:** Greenhouse/Lever by the cloud worker; other portals by the local assistant in hands-free mode (`npm run assist:watch`), opt-in, limited by the daily/weekly caps, human-paced, unattended-safe (hands back unanswered questions, stops at a CAPTCHA or security check, switches LinkedIn automation off after a checkpoint).
 - **No application is lost:** a worker that dies leaves an application in "submitting"; after 75 minutes it is handed back as needing you, with the reason (`src/lib/apply/reaper.ts`).
+
+## Free coverage
+
+- Every source is labelled with its cost (free, free tier, free credit) on the Portals page. The Countries page shows per-country coverage (good / partial / thin), what is connected, and what to add.
+- Added free sources: MyCareersFuture (Singapore, no key) and alert-email parsers for Bayt, Naukrigulf, GulfTalent, SEEK, JobStreet, JobsDB, Foundit and Shine. Their endpoints and email layouts were written from public URL patterns and could not be tested live from the build environment; the Test button (and the mailbox Test) report what was actually read.
+- Apify has a monthly job budget (default 2,500) enforced before every run.

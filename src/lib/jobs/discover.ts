@@ -6,6 +6,7 @@ import { loadIntegrationStates, recordIntegrationScan } from "@/lib/integrations
 import { getSetting } from "@/lib/settings";
 import { loadEffectiveCountries } from "@/lib/country-config-store";
 import type { RunTrigger } from "@/lib/activity-types";
+import { apifyBudget } from "./apify-usage";
 import { ingestScan, loadKnownJobs } from "./ingest";
 import { runScans, type ScanDeps } from "./scans";
 import { buildScanSpecs, searchQueries, type DiscoverySettings } from "./sources";
@@ -22,6 +23,7 @@ export async function effectiveDiscovery(): Promise<DiscoverySettings> {
     roles: [...new Set(countries.flatMap((c) => c.titles))],
     perCountry: countries,
     apify_actors: apify.actors,
+    apify_budget: await apifyBudget(),
   };
 }
 
