@@ -37,6 +37,7 @@ export const MasterProfile = z.object({
     .object({
       countries: z.array(z.string()).default([]), // ISO-2 lower case, e.g. "in"
       roles: z.array(z.string()).default([]),
+      payCountry: z.string().optional(), // ISO-2: the country your current and expected pay figures are in
       currentCtc: z.string().optional(),
       expectedCtc: z.string().optional(),
       noticePeriod: z.string().optional(),
