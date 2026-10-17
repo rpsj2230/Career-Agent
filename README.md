@@ -79,6 +79,22 @@ Adzuna and JSearch (which indexes many portals). For a posting you find on a por
 **Add job manually** (link + description); it then follows the normal score -> prepare -> approve flow and is
 applied in assisted mode.
 
+### Apply assistant (LinkedIn, Naukri, Indeed, Foundit, Shine, Glassdoor and any employer site)
+These portals cannot be driven from a server, and automating them from a cloud IP gets accounts challenged or banned. The
+assistant runs on **your own computer**, in a real browser window using your own signed-in sessions:
+
+1. One-time: `npm ci`, `npx playwright install chromium`, and create `.env.local` with `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
+2. In the dashboard, **Approve** the prepared applications (they appear as *assisted*).
+3. Run `npm run assist`. A browser window opens. Sign in to each portal in it the first time (the session is kept in
+   `~/.career-agent/browser`; this app never sees or stores your portal passwords).
+4. For each application it opens the posting, clicks Easy Apply / Apply, fills every field it can from your tailored resume,
+   cover letter and saved answers, and **stops**. Review it, press the portal's own **Submit**, and the application is recorded
+   (with what was filled and the exact files). Type `n` to leave it for later, `k` to skip the job, `q` to quit.
+
+It never presses Submit, never solves or bypasses a CAPTCHA or security check (it waits for you), and paces itself between jobs.
+Use your installed Chrome with `ASSIST_CHANNEL=chrome npm run assist`. Portals' terms restrict automation in general; because
+you review and press Submit, and it runs from your own device, the risk is much lower than a server bot, but it is not zero.
+
 ## Development
 
 ```bash

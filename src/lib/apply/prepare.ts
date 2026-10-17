@@ -1,5 +1,7 @@
 import "server-only";
 import { logActivity } from "@/lib/activity";
+import { upgradeApplyTarget } from "@/lib/jobs/resolve-url";
+import type { ApplyType } from "@/lib/jobs/normalize";
 import { jobLogFields } from "@/lib/activity-helpers";
 import { db, must } from "@/lib/db";
 import { withLegacyFallback } from "@/lib/schema";
@@ -42,9 +44,17 @@ export async function prepareApplication(jobId: string, runId: string | null = n
   const existing = must<{ id: string } | null>(await db().from("applications").select("id").eq("job_id", jobId).maybeSingle(), "check existing");
   if (existing) return existingResult(existing.id);
 
-  const job = must<{ id: string; title: string; company: string; description: string; country?: string | null; portal?: string | null; source?: string | null }>(
+  const job = must<{ id: string; title: string; company: string; description: string; url: string; apply_type: ApplyType; country?: string | null; portal?: string | null; source?: string | null }>(
     await db().from("jobs").select("*").eq("id", jobId).single(), "load job",
   );
+  // an aggregator link that leads to the employer's own Greenhouse or Lever page: use that page, so it can be applied for automatically
+  const upgraded = await upgradeApplyTarget(job).catch(() => null);
+  if (upgraded) {
+    const from = job.url;
+    must(await db().from("jobs").update(upgraded).eq("id", jobId).select("id"), "update job link");
+    Object.assign(job, upgraded);
+    await logActivity({ kind: "job.link_resolved", message: `Found the employer's ${upgraded.apply_type === "greenhouse" ? "Greenhouse" : "Lever"} page for ${job.title} at ${job.company}: it can be applied for automatically`, ...jobLogFields(job), status: "resolved", detail: { from, to: upgraded.url, apply_type: upgraded.apply_type } });
+  }
   const profile = await getProfile();
   if (profile.experience.length === 0) throw new Error("Profile is empty: import and confirm your resume first");
   const bank = must<{ question: string; answer: string }[]>(await db().from("answer_bank").select("question,answer"), "load answer bank");

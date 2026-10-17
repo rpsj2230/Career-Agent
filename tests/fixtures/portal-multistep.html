@@ -1,0 +1,30 @@
+<!doctype html><html><body>
+<h1>Product Manager - Acme</h1>
+<p>Own the roadmap and partner with engineering. 5+ years of experience.</p>
+<button id="save">Save job</button>
+<button id="easy" type="button">Easy Apply</button>
+<div id="modal" hidden>
+  <div id="s1">
+    <label>First name <input type="text" name="first" required></label>
+    <label>Email <input type="email" name="email" required></label>
+    <label>Phone <input type="text" name="phone"></label>
+    <button type="button" id="n1">Next</button>
+  </div>
+  <div id="s2" hidden>
+    <label>Resume <input type="file" name="resume"></label>
+    <label>Expected CTC <input type="text" name="ctc" required></label>
+    <button type="button" id="n2">Review</button>
+  </div>
+  <div id="s3" hidden>
+    <p>Review your application</p>
+    <button type="button" id="send">Submit application</button>
+  </div>
+</div>
+<script>
+  window.__sent = false;
+  easy.onclick = () => { modal.hidden = false; };
+  n1.onclick = () => { s1.hidden = true; s2.hidden = false; };
+  n2.onclick = () => { s2.hidden = true; s3.hidden = false; };
+  send.onclick = () => { window.__sent = true; document.body.innerHTML = '<h2>Application sent</h2>'; };
+</script>
+</body></html>

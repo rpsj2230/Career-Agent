@@ -515,6 +515,32 @@ if (process.env.PLAYWRIGHT_BROWSERS_PATH || process.env.CHROMIUM_PATH) {
   check("running the worker again does nothing and never submits twice", again.code === 0 && /No approved applications/.test(again.text) && mock.rowsOf("applications").find((a) => a.id === good.appId).status === "submitted", again.text.slice(-300));
   const single = await runApplyWorker({ APPLICATION_ID: good.appId });
   check("targeting an application that is already submitted is a no-op", single.code === 0 && /nothing to do/i.test(single.text) && mock.rowsOf("applications").find((a) => a.id === good.appId).submission.outcome === "submitted", single.text.slice(-300));
+
+  // ---- the apply assistant (worker/assist.ts): fills a portal-style multi-step form and waits for the person to press Submit
+  const asst = seedApproved("PortalCo", "", new Date(Date.now() - 5_000).toISOString(), "portal-multistep");
+  const asstRow = mock.rowsOf("applications").find((a) => a.id === asst.appId);
+  asstRow.status = "assisted_pending"; asstRow.method = "assisted";
+  mock.rowsOf("jobs").find((j) => j.id === asst.jobId).portal = "naukri";
+  const runAssist = (input) => new Promise((resolve) => {
+    const p = spawn("node_modules/.bin/tsx", ["worker/assist.ts"], {
+      env: { ...process.env, SUPABASE_URL: `http://127.0.0.1:${MOCK}`, SUPABASE_SERVICE_ROLE_KEY: "service-key", CHROMIUM_PATH: process.env.CHROMIUM_PATH ?? `${process.env.PLAYWRIGHT_BROWSERS_PATH}/chromium`, ASSIST_HEADLESS: "1", ASSIST_PAUSE_MS: "0", APPLICATION_ID: asst.appId, ASSIST_PROFILE_DIR: `${process.env.TMPDIR ?? "/tmp"}/assist-profile-${Date.now()}` },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let text = "", sent = false;
+    const onData = (d) => { text += d; if (!sent && /type\s+s = I submitted it/.test(text)) { sent = true; setTimeout(() => p.stdin.write(`${input}\n`), 300); } };
+    p.stdout.on("data", onData); p.stderr.on("data", (d) => (text += d));
+    p.on("close", (code) => resolve({ code, text }));
+  });
+  const nothing = await runAssist("q");
+  check("the assistant opens the form, fills it and stops: quitting leaves the application waiting, nothing sent", nothing.code === 0 && /Filled \d+ field/.test(nothing.text) && mock.rowsOf("applications").find((a) => a.id === asst.appId).status === "assisted_pending", `${nothing.code} ${nothing.text.slice(-400)}`);
+  const did = await runAssist("s");
+  const ar = mock.rowsOf("applications").find((a) => a.id === asst.appId);
+  check("after you press Submit and confirm, it records the application as submitted by you", did.code === 0 && ar.status === "submitted" && ar.method === "assisted" && ar.lifecycle === "applied" && !!ar.submitted_at, `${did.code} ${ar.status} ${did.text.slice(-300)}`);
+  check("the record lists what was filled and the exact files, and says you pressed Submit", ar.submission?.fields.some((f) => f.label === "First name" && f.value === "Asha") && ar.submission.fields.some((f) => f.value === "32 LPA") && ar.submission.files.length === 2 && /pressed Submit yourself/.test(ar.submission.note ?? "") && ar.submission.outcome === "submitted", JSON.stringify(ar.submission)?.slice(0, 400));
+  check("the assistant never pressed the form's own Submit button", !/Application sent/.test(did.text) && ar.submission.confirmation === null, JSON.stringify(ar.submission?.confirmation));
+  check("the job is marked applied and the submission is logged as made with the assistant", mock.rowsOf("jobs").find((j) => j.id === asst.jobId).status === "applied" && mock.rowsOf("activity_log").some((l) => l.kind === "application.submitted" && l.application_id === asst.appId && l.detail?.assistant === true), "log missing");
+  const idle = await runAssist("q");
+  check("with nothing waiting it says so and exits", idle.code === 0 && /Nothing is waiting/.test(idle.text), idle.text.slice(-200));
 } else {
   console.log("SKIP  apply worker checks (set PLAYWRIGHT_BROWSERS_PATH or CHROMIUM_PATH)");
 }

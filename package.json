@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "worker:apply": "tsx worker/apply.ts",
     "test:e2e": "node tests/e2e/auth.e2e.mjs",
-    "gen:migrations": "node scripts/gen-migrations.mjs"
+    "gen:migrations": "node scripts/gen-migrations.mjs",
+    "assist": "tsx --env-file-if-exists=.env.local worker/assist.ts"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.70",
