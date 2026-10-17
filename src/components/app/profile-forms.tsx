@@ -50,9 +50,9 @@ export function ImportBox() {
       </section>
 
       <section className="grid gap-2">
-        <Label htmlFor="files">3. Or upload files: resume (PDF, DOCX), LinkedIn &quot;Save to PDF&quot;, or the LinkedIn data export (.zip)</Label>
-        <Input id="files" name="files" type="file" multiple accept=".pdf,.docx,.txt,.md,.zip" />
-        <p className="text-xs text-muted-foreground">On your profile: More, then Save to PDF. For the full export: LinkedIn Settings, Data privacy, Get a copy of your data. You can combine sources; conflicts are listed for you to resolve.</p>
+        <Label htmlFor="files">3. Or upload files: resume (PDF, DOCX), LinkedIn &quot;Save to PDF&quot;, the LinkedIn data export (.zip), or a ready-made profile file (.json)</Label>
+        <Input id="files" name="files" type="file" multiple accept=".pdf,.docx,.txt,.md,.zip,.json" />
+        <p className="text-xs text-muted-foreground">On your profile: More, then Save to PDF. For the full export: LinkedIn Settings, Data privacy, Get a copy of your data. You can combine sources; conflicts are listed for you to resolve. A ready-made .json profile needs no AI model and is loaded exactly as written, as a draft for you to review.</p>
       </section>
 
       <p className="text-xs text-muted-foreground">Your text is sent to the configured AI model provider. Remove ID numbers and dates of birth first.</p>
