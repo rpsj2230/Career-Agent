@@ -105,9 +105,10 @@ set job alerts on each portal for your titles and countries, connect the mailbox
 These portals cannot be driven from a server, and automating them from a cloud IP gets accounts challenged or banned. The
 assistant runs on **your own computer**, in a real browser window using your own signed-in sessions:
 
+0. On a Mac the one-line installer `scripts/mac-setup.sh` does steps 1 to 3 (see `docs/LAPTOP_SETUP.md`).
 1. One-time: `npm ci`, `npx playwright install chromium`, and create `.env.local` with `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
 2. In the dashboard, **Approve** the prepared applications (they appear as *assisted*).
-3. Run `npm run assist`. A browser window opens. Sign in to each portal in it the first time (the session is kept in
+3. Run `npm run assist:login` once. A browser window opens. Sign in to each portal in it the first time (the session is kept in
    `~/.career-agent/browser`; this app never sees or stores your portal passwords).
 4. For each application it opens the posting, clicks Easy Apply / Apply, fills every field it can from your tailored resume,
    cover letter and saved answers, and **stops**. Review it, press the portal's own **Submit**, and the application is recorded
@@ -164,7 +165,7 @@ form matching on employers with unusual forms. LinkedIn automation is the least 
 leave it off unless you accept that.
 
 Other known limits: Vercel Hobby cron runs once a day; your **Schedules** page (hourly check in
-`.github/workflows/pipeline.yml`) replaces the fixed-time `schedule.yml` jobs as soon as you have an active schedule; the prepare step makes two model calls and may need a function time limit
+`.github/workflows/pipeline.yml`) replaced the old fixed-time discovery workflow (removed); the prepare step makes two model calls and may need a function time limit
 above your plan's default (`maxDuration` is set to 120s; check your plan); `npm audit` reports a moderate
 `sprintf-js` issue reached through mammoth's CLI parser, which is not fed by your documents, and its suggested
 fix is a downgrade to a very old mammoth, so it is accepted for now.

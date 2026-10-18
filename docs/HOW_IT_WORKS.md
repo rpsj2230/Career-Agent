@@ -85,3 +85,7 @@ If a posting asks for applications by email, or lists an address, the applicatio
 - **Bulk actions:** Jobs and Applications have checkboxes; `/api/bulk` prepares, approves or skips up to 50 rows. Automatic applications approved together are sent by one batch run.
 - **A service that refuses the key** (for example Apify rejecting its token) is tried once per run; its other searches are skipped instead of failing one by one.
 - **Backups:** `docs/BACKUP.md`; **laptop setup:** `docs/LAPTOP_SETUP.md`.
+
+## GitHub Actions minutes (what this app uses)
+
+GitHub bills Actions by the minute, per job, rounded up to the whole minute. Public repositories are free and unlimited; a private repository on the free plan includes 2,000 Linux minutes a month. Measured from this app's own runs: the hourly check job is billed 1 minute each time (about 8 to 24 times a day, because GitHub often delays scheduled runs); a full scheduled run takes 15 to 32 minutes; a button-started task 5 to 15; the nightly backup about 2; the weekly apply check about 6; an apply batch about 5 to 10. Typical month: about 1,200 to 2,300 minutes, which is at or over the free private limit, so the repository is kept public (nothing secret is stored in it or printed in its logs).

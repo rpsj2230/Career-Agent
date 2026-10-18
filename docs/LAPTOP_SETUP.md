@@ -4,6 +4,20 @@ You need this **only** for applications on LinkedIn, Naukri, Indeed and similar 
 
 Nothing here runs in Claude's cloud session: it runs on **your** Windows PC or Mac, in a normal browser window.
 
+## On a Mac: one command does everything
+1. Press **Cmd + Space**, type **Terminal**, press Enter.
+2. Paste this one line and press Enter:
+
+```
+curl -fsSL https://raw.githubusercontent.com/rpsj2230/Career-Agent/main/scripts/mac-setup.sh | bash
+```
+
+3. Answer its questions. It installs what is missing (Node.js), downloads the project to `~/Career-Agent`, installs it, asks you to paste two values from Supabase (Project URL and the `service_role` key: Supabase, your project, Project Settings, API), checks everything, opens the browser so you can sign in to LinkedIn, Naukri and Indeed once, and offers to start the assistant automatically whenever you sign in to the Mac.
+4. If it says "A window asked to install the Apple developer tools", click Install, wait for it to finish, and paste the same line again. It is safe to run again at any time; it only fills in what is missing.
+5. In the app: **Settings, Auto-Apply** on, and **Application limits, "Let the apply assistant on my computer press Submit by itself"** on. The **Apply assistant** card on the Applications page then turns green.
+
+The manual steps below are the same thing written out, for Windows or if you want to see each step.
+
 ## 0. What you need
 - A Windows 10/11 PC, a Mac, or Linux, that is switched on while it applies.
 - Two values from Supabase (step 4).
@@ -73,10 +87,10 @@ It prints one line per check, with OK or FIX and what to do. Run it again after 
 ## 6. Sign in to the job portals once
 
 ```
-npm run assist
+npm run assist:login
 ```
 
-A browser window opens. Sign in to LinkedIn, Naukri, Indeed (and any other you use) **in that window**. The sessions are kept on your computer in the folder `.career-agent/browser` inside your user folder; the app never sees your passwords. If nothing is waiting for the assistant it says so and closes. That is fine if you have signed in. If it closes before you could sign in, approve one application that needs the assistant in the app and run the command again.
+A browser window opens with one tab per portal. Sign in to LinkedIn, Naukri, Indeed (and any other you use) **in that window**. The sessions are kept on your computer in the folder `.career-agent/browser` inside your user folder; the app never sees your passwords. When you have finished, **close the browser window**. To sign in again later, run the same command.
 
 ## 7. Let it work by itself (optional, "hands-free")
 1. In the app: **Settings, Auto-Apply** switch on, and **Settings, Application limits, "Let the apply assistant on my computer press Submit by itself"** on. Keep the daily limits low.
