@@ -3,12 +3,14 @@ import { decryptSecret, encryptSecret } from "@/lib/secrets";
 
 vi.mock("server-only", () => ({}));
 const store: Record<string, Record<string, string>> = {};
+const modelRows = [{ label: "gemini", api_key_env: "GEMINI_API_KEY" }, { label: "groq", api_key_env: "GROQ_API_KEY" }, { label: "local", api_key_env: null }];
 vi.mock("@/lib/db", () => ({
   must: (r: { data: unknown; error?: unknown }) => r.data,
   db: () => ({
-    from: () => {
+    from: (table: string) => {
       let key = "";
       const q = {
+        then: (res: (v: unknown) => void) => res({ data: table === "model_configs" ? modelRows : null }),
         select: () => q, eq: (_c: string, v: string) => { key = v; return q; },
         maybeSingle: async () => ({ data: store[key] ? { value: store[key] } : null }),
         upsert: (row: { key: string; value: Record<string, string> }) => { store[row.key] = row.value; return { select: async () => ({ data: [row] }) }; },
@@ -18,7 +20,7 @@ vi.mock("@/lib/db", () => ({
   }),
 }));
 
-import { healKeys, keyReadiness, resolveKeys, saveKey } from "@/lib/llm/keys";
+import { healKeys, importEnvKeys, keyReadiness, resolveKeys, saveKey } from "@/lib/llm/keys";
 
 const rows = [{ label: "gemini", api_key_env: null }, { label: "groq", api_key_env: "GROQ_API_KEY" }] as never;
 const set = (k: string, v: string | undefined) => { if (v === undefined) delete process.env[k]; else process.env[k] = v; }; // assigning undefined would store the text "undefined"
@@ -69,5 +71,26 @@ describe("saved model keys are readable by both the site and the GitHub runner",
     env("other", "another-secret-entirely-2");
     expect((await resolveKeys(rows)).has("gemini")).toBe(false);
     expect(encryptSecret("AIza-key", "k")).not.toContain("AIza-key");
+  });
+
+  it("keys that only exist as environment variables on the site are copied into the app so the runner can use them", async () => {
+    env("service-A", "cron-secret-shared-1");
+    process.env.GEMINI_API_KEY = "AIza-from-vercel"; process.env.GROQ_API_KEY = "gsk-from-vercel";
+    expect(await importEnvKeys()).toBe(2);
+    expect(await importEnvKeys()).toBe(0); // already saved
+    delete process.env.GEMINI_API_KEY; delete process.env.GROQ_API_KEY;
+    env("service-B-runner", "cron-secret-shared-1"); // the runner has neither the env vars nor the same Supabase key
+    const keys = await resolveKeys(rows);
+    expect(keys.get("gemini")).toBe("AIza-from-vercel");
+    expect(keys.get("groq")).toBe("gsk-from-vercel");
+  });
+
+  it("the hourly heal also imports env keys, and never saves an empty or missing one", async () => {
+    env("service-A", "cron-secret-shared-1");
+    process.env.GEMINI_API_KEY = "   ";
+    expect(await healKeys()).toBe(0);
+    process.env.GEMINI_API_KEY = "AIza-real";
+    expect(await healKeys()).toBeGreaterThanOrEqual(1);
+    delete process.env.GEMINI_API_KEY;
   });
 });
