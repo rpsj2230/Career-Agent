@@ -11,6 +11,7 @@ import { ensureDefaultModels } from "@/lib/llm/registry";
 import { fmtDateTime } from "@/lib/time";
 import { modelHealth, type Call } from "@/lib/llm/health";
 import { groupByProvider, modelClass } from "@/lib/llm/classes";
+import { ProviderKeys, slotNumber, type KeySlot } from "@/components/app/provider-keys";
 
 export const dynamic = "force-dynamic";
 
@@ -85,23 +86,15 @@ export default async function ModelsPage() {
       {providers.map((g) => {
         const ready = g.rows.filter((r) => hasKey(r));
         const idle = g.rows.filter((r) => !hasKey(r));
-        const envs = [...new Set(g.rows.map((r) => r.api_key_env).filter((e): e is string => !!e))].sort();
+        const envs = [...new Set(g.rows.map((r) => r.api_key_env).filter((e): e is string => !!e))].sort((a, b) => slotNumber(a) - slotNumber(b));
+        const slots: KeySlot[] = envs.map((e) => ({ env: e, label: g.rows.find((r) => r.api_key_env === e)!.label, set: g.rows.some((r) => r.api_key_env === e && hasStored(r)) || !!process.env[e] }));
         return (
           <Card key={g.provider} id={`p-${g.provider}`}>
             <CardHeader>
               <CardTitle>{g.name} <span className="text-sm font-normal text-muted-foreground">({ready.length} ready, {idle.length} not set up)</span></CardTitle>
-              {envs.length > 0 && (
-                <CardDescription className="flex flex-wrap items-center gap-1">
-                  Keys:
-                  {envs.map((e) => {
-                    const set = g.rows.some((r) => r.api_key_env === e && hasKey(r));
-                    return <Badge key={e} variant={set ? "default" : "outline"}>{e} {set ? "set" : "not set"}</Badge>;
-                  })}
-                  <span className="ml-1">Paste a key on any row that uses the same key name; it serves them all.</span>
-                </CardDescription>
-              )}
             </CardHeader>
             <CardContent className="grid gap-3">
+              {slots.length > 0 && <ProviderKeys provider={g.name} slots={slots} />}
               {ready.length > 0 ? <Table>{head}<TableBody>{ready.map(renderRow)}</TableBody></Table> : <p className="text-sm text-muted-foreground">No model of this provider has a key yet.</p>}
               {idle.length > 0 && (
                 <details>
