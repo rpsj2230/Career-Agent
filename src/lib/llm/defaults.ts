@@ -24,5 +24,7 @@ export const DEFAULT_MODELS: Omit<ModelRow, "id">[] = [
   // after that it is pay-as-you-go unless "free quota only" is switched on in the Alibaba console. Without a DASHSCOPE_API_KEY these rows are skipped.
   { label: "alibaba-qwen-flash", provider: "alibaba", base_url: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", model: "qwen-flash", api_key_env: "DASHSCOPE_API_KEY", tasks: ["score", "extract"], priority: 30, daily_cap: 400, enabled: true },
   { label: "alibaba-qwen-plus", provider: "alibaba", base_url: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", model: "qwen-plus", api_key_env: "DASHSCOPE_API_KEY", tasks: ["score", "tailor", "extract"], priority: 32, daily_cap: 250, enabled: true },
+  { label: "mistral-large", provider: "mistral", base_url: "https://api.mistral.ai/v1", model: "mistral-large-latest", api_key_env: "MISTRAL_API_KEY", tasks: ["score", "tailor", "extract"], priority: 48, daily_cap: 150, enabled: true },
+  { label: "mistral-nemo", provider: "mistral", base_url: "https://api.mistral.ai/v1", model: "open-mistral-nemo", api_key_env: "MISTRAL_API_KEY", tasks: ["score", "extract"], priority: 52, daily_cap: 300, enabled: true },
   { label: "mistral-small", provider: "mistral", base_url: "https://api.mistral.ai/v1", model: "mistral-small-latest", api_key_env: "MISTRAL_API_KEY", tasks: ["score", "tailor", "extract"], priority: 50, daily_cap: 200, enabled: true },
 ];
