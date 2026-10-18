@@ -114,7 +114,7 @@ export async function prepareApplication(jobId: string, runId: string | null = n
     if (cover) await upload(coverPath, await renderCoverLetterDocx(profile, cover.content, job.company, style));
 
     const resumeDoc = must<{ id: string }>(
-      await db().from("documents").insert({ job_id: jobId, kind: "resume", version: rv, content: resume.content, diff: resume.diff, verification: { ...resume.verification, reuse: prov, style: style.id, ...(master ? { fallback: master.file ? "master_original" : "master_profile", reason: master.reason } : {}) }, storage_path: resumePath, model: resume.model }).select("id").single(),
+      await db().from("documents").insert({ job_id: jobId, kind: "resume", version: rv, content: resume.content, diff: resume.diff, verification: { ...resume.verification, reuse: prov, quality: master ? undefined : resume.quality, style: style.id, ...(master ? { fallback: master.file ? "master_original" : "master_profile", reason: master.reason } : {}) }, storage_path: resumePath, model: resume.model }).select("id").single(),
       "save resume doc",
     );
     const coverDoc = !cover ? null : must<{ id: string }>(

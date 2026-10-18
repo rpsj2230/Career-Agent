@@ -7,9 +7,11 @@ import { getSetting } from "@/lib/settings";
 export const maxDuration = 20;
 
 /** Asked by the GitHub workflows before they start: should the local model be installed for this run? Returns the model name, or "". */
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const s = await getSetting("local_model");
+    // the "Test local model" button asks for it whatever the mode is
+    if (new URL(request.url).searchParams.get("force") === "1") return NextResponse.json({ local_model: s.model, mode: s.mode });
     const since = new Date(Date.now() - 6 * 3_600_000).toISOString();
     const [ready, fails, oks] = await Promise.all([
       keyReadiness(),

@@ -139,7 +139,7 @@ describe("tailorResumeSmart", () => {
     const run: Runner = async () => { calls++; return { output: base as never, model: "m" }; };
     expect((await tailorResumeSmart(profile, job("Product Manager, Payments", JD_PAYMENTS), run, lib([past()], false))).provenance.mode).toBe("fresh");
     expect((await tailorResumeSmart(profile, job("Product Manager, Payments", JD_PAYMENTS), run, lib([]))).provenance.mode).toBe("fresh");
-    expect(calls).toBe(2);
+    expect(calls).toBeGreaterThanOrEqual(2); // at least one model call per resume; weakly-aimed answers get improvement attempts
   });
 });
 
