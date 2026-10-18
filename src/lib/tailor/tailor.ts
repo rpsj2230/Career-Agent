@@ -5,6 +5,7 @@ import { vocabulary } from "@/lib/docs/verify";
 import { applyPatch, baseResumeBlock, carryCoverLetter, decideReuse, estimateTokens, DEFAULT_THRESHOLDS, type Library, type Provenance } from "./memory";
 import { tokenize } from "./similarity";
 import { assessCover, assessTailoring, GOOD_ENOUGH, type CoverQuality, type Quality } from "./quality";
+import { withBalancedSkills } from "./skills";
 import { styleFor, styleInstruction, type ResumeStyle } from "./template";
 
 export type Runner = <S extends z.ZodType>(o: {
@@ -45,7 +46,7 @@ Work in this order:
 2. "headline": one line that names the role this job hires for, followed by 2-3 strengths the job asks for. Use only titles and areas the candidate has really held (see the facts); never add seniority words such as Senior, Lead or Head unless the candidate held that level.
 3. "summary": 3-4 sentences. Open with the candidate's level and the job's main need, show the 2-3 strengths the job values most, and include one quantified achievement from the facts. Use the job's own terminology for things the candidate really did.
 4. "experience": keep every role from the facts that matters for this job (most recent first; leave out only clearly irrelevant older roles). For each role choose the bullets that best prove the job's requirements, strongest first (about 3-5), and REWRITE each: start with a strong action verb, put what this job values first, name the tools and methods the job names when the cited fact says the candidate used them, and end with the result and its exact figure. You may merge two related facts into one bullet. Cite every fact used in "sourceIds". Never copy a bullet word for word unless it is already the best possible wording.
-5. "skillIds": the skills the job asks for first, then other strong ones; keep every group that matters for this job.
+5. "skillIds": the skills the job asks for first, then the other strong ones. Do NOT drop the rest of the candidate's skills: keep most of them (a resume with few skills looks thin), in every group, with the job's skills on top. Only leave out skills that are clearly unrelated to this job.
 6. "highlightIds": the 3-4 Career Highlights most relevant to this job, best first. "caseStudyIds": up to 3 most relevant Case Studies, best first. They are shown exactly as written, so never put text there.
 7. "certificationIds": those that help for this job.
 Do not pad, do not add anything the facts do not support, and do not mention what the candidate lacks.`;
@@ -61,7 +62,8 @@ export async function tailorResume(p: MasterProfile, job: JobText, run: Runner, 
   let attempts = 0;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     attempts = attempt;
-    const { output, model } = await run({ task: "tailor", schema: TailoredResume, system, prompt, jobId: job.id });
+    const raw = await run({ task: "tailor", schema: TailoredResume, system, prompt, jobId: job.id });
+    const output = withBalancedSkills(p, raw.output, job), model = raw.model;
     const v = verifyTailored(p, output, [job.company, job.title]);
     const q = assessTailoring(p, output, job);
     const cur: Try = { out: output, model, v, q };
@@ -138,7 +140,7 @@ export async function tailorResumeSmart(p: MasterProfile, job: JobText & { descr
 
   const sameSpelling = !job.style || styleFor(d.from.past.country).spelling === job.style.spelling;
   if (d.mode === "reuse" && sameSpelling) {
-    const content = structuredClone(d.from.past.content);
+    const content = withBalancedSkills(p, structuredClone(d.from.past.content), job);
     const v = verifyTailored(p, content, allow);
     if (v.ok) return { content, model: "memory", verification: { ...v, attempts: 0 }, diff: buildDiff(p, content), quality: assessTailoring(p, content, job), provenance: { mode: "reused", from, modelCalls: 0, tokensSavedEstimate: freshTokens } };
   }
@@ -152,7 +154,7 @@ export async function tailorResumeSmart(p: MasterProfile, job: JobText & { descr
   for (let attempt = 1; attempt <= 2; attempt++) {
     calls++;
     const { output, model } = await run({ task: "tailor", schema: ResumePatchSchema, system, prompt, jobId: job.id });
-    const content = applyPatch(d.from.past.content, output);
+    const content = withBalancedSkills(p, applyPatch(d.from.past.content, output), job);
     const v = verifyTailored(p, content, allow);
     if (v.ok) return { content, model, verification: { ...v, attempts: calls }, diff: buildDiff(p, content), quality: assessTailoring(p, content, job), provenance: { mode: "adapted", from, modelCalls: calls, tokensSavedEstimate: Math.round(TYPICAL_ANSWER_TOKENS * 0.55) } };
     prompt = base + feedback(v);

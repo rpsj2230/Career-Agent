@@ -8,7 +8,7 @@
 # It is safe to run again at any time: it only fills in what is missing. Nothing is sent anywhere except to your own Supabase project.
 set -euo pipefail
 
-DIR="${CAREER_AGENT_DIR:-/Users/rupash/Library/CloudStorage/GoogleDrive-rupash@verzdesign.com/My Drive/Laptop Folders/E Drive/RP/AI Work/Career Job Agent}"
+DIR="${CAREER_AGENT_DIR:-/Users/rupash/Claude/Personal/Career-Agent}"
 [ -d "/Users/rupash" ] || DIR="${CAREER_AGENT_DIR:-$HOME/Career-Agent}"
 REPO_URL="${CAREER_AGENT_REPO:-https://github.com/rpsj2230/Career-Agent.git}"
 CLONE_BRANCH="${CAREER_AGENT_BRANCH:-}"

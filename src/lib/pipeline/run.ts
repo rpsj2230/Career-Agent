@@ -31,6 +31,8 @@ export type PipelineDeps = {
 
 /** A job whose preparation has failed this many times is left alone until you look at it. */
 export const MAX_PREPARE_ATTEMPTS = 3;
+/** resumes written at the same time */
+export const PREPARE_CONCURRENCY = 3;
 
 export type PipelineSummary = {
   runId: string | null;
@@ -51,7 +53,7 @@ export type PipelineSummary = {
 export async function runPipeline(
   schedule: Pick<ScheduleConfig, "countries" | "integrations" | "mode" | "require_approval" | "max_prepare" | "max_apply"> & { id: string; name: string },
   deps: PipelineDeps,
-  o: { trigger: RunTrigger; budgetMs?: number; /** clearing the backlog between schedules: nothing is searched */ skipScan?: boolean },
+  o: { trigger: RunTrigger; budgetMs?: number; /** clearing the backlog between schedules: nothing is searched */ skipScan?: boolean; /** resumes written at the same time */ prepareConcurrency?: number },
 ): Promise<PipelineSummary> {
   const budgetMs = o.budgetMs ?? 40 * 60_000;
   const started = deps.now();
@@ -93,13 +95,14 @@ export async function runPipeline(
     // 3. prepare applications for the best matches first
     const candidates = (await deps.queuedJobs(schedule.countries)).sort((a, b) => rankScore(b.score, b.posted_at, deps.now()) - rankScore(a.score, a.posted_at, deps.now()));
     const prepared: { applicationId: string; verified: boolean; job: QueuedJob }[] = [];
-    for (const job of candidates) {
-      if (prepared.length >= schedule.max_prepare) break;
-      if (left() < 90_000) { out.timedOut = true; ctx.markPartial("Time limit reached before every match was prepared; the rest will be prepared next run"); break; }
+    // a few resumes are written at the same time (each waits mostly on the AI model), which cuts a round's time by about two thirds
+    const concurrency = Math.max(1, o.prepareConcurrency ?? PREPARE_CONCURRENCY);
+    let next = 0, started = 0, stop = false;
+    const prepareOne = async (job: QueuedJob) => {
       const ref = { job_id: job.id, company: job.company, country: job.country, portal: job.portal };
       if ((await deps.failedPrepareAttempts(job.id)) >= MAX_PREPARE_ATTEMPTS) {
         await ctx.log({ kind: "application.prepare_failed", level: "warn", message: `Not retrying "${job.title}": preparation failed ${MAX_PREPARE_ATTEMPTS} times already`, status: "gave_up", ...ref, detail: { title: job.title } });
-        continue;
+        return false;
       }
       try {
         const r = await deps.prepare(job.id, ctx.id);
@@ -107,14 +110,28 @@ export async function runPipeline(
         ctx.stat("prepared"); out.prepared++;
       } catch (e) {
         // closed, no longer a fit, or already applied: the job was closed out with the reason, which is a result, not a failure
-        if (e instanceof Error && e.name === "PreflightStop") { ctx.stat("closed_before_applying"); continue; }
+        if (e instanceof Error && e.name === "PreflightStop") { ctx.stat("closed_before_applying"); return false; }
         const error = e instanceof Error ? e.message : String(e);
         out.prepareFailed++; ctx.stat("prepare_failed");
         await ctx.log({ kind: "application.prepare_failed", level: "error", message: `Could not prepare "${job.title}" at ${job.company}: ${error}`, status: "failed", ...ref, detail: { error, title: job.title } });
-        if (/No model available|All models failed/.test(error)) { ctx.markPartial(error); break; } // no model can work on the rest either
+        if (/No model available|All models failed/.test(error)) { ctx.markPartial(error); stop = true; } // no model can work on the rest either
+        await heartbeat(ctx.id, deps.store);
+        return false;
       }
       await heartbeat(ctx.id, deps.store);
-    }
+      return true;
+    };
+    const lane = async () => {
+      while (!stop) {
+        if (started >= schedule.max_prepare || next >= candidates.length) return;
+        if (left() < 90_000) { out.timedOut = true; ctx.markPartial("Time limit reached before every match was prepared; the rest will be prepared next run"); stop = true; return; }
+        const job = candidates[next++];
+        started++;
+        // only a resume that was really written uses up one of this round's places
+        if (!(await prepareOne(job))) started--;
+      }
+    };
+    await Promise.all(Array.from({ length: concurrency }, lane));
     if (out.prepareFailed) ctx.markPartial(`${out.prepareFailed} application(s) could not be prepared; the jobs stay queued and are retried next run`);
 
     // applications that were waiting for an answer you have now given go through the same approval rules

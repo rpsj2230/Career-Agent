@@ -10,5 +10,9 @@ export const DEFAULT_MODELS: Omit<ModelRow, "id">[] = [
   { label: "groq-gpt-oss", provider: "groq", base_url: "https://api.groq.com/openai/v1", model: "openai/gpt-oss-120b", api_key_env: "GROQ_API_KEY", tasks: ["score", "tailor", "extract"], priority: 18, daily_cap: 400, enabled: true },
   { label: "nvidia-llama", provider: "nvidia", base_url: "https://integrate.api.nvidia.com/v1", model: "meta/llama-3.3-70b-instruct", api_key_env: "NVIDIA_API_KEY", tasks: ["score", "tailor", "extract"], priority: 35, daily_cap: 500, enabled: true },
   { label: "openrouter-free", provider: "openrouter", base_url: "https://openrouter.ai/api/v1", model: "meta-llama/llama-3.3-70b-instruct:free", api_key_env: "OPENROUTER_API_KEY", tasks: ["score", "tailor", "extract"], priority: 40, daily_cap: 45, enabled: true },
+  // Alibaba Cloud Model Studio (Qwen), international/Singapore endpoint. New accounts get a one-time free quota per model that expires after about 90 days;
+  // after that it is pay-as-you-go unless "free quota only" is switched on in the Alibaba console. Without a DASHSCOPE_API_KEY these rows are skipped.
+  { label: "alibaba-qwen-flash", provider: "alibaba", base_url: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", model: "qwen-flash", api_key_env: "DASHSCOPE_API_KEY", tasks: ["score", "extract"], priority: 30, daily_cap: 400, enabled: true },
+  { label: "alibaba-qwen-plus", provider: "alibaba", base_url: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", model: "qwen-plus", api_key_env: "DASHSCOPE_API_KEY", tasks: ["score", "tailor", "extract"], priority: 32, daily_cap: 250, enabled: true },
   { label: "mistral-small", provider: "mistral", base_url: "https://api.mistral.ai/v1", model: "mistral-small-latest", api_key_env: "MISTRAL_API_KEY", tasks: ["score", "tailor", "extract"], priority: 50, daily_cap: 200, enabled: true },
 ];

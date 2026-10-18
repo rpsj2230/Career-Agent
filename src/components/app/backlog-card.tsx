@@ -19,7 +19,7 @@ export async function BacklogCard() {
       <CardContent className="grid gap-1 text-sm">
         <div><b>{c.unscored}</b> found job{c.unscored === 1 ? "" : "s"} waiting to be <Link className="underline" href="/jobs?view=new">scored</Link> · <b>{c.unprepared}</b> good match{c.unprepared === 1 ? "" : "es"} waiting for a resume to be prepared{ap.enabled ? "" : " (automatic preparing is off)"}.</div>
         <div className="text-muted-foreground">
-          {clear ? "Nothing is backed up." : `You do not need to press anything: every hour the app scores a batch (about 60 jobs) and prepares ${ap.enabled ? `up to ${ap.per_run} resumes` : "no resumes"} until the list is empty. At that pace this clears in about ${hours} hour${hours === 1 ? "" : "s"}.`}
+          {clear ? "Nothing is backed up." : `You do not need to press anything: the app scores a batch (about 60 jobs) and prepares ${ap.enabled ? `up to ${ap.per_run} resumes` : "no resumes"} round after round (a new round starts as soon as the last one ends) until the list is empty. At that pace this clears in about ${hours} hour${hours === 1 ? "" : "s"}.`}
           {last?.at ? ` Last backlog round ${ago(last.at, new Date())}: ${last.last?.scored ?? 0} scored, ${last.last?.prepared ?? 0} prepared.` : ""}
           {last && (last.noProgress ?? 0) >= 2 ? " The last rounds made no progress (check AI models), so it is pausing for a few hours." : ""}
         </div>

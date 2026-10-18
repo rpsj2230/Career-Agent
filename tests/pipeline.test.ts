@@ -132,9 +132,11 @@ describe("runPipeline", () => {
   });
 
   it("stops preparing when no model is usable at all", async () => {
-    const { deps, calls } = setup([job(1), job(2), job(3)], { prepare: async () => { calls.prepared.push("x"); throw new Error("All models failed: quota"); } });
+    const { deps, calls } = setup([job(1), job(2), job(3), job(4), job(5)], { prepare: async () => { calls.prepared.push("x"); throw new Error("All models failed: quota"); } });
     await runPipeline(sched({ mode: "scan_prepare" }), deps, { trigger: "schedule" });
-    expect(calls.prepared.length).toBe(1);
+    // the ones already under way finish, but no further resume is started once no model works
+    expect(calls.prepared.length).toBeLessThanOrEqual(3);
+    expect(calls.prepared.length).toBeGreaterThanOrEqual(1);
   });
 
   it("gives up on a job that has failed to prepare too many times, and says so", async () => {

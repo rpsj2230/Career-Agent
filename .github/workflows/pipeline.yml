@@ -11,6 +11,14 @@ on:
       schedule_id:
         description: Run this schedule now (leave empty to run whatever is due)
         required: false
+      chain:
+        description: Internal. How many follow-on rounds have already run in a row (the backlog is cleared round after round)
+        required: false
+        default: "0"
+
+permissions:
+  contents: read
+  actions: write # only so a round can start the next one while a backlog is waiting
 
 concurrency:
   group: pipeline # two runs of the pipeline never overlap; a waiting tick is picked up afterwards
@@ -114,3 +122,30 @@ jobs:
           LINKEDIN_STORAGE_STATE: ${{ secrets.LINKEDIN_STORAGE_STATE }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+  # While jobs are still waiting to be scored or prepared, start the next round right away instead of waiting for the next hourly tick.
+  # It stops by itself: the check asks the app whether work is waiting and whether the last rounds made progress, and at most 12 rounds run in a row.
+  continue:
+    needs: pipeline
+    if: always() && needs.pipeline.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          CHAIN: ${{ inputs.chain }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          n="${CHAIN:-0}"
+          if [ "$n" -ge 12 ]; then echo "12 rounds in a row; the next hourly check carries on."; exit 0; fi
+          body=$(curl --fail-with-body -sS -m 60 -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/due" || true)
+          echo "$body"
+          drain=$(echo "$body" | jq -r '.drain // false' 2>/dev/null || echo false)
+          if [ "$drain" = "true" ]; then
+            gh workflow run pipeline.yml --repo "$GITHUB_REPOSITORY" --ref "${GITHUB_REF_NAME}" -f chain=$((n + 1))
+            echo "Started follow-on round $((n + 1))."
+          else
+            echo "Nothing more to do right now."
+          fi

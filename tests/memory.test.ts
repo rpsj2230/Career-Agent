@@ -116,7 +116,7 @@ describe("tailorResumeSmart", () => {
     expect(r.provenance).toMatchObject({ mode: "adapted", modelCalls: 1 });
     expect(seen).toMatch(/APPROVED RESUME/);
     expect(seen).toMatch(/experimentation/);
-    expect(r.content.skillIds).toEqual(["s1", "s3"]);
+    expect(r.content.skillIds.slice(0, 2)).toEqual(["s1", "s3"]); // the job's skills lead; the remaining skills stay so the resume does not look thin
     expect(r.content.summary.text).toBe(base.summary.text);
     expect(r.verification.ok).toBe(true);
   });
