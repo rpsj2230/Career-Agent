@@ -41,14 +41,14 @@ export class AllModelsFailed extends Error {
 }
 
 /** Try candidates in order until one succeeds. `onAttempt` lets the caller log usage. */
-export async function runWithFallback<T>(
+export async function runWithFallback<T, M extends ModelRow = ModelRow>(
   task: Task,
-  candidates: ModelRow[],
-  call: (m: ModelRow, remainingMs?: number) => Promise<T>,
-  onAttempt?: (m: ModelRow, ok: boolean, ms: number, error?: string) => Promise<void> | void,
+  candidates: M[],
+  call: (m: M, remainingMs?: number) => Promise<T>,
+  onAttempt?: (m: M, ok: boolean, ms: number, error?: string) => Promise<void> | void,
   /** a point in time after which no further model is tried (a web request must answer before the host cuts it off) */
   deadline?: number,
-): Promise<{ value: T; used: ModelRow }> {
+): Promise<{ value: T; used: M }> {
   const attempts: { label: string; error: string }[] = [];
   for (const m of candidates) {
     if (deadline !== undefined && Date.now() > deadline - 3_000) { attempts.push({ label: m.label, error: "not tried: out of time for this request" }); break; }

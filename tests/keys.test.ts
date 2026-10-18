@@ -104,8 +104,23 @@ describe("one key serves every model row that uses the same variable name", () =
     const keys = await resolveKeys(many);
     expect(keys.get("gemini-flash")).toBe("AIza-one");
     expect(keys.get("gemini-flash-lite")).toBe("AIza-one");
-    expect(keys.has("gemini-flash-k2")).toBe(false); // a different slot has its own key
-    await saveKey("gemini-flash-k2", "AIza-two", "GEMINI_API_KEY_2");
-    expect((await resolveKeys(many)).get("gemini-flash-k2")).toBe("AIza-two");
+    expect(keys.get("gemini-flash-k2")).toBe("AIza-one"); // the same provider: it can use the provider's keys too
+  });
+});
+
+import { resolveKeyPool, saveEnvKey } from "@/lib/llm/keys";
+describe("a provider's keys form one pool used by all its models", () => {
+  beforeEach(() => { for (const k of Object.keys(store)) delete store[k]; delete process.env.GEMINI_API_KEY; delete process.env.GEMINI_API_KEY_2; });
+  it("every Gemini model gets keys 1 to 5 that are set", async () => {
+    env("service-A", "cron-secret-shared-1");
+    await saveEnvKey("GEMINI_API_KEY", "AIza-one");
+    await saveEnvKey("GEMINI_API_KEY_3", "AIza-three");
+    process.env.GEMINI_API_KEY_2 = "AIza-two";
+    const two = [{ label: "gemini-flash", api_key_env: "GEMINI_API_KEY" }, { label: "gemini-flash-lite", api_key_env: "GEMINI_API_KEY" }, { label: "groq", api_key_env: "GROQ_API_KEY" }] as never;
+    const pool = await resolveKeyPool(two);
+    expect(pool.get("gemini-flash")).toEqual(["AIza-one", "AIza-two", "AIza-three"]);
+    expect(pool.get("gemini-flash-lite")).toEqual(["AIza-one", "AIza-two", "AIza-three"]);
+    expect(pool.has("groq")).toBe(false);
+    delete process.env.GEMINI_API_KEY_2;
   });
 });

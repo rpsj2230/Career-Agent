@@ -34,3 +34,11 @@ export class ModelParking {
 export const parking = new ModelParking();
 let ticks = 0;
 export const nextTick = () => ticks++;
+
+/** One entry per model and key: a model with five keys becomes five entries (labelled "name#1" to "name#5") that can run side by side. */
+export function expandByKeys<M extends { label: string }>(models: M[], keysOf: (label: string) => string[] | undefined): (M & { realLabel: string; key: string | undefined })[] {
+  return models.flatMap((m) => {
+    const ks = keysOf(m.label) ?? [undefined];
+    return ks.map((key, i) => ({ ...m, realLabel: m.label, label: ks.length > 1 ? `${m.label}#${i + 1}` : m.label, key }));
+  });
+}

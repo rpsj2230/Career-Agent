@@ -982,7 +982,7 @@ r = await call("/api/models/test", { method: "POST", body: { label: "e2e-model" 
   check("the Jobs page explains where to run the whole schedule", /Run this schedule now/.test(strip(r.text)), "hint missing");
   r = await call("/applications?size=100"); check("the Applications page has select-all with Approve and apply selected and Skip selected", /Approve and apply selected/.test(strip(r.text)) && /Skip selected/.test(strip(r.text)) && /View resume/.test(strip(r.text)), r.status);
   r = await call("/schedules"); check("the Schedules page shows what is waiting and says it clears by itself", /Waiting to be processed/.test(strip(r.text)), r.status);
-  r = await call("/models"); check("the Models page says which model works and why one does not", /Fallback chain: which model works\?/.test(strip(r.text)) && /(Working|Not used yet|Unstable|Not working|No key)/.test(strip(r.text)), r.status);
+  r = await call("/models"); check("the Models page says which model works and why one does not", /Models by provider/.test(strip(r.text)) && /(Working|Not used yet|Unstable|Not working|No key)/.test(strip(r.text)), r.status);
   r = await call("/settings"); check("Settings has automatic preparing", /Automatic preparing and backlog clearing/.test(strip(r.text)), r.status);
   r = await call("/logs"); check("the logs page names its link as run history", /Run history/.test(strip(r.text)), r.status);
 
