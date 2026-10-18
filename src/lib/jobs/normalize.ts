@@ -20,6 +20,7 @@ const PORTALS = ["naukri.com", "foundit.in", "monsterindia.com", "shine.com", "i
 
 /** Which apply path a posting URL needs. Login-gated portals are always assisted. */
 export function detectApplyType(url: string): ApplyType {
+  if (/^mailto:/i.test(url.trim())) return "email";
   let host = "";
   try { host = new URL(url).hostname.toLowerCase(); } catch { return "unknown"; }
   if (host.endsWith("greenhouse.io")) return "greenhouse";

@@ -295,7 +295,7 @@ export function startMock(port) {
       let content = '{"answer":"4"}';
       const mode = externalFixtures.chatMode ?? "normal"; // "sloppy": fenced/odd JSON and a first draft that invents things; "broken": never gets it right
       const retry = /PREVIOUS ATTEMPT WAS REJECTED/.test(prompt);
-      seen.chatCalls = (seen.chatCalls ?? 0) + 1; (seen.chatPrompts ??= []).push({ task: /tailor a candidate's resume/.test(system) ? "tailor" : /short cover letter/.test(system) ? "cover" : "score", retry, prompt: prompt.slice(-600) });
+      seen.chatCalls = (seen.chatCalls ?? 0) + 1; (seen.chatPrompts ??= []).push({ task: /tailor a candidate's resume/.test(system) ? "tailor" : /short cover letter/.test(system) ? "cover" : /application email/.test(system) ? "email" : "score", retry, prompt: prompt.slice(-600) });
       if (/You assess how well a job matches/.test(system) && /Several jobs are given/.test(system)) {
         // batched scoring: one result per job id, like a model would (a "partial" mode drops the last job, to test the per-job fallback)
         const blocks = [...prompt.matchAll(/JOB \d+ \(id: ([^)]+)\)([\s\S]*?)(?=\n\n---\n\n|$)/g)];
@@ -313,6 +313,9 @@ export function startMock(port) {
         const invent = mode === "broken" || (mode === "sloppy" && !retry); // the first draft of a sloppy model makes things up
         content = JSON.stringify({ headline: "Product Manager", summary: { text: "Product manager with relevant experience", sourceIds: ["summary"] }, experience: [{ experienceId: exp, bullets: [{ text: invent ? `${bullet?.[2]} using Kubernetes and Terraform` : bullet?.[2], sourceIds: [bullet?.[1]] }] }], skillIds: skill ? [skill] : [], certificationIds: [] });
         if (mode === "sloppy") content = content.replace(/,\s*"certificationIds":\[\]/, ',"certificationIds":[],');
+      } else if (/application email that carries/.test(system)) {
+        const bullet = prompt.match(/\[(exp\d+\.b\d+)\] ([^\n]+)/);
+        content = JSON.stringify({ subject: "Application: Product Manager - Asha Rao", body: `Dear Hiring Manager,\n\nI am applying for the Product Manager role. ${bullet?.[2] ?? ""}\n\nMy resume and cover letter are attached.\n\nKind regards,\nAsha Rao`, sourceIds: [bullet?.[1]] });
       } else if (/short cover letter/.test(system)) {
         const bullet = prompt.match(/\[(exp\d+\.b\d+)\] ([^\n]+)/);
         const inventLetter = mode === "broken" || (mode === "sloppy" && !retry);
@@ -331,6 +334,7 @@ export function startMock(port) {
     }
     if (st && (req.method === "POST" || req.method === "PUT")) {
       seen.uploads.push({ bucket: st[1], path: decodeURIComponent(st[2]), bytes: raw.length });
+      if ((seen.keepPrefixes ?? []).some((pfx) => decodeURIComponent(st[2]).startsWith(pfx))) files.set(decodeURIComponent(st[2]), Buffer.from(raw, "latin1")); // kept only for the jobs a test asked for, so it can download what was uploaded
       return send(res, 200, { Key: `${st[1]}/${st[2]}`, Id: randomUUID() });
     }
 

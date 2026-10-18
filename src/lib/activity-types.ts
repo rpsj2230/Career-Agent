@@ -4,7 +4,7 @@ export const LOG_KINDS = [
   "scan.started", "scan.finished", "scan.failed",
   "integration.tested", "integration.error", "integration.changed",
   "job.matched", "job.rejected", "job.duplicate", "job.link_resolved", "job.score_failed",
-  "resume.generated", "cover.generated",
+  "resume.generated", "cover.generated", "email.drafted",
   "application.prepared", "application.approved", "application.submitted", "application.skipped",
   "application.prepare_failed", "application.failed", "application.needs_input", "application.manual", "application.lifecycle", "application.blocked",
   "auth.login", "auth.login_failed", "auth.signup", "auth.logout",
@@ -12,7 +12,7 @@ export const LOG_KINDS = [
 ] as const;
 export type LogKind = (typeof LOG_KINDS)[number];
 
-export const LOG_CATEGORIES = ["run", "scan", "integration", "job", "resume", "cover", "application", "auth", "config", "schedule", "report"] as const;
+export const LOG_CATEGORIES = ["run", "scan", "integration", "job", "resume", "cover", "email", "application", "auth", "config", "schedule", "report"] as const;
 export type LogLevel = "info" | "warn" | "error";
 
 export type LogEntry = {

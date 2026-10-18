@@ -16,6 +16,7 @@ import { PageSizeBar, Pagination } from "@/components/app/pagination";
 import { parsePaging } from "@/lib/pagination";
 import { ActionButton } from "@/components/app/action-button";
 import { applyRoute, nextStep } from "@/lib/apply/route";
+import { draftStates } from "@/lib/apply/email-store";
 
 export const dynamic = "force-dynamic";
 
@@ -24,8 +25,9 @@ export default async function ApplicationsPage({ searchParams }: { searchParams:
   const f = parseAppFilters(sp);
   const paging = parsePaging(sp);
   const [{ rows, total, page, pages, shownFrom, shownTo, portalUnavailable }, opts, panel] = await Promise.all([listApplications(f, paging), filterOptions(), assistantPanelData().catch(() => null)]);
+  const emails = await draftStates(rows.map((r) => r.id)).catch(() => new Map());
   const fmt = (d: string | null) => fmtDateTime(d);
-  const route = (r: (typeof rows)[number]) => applyRoute({ apply_type: r.job?.apply_type, url: r.job?.url, portal: r.job?.portal });
+  const route = (r: (typeof rows)[number]) => applyRoute({ apply_type: r.job?.apply_type, url: r.job?.url, portal: r.job?.portal, emailMode: emails.get(r.id)?.mode ?? null });
   const exportQuery = new URLSearchParams(Object.entries({ portal: f.portal, country: f.country }).filter(([, v]) => v) as [string, string][]).toString();
   return (
     <div className="grid gap-4">

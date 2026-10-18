@@ -3,14 +3,16 @@ import { createHmac } from "node:crypto";
 import { spawn } from "node:child_process";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { startFakeImap } from "./fake-imap.mjs";
+import { startFakeSmtp } from "./fake-smtp.mjs";
 import { startMock } from "./mock-supabase.mjs";
 
 const MOCK = 4010, APP = 4011, BASE = `http://127.0.0.1:${APP}`;
 const SECRET = "e2e-cron-secret-0123456789";
 const mock = await startMock(MOCK);
+const smtp = await startFakeSmtp();
 
 const next = spawn("node_modules/.bin/next", ["start", "-p", String(APP)], {
-  env: { ...process.env, SUPABASE_URL: `http://127.0.0.1:${MOCK}`, SUPABASE_SERVICE_ROLE_KEY: "service-key", CRON_SECRET: SECRET, TELEGRAM_BOT_TOKEN: "tg-token-123", TELEGRAM_CHAT_ID: "98765", ALLOWED_EMAILS: "", E2E_MOCK_URL: `http://127.0.0.1:${MOCK}`, NODE_OPTIONS: "--require ./tests/e2e/redirect-fetch.cjs" },
+  env: { ...process.env, SUPABASE_URL: `http://127.0.0.1:${MOCK}`, SUPABASE_SERVICE_ROLE_KEY: "service-key", CRON_SECRET: SECRET, TELEGRAM_BOT_TOKEN: "tg-token-123", TELEGRAM_CHAT_ID: "98765", ALLOWED_EMAILS: "", E2E_MOCK_URL: `http://127.0.0.1:${MOCK}`, SMTP_HOST: "127.0.0.1", SMTP_PORT: String(smtp.port), SMTP_USER: "asha.mail@test.example", SMTP_PASSWORD: "smtp-pass-123", NODE_OPTIONS: "--require ./tests/e2e/redirect-fetch.cjs" },
   stdio: ["ignore", "pipe", "pipe"],
 });
 let log = ""; next.stdout.on("data", (d) => (log += d)); next.stderr.on("data", (d) => (log += d));
@@ -897,6 +899,61 @@ r = await call("/api/models/test", { method: "POST", body: { label: "e2e-model" 
   check("no secret value is present in any activity, run, scan, report, job or application record", leaked.length === 0, leaked.join(", "));
   const leakedLog = Object.entries(secrets).filter(([, v]) => log.includes(v)).map(([k]) => k);
   check("no secret value is present in the server's console output", leakedLog.length === 0, leakedLog.join(", "));
+}
+// applying by email: postings that ask for it, postings that list an address, and one you type yourself
+{
+  const body = "We are hiring a Product Manager to own the roadmap, activation metrics and SQL analysis for a fintech product. Stakeholder management, experimentation and growth. ".repeat(4);
+  const mk = async (url, title, company, extra) => { const x = await call("/api/jobs/manual", { method: "POST", body: { url, title, company, description: body + extra, country: "sg" } }); return x; };
+  r = await mk("https://careers.emailco.example/jobs/5", "Product Manager", "EmailCo", " To apply, please send your CV to careers@emailco.com."); check("a posting that asks for email is added", r.status === 200, `${r.status} ${r.text}`);
+  const ej = mock.rowsOf("jobs").find((x) => x.company === "EmailCo");
+  (mock.seen.keepPrefixes ??= []).push(ej.id);
+  r = await call(`/api/jobs/${ej.id}/prepare`, { method: "POST" }); check("it is prepared", r.status === 200, `${r.status} ${r.text.slice(0, 200)}`);
+  const ea = mock.rowsOf("applications").find((x) => x.job_id === ej.id);
+  const draftOf = (appId) => mock.rowsOf("settings").find((x) => x.key === `email:${appId}`)?.value;
+  const d1 = draftOf(ea.id);
+  check("an email was written to the address in the posting, as the application itself", d1?.to === "careers@emailco.com" && d1.mode === "only" && /attached/i.test(d1.body) && d1.subject.length > 5, JSON.stringify(d1)?.slice(0, 300));
+  check("the email is checked against your profile like the resume", d1?.verified === true && Array.isArray(d1.issues), JSON.stringify(d1?.issues));
+  r = await call("/applications?size=100"); check("the list says this one is applied by email", /Email to the employer/.test(r.text.replace(/<!-- -->/g, "")), r.status);
+  r = await call(`/applications/${ea.id}`); { const tx = r.text.replace(/<!-- -->/g, ""); check("the application page shows the email with Send now and the attachments note", /Email to the employer/.test(tx) && /Send now/.test(tx) && /careers@emailco\.com/.test(tx) && /Approve and send the email/.test(tx), r.status); }
+  r = await call(`/api/applications/${ea.id}`, { method: "POST", body: { action: "approve" } }); check("approving sends the email", r.status === 200, `${r.status} ${r.text.slice(0, 200)}`);
+  const m1 = smtp.messages.find((m) => m.to.includes("careers@emailco.com"));
+  check("the message reached the mail server addressed to the employer, from your mailbox", !!m1 && /asha\.mail@test\.example/.test(m1.from), JSON.stringify(smtp.messages.map((m) => m.to)));
+  check("the resume and the cover letter are attached with your name", !!m1 && /filename="?Asha-Rao-Resume\.docx/.test(m1.raw) && /filename="?Asha-Rao-Cover-Letter\.docx/.test(m1.raw), m1?.raw.slice(0, 400));
+  check("the subject and the message explaining the fit are in the email", !!m1 && m1.raw.includes(d1.subject.slice(0, 20)) && /attached/i.test(Buffer.from((m1.raw.match(/Content-Transfer-Encoding: base64\r\n\r\n([A-Za-z0-9+/=\r\n]+)/) ?? [])[1] ?? "", "base64").toString() + m1.raw), "text missing");
+  const ea2 = mock.rowsOf("applications").find((x) => x.id === ea.id);
+  check("an application that is only an email counts as submitted, recorded as an email", ea2.status === "submitted" && ea2.submission?.channel === "email" && ea2.submission.to === "careers@emailco.com", JSON.stringify({ s: ea2.status, sub: ea2.submission }));
+  check("the sent email is recorded in the history", mock.rowsOf("apply_events").some((e) => e.application_id === ea.id && e.kind === "email_sent"), "no event");
+  const before = smtp.messages.length;
+  r = await call(`/api/applications/${ea.id}/email`, { method: "POST", body: { action: "send" } }); check("sending again does nothing (never twice)", r.status === 200 && /Already sent/.test(r.text) && smtp.messages.length === before, `${r.status} ${r.text}`);
+
+  r = await mk("https://boards.greenhouse.io/alsoco/jobs/88", "Product Manager", "AlsoCo", " Questions? Email recruiting@alsoco.com (no agencies)."); 
+  const gj = mock.rowsOf("jobs").find((x) => x.company === "AlsoCo");
+  mock.seen.keepPrefixes.push(gj.id);
+  r = await call(`/api/jobs/${gj.id}/prepare`, { method: "POST" });
+  const ga = mock.rowsOf("applications").find((x) => x.job_id === gj.id);
+  const d2 = draftOf(ga.id);
+  check("a posting on an ATS that also lists an address gets an email in addition", d2?.to === "recruiting@alsoco.com" && d2.mode === "also", JSON.stringify(d2)?.slice(0, 200));
+  r = await call(`/api/applications/${ga.id}`, { method: "POST", body: { action: "approve" } });
+  check("approving applies the normal way AND emails", r.status === 200 && smtp.messages.some((m) => m.to.includes("recruiting@alsoco.com")) && mock.rowsOf("applications").find((x) => x.id === ga.id).status === "approved", `${r.status} ${r.text.slice(0, 200)}`);
+
+  r = await mk("https://careers.plainco.example/jobs/9", "Product Manager", "PlainCo", "");
+  const pj = mock.rowsOf("jobs").find((x) => x.company === "PlainCo");
+  mock.seen.keepPrefixes.push(pj.id);
+  r = await call(`/api/jobs/${pj.id}/prepare`, { method: "POST" });
+  const pa = mock.rowsOf("applications").find((x) => x.job_id === pj.id);
+  check("a posting with no address gets no email", !draftOf(pa.id), JSON.stringify(draftOf(pa.id))?.slice(0, 100));
+  r = await call(`/api/applications/${pa.id}/email`, { method: "POST", body: { action: "write" } }); check("writing one with no address asks for an address", r.status === 422 && /address/.test(r.text), `${r.status} ${r.text}`);
+  r = await call(`/api/applications/${pa.id}/email`, { method: "POST", body: { action: "write", to: "not-an-address" } }); check("a bad address is refused", r.status === 400, `${r.status}`);
+  r = await call(`/api/applications/${pa.id}/email`, { method: "POST", body: { action: "write", to: "hr@typed.example" } }); check("you can type an address and have the email written", r.status === 200 && draftOf(pa.id)?.to === "hr@typed.example", `${r.status} ${r.text}`);
+  r = await call(`/api/applications/${pa.id}/email`, { method: "POST", body: { action: "save", subject: "My edited subject line", body: "Dear Hiring Manager,\n\nI am writing about the Product Manager role. My resume and cover letter are attached.\n\nKind regards,\nAsha Rao" } });
+  check("your edits are saved", r.status === 200 && draftOf(pa.id)?.subject === "My edited subject line" && draftOf(pa.id)?.edited === true, `${r.status} ${r.text}`);
+  r = await call(`/api/applications/${pa.id}/email`, { method: "POST", body: { action: "send" } });
+  const m3 = smtp.messages.find((m) => m.to.includes("hr@typed.example"));
+  check("Send now delivers your edited email", r.status === 200 && !!m3 && m3.raw.includes("My edited subject line"), `${r.status} ${r.text}`);
+  await call("/api/settings", { method: "PUT", body: { key: "email_apply", value: { enabled: true, also_when_listed: true, daily_cap: 0 } } });
+  r = await call(`/api/applications/${pa.id}/email`, { method: "POST", body: { action: "send", resend: true } }); check("the daily email limit is enforced", r.status === 422 && /daily limit/i.test(r.text), `${r.status} ${r.text}`);
+  await call("/api/settings", { method: "PUT", body: { key: "email_apply", value: { enabled: true, also_when_listed: true, daily_cap: 20 } } });
+  r = await call("/settings"); check("Settings has the applying-by-email card", /Applying by email/.test(r.text.replace(/<!-- -->/g, "")), r.status);
 }
 // regenerating the resume for an existing application
 {

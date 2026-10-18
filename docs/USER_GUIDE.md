@@ -231,7 +231,7 @@ After the hour you choose (Settings → Daily report), once a day you receive on
 |---|---|---|
 | Greenhouse, Lever, Ashby, Workable | Cloud worker, automatically | No. These forms are public. Your computer can be off. |
 | LinkedIn, Naukri, Indeed and similar | The **Apply Assistant** on your computer | Yes, once, inside the assistant's own browser. It never sees or stores your passwords. |
-| Any other site | You, using the prepared resume and answers | n/a |
+| Any other site | You, using the prepared resume and answers. If the posting lists an email address, the app emails the application for you | n/a |
 
 The Applications list shows which of the three applies to each row.
 
@@ -249,6 +249,21 @@ It opens a real browser window with your signed-in sessions, opens the posting, 
 - Approving an application that needs the assistant automatically asks a running assistant to start (within about 30 seconds). **Apply with assistant** on Applications or on the application page does the same.
 - If your computer is off, the application stays queued and is done when the assistant next runs. You are alerted on Telegram if work has waited for hours.
 - A web page cannot start a program on your computer. That is why the assistant must be running there.
+
+### Applying by email
+Two situations send an email with your resume and cover letter attached:
+
+1. **The posting asks for applications by email** ("send your CV to ..."). The email *is* the application. After you approve, the app sends it from your own mailbox and marks the application **Applied**, recorded as an email.
+2. **The posting lists an email address** next to a normal application route (Greenhouse, Lever, LinkedIn, a portal). The app applies the normal way **and** emails that address, which gives a second chance of being seen. You can switch this off in Settings.
+
+The email is written for each job: a clear subject, and a short message that explains **why you fit this job**, tying the job's main requirements to your real results, mentions that the resume and cover letter are attached, and invites a conversation. It is checked against your profile like the resume, so nothing can be invented.
+
+On the application page, the card **Email to the employer** shows the recipient, subject and message. You can edit all of it, pick another address found in the posting, type an address yourself (for a posting that lists none), write it again, and press **Send now**. It is sent automatically when you approve the application unless you switch that off for the email. It never sends twice, and there is a daily limit (Settings → Applying by email).
+
+Emails are sent only to an address that appears in the posting or one you type. Sending uses the mailbox connected on the Job sources page (a Gmail app password). If sending fails, the reason is shown on the card, and an email-only application is returned to **Needs your input** so nothing is silently lost.
+
+### The cover letter
+Every cover letter is written to show **why you are a strong fit for that specific job**: it names the role and company, connects two or three of the job's main requirements to what you have actually done (with the exact figures from your profile), and says what you would bring to the team. It is measured the same way as the resume and rewritten if it comes out vague.
 
 ## 11. Status words, explained
 
@@ -294,6 +309,6 @@ It opens a real browser window with your signed-in sessions, opens the posting, 
 
 **Do daily (2 minutes):** read the daily report → Applications → approve or skip pending → run the assistant if needed → update outcomes.
 
-**Do when needed:** answer handed-back questions on Profile; write a new resume for an application; add a job manually; check Logs when something looks wrong.
+**Do when needed:** check the email to the employer before approving (edit it if you like); answer handed-back questions on Profile; write a new resume for an application; add a job manually; check Logs when something looks wrong.
 
 **Commands on your computer:** `npm run assist` (apply by hand-assisted), `npm run assist:watch` (hands-free, keeps running), `npm run assist:check` (diagnose).

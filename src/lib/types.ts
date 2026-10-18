@@ -96,6 +96,14 @@ export const CoverLetter = z.object({
 });
 export type CoverLetter = z.infer<typeof CoverLetter>;
 
+/** The email that carries an application: its subject and its body, which explains why the candidate fits the job. */
+export const ApplicationEmail = z.object({
+  subject: z.string(),
+  body: z.string(),
+  sourceIds: z.array(z.string()).default([]),
+});
+export type ApplicationEmail = z.infer<typeof ApplicationEmail>;
+
 /** Edits to an approved resume: only what must change for a similar job. Everything is optional. */
 export const ResumePatchSchema = z.object({
   headline: z.string().optional(),

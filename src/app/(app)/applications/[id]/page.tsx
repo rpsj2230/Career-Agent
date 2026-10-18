@@ -2,6 +2,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ActionButton } from "@/components/app/action-button";
 import { applyRoute } from "@/lib/apply/route";
+import { EmailCard } from "@/components/app/email-card";
+import { contactEmailsFor } from "@/lib/apply/contact-email";
+import { loadDraft } from "@/lib/apply/email-store";
 import { RegenerateCard } from "@/components/app/regenerate-card";
 import { ApplyTypeBadge, ScoreBadge, SourceBadge, StatusBadge } from "@/components/app/badges";
 import { ResumePreview } from "@/components/app/resume-preview";
@@ -56,7 +59,9 @@ export default async function ApplicationPage({ params }: { params: Promise<{ id
   const sub = submissionView(app);
   const moved = changedSince(snap, live);
   const issues = [...(resume?.verification?.issues ?? []), ...(cover?.verification?.issues ?? [])];
-  const route = applyRoute({ apply_type: job.apply_type, url: job.url, portal: job.portal });
+  const emailDraft = await loadDraft(id).catch(() => null);
+  const listedEmails = contactEmailsFor({ url: job.url, description: job.description, company: job.company }).map((c) => c.email);
+  const route = applyRoute({ apply_type: job.apply_type, url: job.url, portal: job.portal, emailMode: emailDraft?.mode ?? null });
   const dl = (path: string | null | undefined, label: string) => path ? <Button asChild size="sm" variant="outline"><a href={`/api/files?path=${encodeURIComponent(path)}`}>{label}</a></Button> : null;
 
   return (
@@ -85,7 +90,7 @@ export default async function ApplicationPage({ params }: { params: Promise<{ id
             {issues.length > 0 ? (
               <ActionButton variant="destructive" endpoint={`/api/applications/${id}`} body={{ action: "approve", override: true }} confirm="Approve despite unverified claims?" success="Approved">Approve with override</ActionButton>
             ) : (
-              <ActionButton endpoint={`/api/applications/${id}`} body={{ action: "approve" }} success="Approved">{route.kind === "cloud" ? "Approve and apply" : route.kind === "assistant" ? "Approve (the assistant applies)" : "Approve (I will submit)"}</ActionButton>
+              <ActionButton endpoint={`/api/applications/${id}`} body={{ action: "approve" }} success="Approved">{route.kind === "cloud" ? "Approve and apply" : route.kind === "assistant" ? "Approve (the assistant applies)" : route.kind === "email" ? "Approve and send the email" : "Approve (I will submit)"}</ActionButton>
             )}
             <ActionButton variant="outline" endpoint={`/api/applications/${id}`} body={{ action: "skip" }} success="Skipped">Skip</ActionButton>
             {issues.length > 0 && <span className="text-xs text-destructive">{issues.length} claim(s) could not be verified against your profile. Review them below, or write a new resume.</span>}
@@ -102,6 +107,8 @@ export default async function ApplicationPage({ params }: { params: Promise<{ id
           </CardContent>
         </Card>
       )}
+
+      <EmailCard id={id} status={app.status} draft={emailDraft as never} listed={listedEmails} />
 
       <RegenerateCard id={id} status={app.status} />
 

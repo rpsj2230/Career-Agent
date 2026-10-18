@@ -145,7 +145,7 @@ android ios flutter reactnative unity unreal
 cissp cisa cism ccna ccnp aws-certified cfa cpa frm mba phd`.split(/\s+/));
 
 /** Capitalised everywhere in ordinary prose, so never a sign of an invented name. */
-const ALWAYS_OK = new Set("i january february march april may june july august september october november december monday tuesday wednesday thursday friday saturday sunday".split(" "));
+const ALWAYS_OK = new Set("i dear hiring manager team recruiter recruiting recruitment talent acquisition human resources department sincerely regards kind best yours faithfully warm thank thanks respectfully january february march april may june july august september october november december monday tuesday wednesday thursday friday saturday sunday".split(" "));
 
 const STOP_HEADLINE = new Set("and or of the for at in with to a an on & | - the".split(" "));
 

@@ -4,7 +4,7 @@ import { CoverLetter, ResumePatchSchema, TailoredResume, type MasterProfile, typ
 import { vocabulary } from "@/lib/docs/verify";
 import { applyPatch, baseResumeBlock, carryCoverLetter, decideReuse, estimateTokens, DEFAULT_THRESHOLDS, type Library, type Provenance } from "./memory";
 import { tokenize } from "./similarity";
-import { assessTailoring, GOOD_ENOUGH, type Quality } from "./quality";
+import { assessCover, assessTailoring, GOOD_ENOUGH, type CoverQuality, type Quality } from "./quality";
 import { styleFor, styleInstruction, type ResumeStyle } from "./template";
 
 export type Runner = <S extends z.ZodType>(o: {
@@ -13,7 +13,7 @@ export type Runner = <S extends z.ZodType>(o: {
 
 export type JobText = { id?: string; title: string; company: string; description: string; /** country style for wording (spelling, bullets per role) */ style?: ResumeStyle; /** your own steer for this resume; a preference, not a fact */ guidance?: string };
 
-const RULES = `HARD RULES (a deterministic checker rejects violations):
+export const RULES = `HARD RULES (a deterministic checker rejects violations):
 1. Use ONLY facts from the CANDIDATE FACTS list. Every sentence you write must cite the ids of the facts it is based on in "sourceIds".
 2. You may rephrase, reorder, merge, shorten and emphasise facts, and use the job's own wording for the SAME thing the candidate did. You may NOT add skills, tools, employers, titles, degrees, dates, responsibilities or outcomes that are not in the cited facts.
 3. Every number, percentage and amount you write must appear in a fact you cite. Never invent or round up metrics.
@@ -33,10 +33,10 @@ export function factsBlock(p: MasterProfile): string {
   return lines.join("\n");
 }
 
-const jobBlock = (j: JobText) => `JOB\nTitle: ${j.title}\nCompany: ${j.company}\nDescription:\n${j.description.slice(0, 6000)}${j.style ? `\n\nWRITING STYLE: ${styleInstruction(j.style)}` : ""}${j.guidance ? `\n\nTHE CANDIDATE'S OWN INSTRUCTIONS FOR THIS APPLICATION (a preference about emphasis and tone, not a fact; follow it only where the CANDIDATE FACTS support it): ${j.guidance}` : ""}`;
-const feedback = (r: VerifyResult) => `\n\nYOUR PREVIOUS ATTEMPT WAS REJECTED. Fix every problem and return the full corrected output:\n${r.issues.map((i) => `- ${i.where}: ${i.problem}`).join("\n")}`;
+export const jobBlock = (j: JobText) => `JOB\nTitle: ${j.title}\nCompany: ${j.company}\nDescription:\n${j.description.slice(0, 6000)}${j.style ? `\n\nWRITING STYLE: ${styleInstruction(j.style)}` : ""}${j.guidance ? `\n\nTHE CANDIDATE'S OWN INSTRUCTIONS FOR THIS APPLICATION (a preference about emphasis and tone, not a fact; follow it only where the CANDIDATE FACTS support it): ${j.guidance}` : ""}`;
+export const feedback = (r: VerifyResult) => `\n\nYOUR PREVIOUS ATTEMPT WAS REJECTED. Fix every problem and return the full corrected output:\n${r.issues.map((i) => `- ${i.where}: ${i.problem}`).join("\n")}`;
 
-export type TailorOutcome<T> = { content: T; verification: VerifyResult & { attempts: number }; model: string; quality?: Quality };
+export type TailorOutcome<T, Q = Quality> = { content: T; verification: VerifyResult & { attempts: number }; model: string; quality?: Q };
 
 const TAILOR_SYSTEM = `You tailor a candidate's resume to one job, as an expert resume writer and recruiter, so that it reads as written for this job, never as a generic resume with a few lines swapped.
 ${RULES}
@@ -77,20 +77,35 @@ export async function tailorResume(p: MasterProfile, job: JobText, run: Runner, 
   return { content: b.out, model: b.model, verification: { ...b.v, attempts }, diff: buildDiff(p, b.out), quality: b.q };
 }
 
-export async function writeCoverLetter(p: MasterProfile, job: JobText, run: Runner, maxAttempts = 2): Promise<TailorOutcome<CoverLetter>> {
-  const system = `You write a short cover letter (3 paragraphs, at most 220 words, first person, no placeholders, no flattery clichés).\n${RULES}`;
-  const base = `CANDIDATE FACTS\n${factsBlock(p)}\nCandidate name: ${p.basics.name}\n\n${jobBlock(job)}`;
-  let prompt = base, last: { out: CoverLetter; model: string; v: VerifyResult } | undefined;
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const { output, model } = await run({ task: "tailor", schema: CoverLetter, system, prompt, jobId: job.id });
-    const v = verifyCoverLetter(p, output, [job.company, job.title]);
-    last = { out: output, model, v };
-    if (v.ok) return { content: output, model, verification: { ...v, attempts: attempt } };
-    prompt = base + feedback(v);
-  }
-  return { content: last!.out, model: last!.model, verification: { ...last!.v, attempts: maxAttempts } };
-}
+const COVER_SYSTEM = `You write a short cover letter (3 short paragraphs, at most 230 words, first person, no placeholders, no flattery clichés) whose whole purpose is to show the hiring manager WHY THIS CANDIDATE IS A STRONG FIT FOR THIS JOB.
+${RULES}
+Structure:
+1. Opening: name the role and company, and in one sentence state the strongest reason the candidate fits (their most relevant experience for what the job needs most).
+2. Evidence: connect two or three of the job's most important requirements to what the candidate has actually done, each with its concrete result and exact figure from the facts. Use the job's own terminology for things the candidate really did.
+3. Value and close: say what the candidate would bring to this team in this role, and invite a conversation.
+Never mention what the candidate lacks. Never repeat the resume line by line: explain how the experience matches the job.`;
 
+export async function writeCoverLetter(p: MasterProfile, job: JobText, run: Runner, maxAttempts = 3): Promise<TailorOutcome<CoverLetter, CoverQuality> & { quality: CoverQuality }> {
+  const base = `CANDIDATE FACTS\n${factsBlock(p)}\nCandidate name: ${p.basics.name}\n\n${jobBlock(job)}`;
+  let prompt = base;
+  type Try = { out: CoverLetter; model: string; v: VerifyResult; q: CoverQuality };
+  let best: Try | undefined;
+  const better = (a: Try, b: Try | undefined) => !b || (a.v.ok !== b.v.ok ? a.v.ok : a.v.ok ? a.q.score > b.q.score : a.v.issues.length < b.v.issues.length);
+  let attempts = 0;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    attempts = attempt;
+    const { output, model } = await run({ task: "tailor", schema: CoverLetter, system: COVER_SYSTEM, prompt, jobId: job.id });
+    const v = verifyCoverLetter(p, output, [job.company, job.title]);
+    const q = assessCover(p, output.text, job);
+    const cur: Try = { out: output, model, v, q };
+    if (better(cur, best)) best = cur;
+    if (v.ok && q.score >= GOOD_ENOUGH) break;
+    if (attempt === maxAttempts) break;
+    prompt = base + (v.ok ? `\n\nYOUR PREVIOUS LETTER WAS ACCEPTED BUT DOES NOT SHOW WHY THE CANDIDATE FITS THIS JOB WELL ENOUGH (quality ${q.score}/100). Improve it and return the full letter:\n${q.problems.map((x) => `- ${x}`).join("\n")}` : feedback(v));
+  }
+  const b = best!;
+  return { content: b.out, model: b.model, verification: { ...b.v, attempts }, quality: b.q };
+}
 
 // ---------------------------------------------------------------- resume memory
 
@@ -147,7 +162,7 @@ export async function tailorResumeSmart(p: MasterProfile, job: JobText & { descr
 }
 
 /** Carry a past cover letter to a near-identical job (company and role switched) or write a fresh one. */
-export async function writeCoverLetterSmart(p: MasterProfile, job: JobText, run: Runner, carry?: { text: string; fromCompany: string; fromTitle: string; sourceIds: string[] } | null): Promise<TailorOutcome<CoverLetter> & { carried: boolean }> {
+export async function writeCoverLetterSmart(p: MasterProfile, job: JobText, run: Runner, carry?: { text: string; fromCompany: string; fromTitle: string; sourceIds: string[] } | null): Promise<TailorOutcome<CoverLetter, CoverQuality> & { carried: boolean }> {
   if (carry) {
     const content: CoverLetter = { text: carryCoverLetter(carry.text, { company: carry.fromCompany, title: carry.fromTitle }, { company: job.company, title: job.title }), sourceIds: carry.sourceIds };
     const v = verifyCoverLetter(p, content, [job.company, job.title]);

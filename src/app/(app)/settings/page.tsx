@@ -1,6 +1,7 @@
 import { searchingCountries } from "@/lib/country-summary";
 import { AutoApplyCard } from "@/components/app/autoapply-card";
 import { DeliveryCard } from "@/components/app/delivery-card";
+import { EmailApplyCard } from "@/components/app/email-apply-card";
 import { resolveCredentials } from "@/lib/integrations/credentials";
 import { appTimezone } from "@/lib/time";
 import { SettingsForm } from "@/components/app/settings-form";
@@ -15,12 +16,14 @@ export default async function SettingsPage() {
   const [discovery, scoring, caps, tailoring, blocklist, replies, profile] = await Promise.all([getSetting("discovery"), getSetting("scoring"), getSetting("caps"), getSetting("tailoring"), getSetting("blocklist"), getSetting("replies"), getProfile()])
   const autoapply = await getSetting("autoapply");
   const delivery = await getSetting("delivery");
+  const emailApply = await getSetting("email_apply");
   const mailbox = (await resolveCredentials().catch(() => null))?.creds.mailbox?.user ?? null;;
   const roles = dedupeList([...profile.preferences.roles, ...discovery.roles]);
   return (
     <div className="grid gap-4">
       <h1 className="text-2xl font-semibold">Settings</h1>
       <AutoApplyCard enabled={autoapply.enabled} />
+      <EmailApplyCard initial={emailApply} mailbox={mailbox ?? ""} />
       <DeliveryCard initial={delivery} tz={appTimezone()} mailboxUser={mailbox} />
       <SettingsForm searching={searching} discovery={discovery} scoring={scoring} caps={caps} tailoring={tailoring} blocklist={blocklist} replies={replies} roles={roles} />
     </div>
