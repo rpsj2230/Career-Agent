@@ -23,7 +23,7 @@ const Schemas = {
   watchlist: z.object({ enabled: z.boolean(), boards: z.record(z.string(), z.array(z.string().max(80)).max(300)), added: z.record(z.string(), z.string()).default({}) }),
   autoapply: z.object({ enabled: z.boolean() }),
   automation_pause: z.object({ paused: z.boolean(), since: z.string().max(40).default(""), note: z.string().max(200).default("") }),
-  auto_prepare: z.object({ enabled: z.boolean(), per_run: z.number().int().min(0).max(40) }),
+  auto_prepare: z.object({ enabled: z.boolean(), per_run: z.number().int().min(0).max(40), concurrency: z.number().int().min(1).max(8).default(3) }),
   email_apply: z.object({ enabled: z.boolean(), also_when_listed: z.boolean(), daily_cap: z.number().int().min(0).max(100) }),
   local_model: z.object({ mode: z.enum(["off", "when_needed", "always"]), model: z.string().regex(/^[\w.:-]{2,60}$/, "Use a model name such as qwen2.5:3b-instruct") }),
   delivery: z.object({ enabled: z.boolean(), hour: z.number().int().min(0).max(23), telegram: z.boolean(), email: z.boolean(), to: z.string().trim().max(200).refine((v) => v === "" || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v), "Enter a valid email address or leave it empty") }),

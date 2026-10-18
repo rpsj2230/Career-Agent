@@ -19,6 +19,9 @@ curl -fsSL https://raw.githubusercontent.com/rpsj2230/Career-Agent/main/scripts/
 
 The manual steps below are the same thing written out, for Windows or if you want to see each step.
 
+## Which browser does the assistant use?
+By default its own copy of Chromium, in its own profile folder (`~/.career-agent/browser`). It never touches your everyday Chrome or Brave, and no session stays signed in there. To use Brave, Chrome or Edge instead (still in that separate profile), run `echo brave > ~/.career-agent/browser.conf` (or `chrome`, `edge`) and then `npm run assist:login` again. Delete the file to go back to the default.
+
 ## 0. What you need
 - A Windows 10/11 PC, a Mac, or Linux, that is switched on while it applies.
 - Two values from Supabase (step 4).

@@ -82,6 +82,8 @@ export const TailoredResume = z.object({
     }),
   ).default([]),
   skillIds: z.array(z.string()).default([]),
+  /** a skill shown in the job's own wording ("Google Analytics 4" for "GA4"): skill id to label. Kept only when the wording appears in the job and clearly names the same skill. */
+  skillLabels: z.record(z.string(), z.string()).optional(),
   certificationIds: z.array(z.string()).default([]),
   /** which Career Highlights to show, most relevant first (shown verbatim, never reworded) */
   highlightIds: z.array(z.string()).default([]),

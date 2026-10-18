@@ -6,6 +6,7 @@
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { browserFromMachine } from "./browser";
 import { chromium } from "playwright";
 
 const SITES = [
@@ -17,8 +18,10 @@ const SITES = [
 async function main() {
   const profileDir = process.env.ASSIST_PROFILE_DIR || join(homedir(), ".career-agent", "browser");
   mkdirSync(profileDir, { recursive: true });
+  const choice = browserFromMachine();
+  console.log(`Browser: ${choice.name}. It uses its own profile folder (${profileDir}), not your everyday browser profile.`);
   const context = await chromium.launchPersistentContext(profileDir, {
-    headless: false, viewport: null, executablePath: process.env.CHROMIUM_PATH || undefined, channel: process.env.ASSIST_CHANNEL || undefined,
+    headless: false, viewport: null, executablePath: choice.executablePath, channel: choice.channel,
   });
   console.log("A browser window is open with one tab per portal. Sign in to each one you use (solve any security check yourself).");
   console.log("When you are finished, CLOSE THE BROWSER WINDOW. Your sessions are kept for the assistant.");
