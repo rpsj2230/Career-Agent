@@ -22,6 +22,10 @@ import { masterAsTailored } from "@/lib/tailor/sections";
 import { applyScope, DEFAULT_SCOPE } from "@/lib/tailor/scope";
 import { loadMasterFile } from "@/lib/tailor/master-store";
 import { buildAnswers } from "./answers";
+import { contactEmailsFor } from "./contact-email";
+import { writeEmailDraft } from "./application-email";
+import { loadDraft } from "./email-store";
+import { emailModeFor } from "./route";
 import { buildJobSnapshot, buildProfileSnapshot } from "./snapshot";
 import { logEvent } from "./events";
 
@@ -174,6 +178,17 @@ export async function prepareApplication(jobId: string, runId: string | null = n
       if (clash) await new Promise((r) => setTimeout(r, 500));
     }
     throw e;
+  }
+  // a posting that lists an email address (or asks for applications by email) also gets an email with the resume, cover letter and a message on why you fit
+  if (!master && (await getSetting("email_apply")).enabled) {
+    try {
+      const prev = existing ? await loadDraft(app.id) : null; // a recipient you typed yourself is kept when the resume is regenerated
+      const contacts = contactEmailsFor(job);
+      const mode = emailModeFor(job, contacts.length > 0 || !!prev);
+      if (mode && (mode === "only" || prev || (await getSetting("email_apply")).also_when_listed)) await writeEmailDraft(app.id, { job: job as never, run, style, guidance, contacts, to: prev?.to });
+    } catch (e) {
+      await logActivity({ kind: "email.drafted", level: "warn", message: `Could not write the application email for ${job.title} at ${job.company}: ${e instanceof Error ? e.message : e}`, ...jobLogFields(job), application_id: app.id, status: "failed" }).catch(() => undefined);
+    }
   }
   const verified = resume.verification.ok && (cover?.verification.ok ?? true);
   const ref = { ...jobLogFields(job), application_id: app.id, run_id: runId };

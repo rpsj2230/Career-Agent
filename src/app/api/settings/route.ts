@@ -22,6 +22,7 @@ const Schemas = {
   apify: ApifySettings,
   watchlist: z.object({ enabled: z.boolean(), boards: z.record(z.string(), z.array(z.string().max(80)).max(300)), added: z.record(z.string(), z.string()).default({}) }),
   autoapply: z.object({ enabled: z.boolean() }),
+  email_apply: z.object({ enabled: z.boolean(), also_when_listed: z.boolean(), daily_cap: z.number().int().min(0).max(100) }),
   local_model: z.object({ mode: z.enum(["off", "when_needed", "always"]), model: z.string().regex(/^[\w.:-]{2,60}$/, "Use a model name such as qwen2.5:3b-instruct") }),
   delivery: z.object({ enabled: z.boolean(), hour: z.number().int().min(0).max(23), telegram: z.boolean(), email: z.boolean(), to: z.string().trim().max(200).refine((v) => v === "" || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v), "Enter a valid email address or leave it empty") }),
   caps: z.object({

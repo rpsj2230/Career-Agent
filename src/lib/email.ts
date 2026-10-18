@@ -12,11 +12,11 @@ export function smtpFromMailbox(m: { host: string; user: string; password: strin
 type Transport = { sendMail(o: Record<string, unknown>): Promise<unknown> };
 
 /** Sends one plain-text email. Returns null on success, or a short reason that can be shown to you. Never throws. */
-export async function sendEmail(cfg: SmtpConfig | null, o: { to: string; subject: string; text: string; html?: string }, make: (c: SmtpConfig) => Transport = (c) => nodemailer.createTransport({ host: c.host, port: c.port, secure: c.port === 465, auth: { user: c.user, pass: c.password }, connectionTimeout: 15_000, greetingTimeout: 15_000, socketTimeout: 20_000 })): Promise<string | null> {
+export async function sendEmail(cfg: SmtpConfig | null, o: { to: string; subject: string; text: string; html?: string; attachments?: { filename: string; content: Buffer }[]; fromName?: string; replyTo?: string }, make: (c: SmtpConfig) => Transport = (c) => nodemailer.createTransport({ host: c.host, port: c.port, secure: c.port === 465, auth: { user: c.user, pass: c.password }, connectionTimeout: 15_000, greetingTimeout: 15_000, socketTimeout: 20_000 })): Promise<string | null> {
   if (!cfg) return "Email is not set up: connect your mailbox on the Job sources page (the same Gmail app password is used to send).";
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(o.to)) return `"${o.to}" is not an email address.`;
   try {
-    await make(cfg).sendMail({ from: `Career Agent <${cfg.user}>`, to: o.to, subject: o.subject, text: o.text, ...(o.html ? { html: o.html } : {}) });
+    await make(cfg).sendMail({ from: `${(o.fromName ?? "Career Agent").replace(/[<>"\r\n]/g, "")} <${cfg.user}>`, to: o.to, subject: o.subject, text: o.text, ...(o.html ? { html: o.html } : {}), ...(o.attachments?.length ? { attachments: o.attachments } : {}), ...(o.replyTo ? { replyTo: o.replyTo } : {}) });
     return null;
   } catch (e) {
     const m = e instanceof Error ? e.message : String(e);

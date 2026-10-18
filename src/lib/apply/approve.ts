@@ -1,5 +1,7 @@
 import "server-only";
 import { requestAssistantRun } from "./assistant-run";
+import { sendApplicationEmail } from "./application-email";
+import { loadDraft } from "./email-store";
 import { logActivity } from "@/lib/activity";
 import { jobLogFields, type JobRef } from "@/lib/activity-helpers";
 import type { LogEntry } from "@/lib/activity-types";
@@ -77,10 +79,22 @@ export async function approveApplication(id: string, o: { override?: boolean; ac
   await logEvent(id, "approved", { mode: decision.mode, override: !!o.override, note: decision.reason ?? null, actor: o.actor });
   let warning: string | null = null;
   // queued for the assistant on your computer: wake it now so a running assistant does not wait for its next round
-  if (!automated) await requestAssistantRun("An application was queued for the assistant on your computer: asked it to run").catch(() => undefined);
+  // an application that is also (or only) sent by email: send it now, with the resume and cover letter attached
+  const draft = await loadDraft(id).catch(() => null);
+  let emailNote: string | null = null;
+  if (draft && draft.auto && !draft.sent) {
+    const sent = await sendApplicationEmail(id, { actor: o.actor, override: o.override }).catch((e) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) }));
+    if (sent.ok) emailNote = `Emailed to ${sent.to}`;
+    else {
+      emailNote = `The email could not be sent: ${sent.error}`;
+      // when the email is the whole application, a failure hands it back to you instead of leaving it queued for the assistant
+      if (draft.mode === "only") await db().from("applications").update({ status: "needs_input", error: `Needs you: the application email could not be sent. ${sent.error}` }).eq("id", id);
+    }
+  }
+  if (!automated && draft?.mode !== "only") await requestAssistantRun("An application was queued for the assistant on your computer: asked it to run").catch(() => undefined);
   if (automated && o.dispatch) {
     warning = await dispatchApply(id);
     if (warning) { await logEvent(id, "dispatch_failed", { error: warning }); await log({ kind: "application.failed", level: "error", message: `Could not start the apply worker: ${warning}`, status: "approved", detail: { error: warning } }); }
   }
-  return { ok: true, mode: decision.mode, note: decision.reason ?? null, warning };
+  return { ok: true, mode: decision.mode, note: [decision.reason, emailNote].filter(Boolean).join(". ") || null, warning };
 }

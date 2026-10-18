@@ -74,3 +74,7 @@ Each resume is written for one job. The model is told to name the job's role in 
 ## Testing the local model
 
 Models page → *Test the local model now*. It runs on GitHub (3 to 6 minutes): installs Ollama and the chosen model, asks a real job-scoring question, and records whether it answered and how long it took. The result stays on the page and is sent to Telegram.
+
+## Applying by email
+
+If a posting asks for applications by email, or lists an address, the application also gets an email: a subject, a message explaining why you fit the job (checked against your profile), and the tailored resume and cover letter attached. It is sent from your own mailbox (the one connected on Job sources; a Gmail app password) when you approve the application, only to an address that appears in the posting or one you type, never twice, and within a daily limit (Settings → Applying by email). When the posting accepts only email, the email *is* the application and sending it marks the application applied; if sending fails the application goes to "Needs your input" with the reason. The email is stored per application (settings key `email:<application id>`), so no database change is needed. Edit, re-write or send it from the "Email to the employer" card on the application page.

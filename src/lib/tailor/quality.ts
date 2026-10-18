@@ -69,3 +69,29 @@ export function assessTailoring(p: MasterProfile, t: TailoredResume, job: { titl
 }
 
 export const GOOD_ENOUGH = 75;
+
+/** The same kind of local measure for a cover letter or an application email: does it say why you fit THIS job? */
+export type CoverQuality = { score: number; words: number; mentionsCompany: boolean; mentionsRole: boolean; jobTermsUsed: string[]; hasFigure: boolean; problems: string[] };
+
+export function assessCover(p: MasterProfile, text: string, job: { title: string; company: string; description: string }, o: { maxWords?: number; kind?: "letter" | "email" } = {}): CoverQuality {
+  const words = text.trim().split(/\s+/).filter(Boolean).length;
+  const low = text.toLowerCase();
+  const mentionsCompany = !!job.company.trim() && low.includes(job.company.trim().toLowerCase().split(/\s+/)[0]);
+  const roleWords = titleFamily(job.title);
+  const mentionsRole = roleWords.length === 0 || roleWords.filter((w) => tokenize(text).includes(w)).length >= Math.min(2, roleWords.length);
+  const profileWords = new Set(tokenize([...vocabulary(p)].join(" ")));
+  const supported = jobKeyTerms(job).filter((w) => profileWords.has(w));
+  const have = new Set(tokenize(text));
+  const jobTermsUsed = supported.filter((w) => have.has(w));
+  const hasFigure = /\d/.test(text);
+  const max = o.maxWords ?? 260;
+  const problems: string[] = [];
+  if (!mentionsCompany) problems.push(`Name the company ("${job.company}") so it is clearly written for this employer.`);
+  if (!mentionsRole) problems.push(`Name the role ("${job.title}") the candidate is applying for.`);
+  if (jobTermsUsed.length < Math.min(3, supported.length)) problems.push(`Explain the fit in the job's own terms. Work in several of these, where the facts support them: ${supported.filter((w) => !have.has(w)).slice(0, 10).join(", ")}.`);
+  if (!hasFigure) problems.push("Back the fit up with at least one concrete result and its exact figure from the facts.");
+  if (words > max) problems.push(`It is ${words} words; shorten it to at most ${max - 20}.`);
+  if (words < (o.kind === "email" ? 70 : 90)) problems.push("It is too thin to persuade: explain how the candidate's experience matches what the job needs.");
+  const score = Math.round((mentionsCompany ? 15 : 0) + (mentionsRole ? 15 : 0) + (supported.length ? Math.min(1, jobTermsUsed.length / Math.min(4, supported.length)) * 35 : 35) + (hasFigure ? 20 : 0) + (words <= max && words >= (o.kind === "email" ? 70 : 90) ? 15 : 0));
+  return { score, words, mentionsCompany, mentionsRole, jobTermsUsed, hasFigure, problems };
+}
