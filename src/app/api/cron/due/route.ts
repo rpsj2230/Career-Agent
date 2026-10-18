@@ -3,7 +3,9 @@ import { failStaleRuns } from "@/lib/activity";
 import { checkAssistant } from "@/lib/apply/assistant-health";
 import { checkStaleSources } from "@/lib/integrations/health-check";
 import { isDue } from "@/lib/schedule";
+import { healKeys } from "@/lib/llm/keys";
 import { listSchedules, seedRecommendedSchedule } from "@/lib/schedule-store";
+import { recordTick } from "@/lib/automation-health";
 
 /**
  * The hourly GitHub Actions tick asks this first, so the heavy job (install, models, browser) only starts when a
@@ -19,5 +21,7 @@ export async function GET() {
   const rows = seeded ? [...listed.rows, seeded] : listed.rows;
   const now = new Date();
   const due = rows.filter((s) => isDue(s, now));
-  return NextResponse.json({ due: due.length, schedules: due.map((s) => s.name), total: rows.length, missing, seeded: !!seeded, swept, staleSources: stale.length, assistantAlerted });
+  await recordTick({ due: due.length, total: rows.length });
+  const healed = await healKeys().catch(() => 0); // give saved model keys the copy the GitHub runner can read
+  return NextResponse.json({ healedKeys: healed, due: due.length, schedules: due.map((s) => s.name), total: rows.length, missing, seeded: !!seeded, swept, staleSources: stale.length, assistantAlerted });
 }

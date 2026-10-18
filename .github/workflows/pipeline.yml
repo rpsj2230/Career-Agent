@@ -69,6 +69,7 @@ jobs:
           SCHEDULE_ID: ${{ inputs.schedule_id }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
           APP_URL: ${{ secrets.APP_URL }}
           APP_TIMEZONE: ${{ secrets.APP_TIMEZONE }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

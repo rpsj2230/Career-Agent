@@ -97,7 +97,11 @@ export async function seedRecommendedSchedule(existing: number, now = new Date()
   if (existing > 0) return null;
   const flag = await db().from("settings").select("key").eq("key", "schedule_seeded").maybeSingle();
   if (flag.error || flag.data) return null;
-  const row = await createSchedule({ ...BLANK_SCHEDULE, name: "Daily search and prepare", time_of_day: "09:00", timezone: appTimezone() }, now);
+  const created = await createSchedule({ ...BLANK_SCHEDULE, name: "Daily search and prepare", time_of_day: "09:00", timezone: appTimezone() }, now);
+  // the first run happens at the next check rather than tomorrow morning, so there is something to see straight away
+  const dueAt = new Date(now.getTime() - 60_000).toISOString();
+  await db().from("schedules").update({ next_run_at: dueAt }).eq("id", created.id);
+  const row = { ...created, next_run_at: dueAt };
   await db().from("settings").upsert({ key: "schedule_seeded", value: { at: now.toISOString() }, updated_at: now.toISOString() });
   await logConfig("Recommended schedule created automatically (first run): daily at 09:00, find, score and prepare; nothing is sent without your approval", { schedule_id: row.id });
   return row;

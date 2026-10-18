@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { LogTable } from "@/components/app/log-table";
+import { PageSizeBar, Pagination } from "@/components/app/pagination";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,10 +19,11 @@ export const dynamic = "force-dynamic";
 const sel = "h-9 rounded-md border border-input bg-transparent px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
 
 export default async function LogsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  const f = parseLogFilters(await searchParams);
+  const sp = await searchParams;
+  const f = parseLogFilters(sp);
   const tz = appTimezone();
   const [{ rows, total, missing }, opts] = await Promise.all([queryLogs(f, tz), filterOptions()]);
-  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const pages = Math.max(1, Math.ceil(total / f.size));
   const chips = activeFilterLabels(f);
   const today = presetRange("today", tz), week = presetRange("7d", tz), month = presetRange("30d", tz);
 
@@ -81,14 +83,9 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
       <Card>
         <CardHeader><CardTitle>{total} event{total === 1 ? "" : "s"}{pages > 1 ? ` · page ${f.page} of ${pages}` : ""}</CardTitle></CardHeader>
         <CardContent className="grid gap-4">
+          <PageSizeBar basePath="/logs" sp={sp} size={f.size} defaultSize={PAGE_SIZE} total={total} shownFrom={total === 0 ? 0 : (f.page - 1) * f.size + 1} shownTo={Math.min(total, f.page * f.size)} />
           <LogTable rows={rows} />
-          {pages > 1 && (
-            <div className="flex items-center justify-between">
-              <Button asChild variant="outline" size="sm" disabled={f.page <= 1}><Link href={logHref({ ...f, page: Math.max(1, f.page - 1) })} aria-disabled={f.page <= 1}>Newer</Link></Button>
-              <span className="text-xs text-muted-foreground">Showing {(f.page - 1) * PAGE_SIZE + 1}-{Math.min(total, f.page * PAGE_SIZE)} of {total}</span>
-              <Button asChild variant="outline" size="sm" disabled={f.page >= pages}><Link href={logHref({ ...f, page: Math.min(pages, f.page + 1) })} aria-disabled={f.page >= pages}>Older</Link></Button>
-            </div>
-          )}
+          <Pagination basePath="/logs" sp={sp} page={Math.min(f.page, pages)} pages={pages} size={f.size} defaultSize={PAGE_SIZE} />
         </CardContent>
       </Card>
     </div>

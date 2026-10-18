@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Pagination } from "@/components/app/pagination";
+import { PageSizeBar, Pagination } from "@/components/app/pagination";
 import { pageRange, parsePaging } from "@/lib/pagination";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -28,7 +28,7 @@ export default async function RunsPage({ searchParams }: { searchParams: Promise
   const status = ["running", "succeeded", "partial", "failed", "cancelled"].includes(one(sp.status) ?? "") ? one(sp.status) : undefined;
   const kind = ["pipeline", "scan", "score", "prepare", "apply", "report"].includes(one(sp.kind) ?? "") ? one(sp.kind) : undefined;
   const from = date(one(sp.from)), to = date(one(sp.to));
-  const paging = parsePaging(sp, 25);
+  const paging = parsePaging(sp);
   const [{ rows, missing, total }, scans, applyRows] = await Promise.all([listRuns({ status, kind, from, to, tz, limit: paging.size, page: paging.page }), recentScans({ from, to, tz }), applyLogs({ from, to, tz })]);
   const rng = pageRange(total, paging.page, paging.size);
   const applying = applyReport(applyRows, portalLabel, countryLabel);
@@ -75,6 +75,7 @@ export default async function RunsPage({ searchParams }: { searchParams: Promise
       <Card>
         <CardHeader><CardTitle>{total} run{total === 1 ? "" : "s"}</CardTitle></CardHeader>
         <CardContent>
+          <PageSizeBar basePath="/logs/runs" sp={sp} size={paging.size} total={total} shownFrom={rng.shownFrom} shownTo={rng.shownTo} />
           {rows.length === 0 ? <p className="text-sm text-muted-foreground">No runs in this period.</p> : (
             <Table>
               <TableHeader><TableRow><TableHead>Started</TableHead><TableHead>Kind</TableHead><TableHead>Trigger</TableHead><TableHead>Outcome</TableHead><TableHead>Took</TableHead><TableHead>Counters</TableHead><TableHead /></TableRow></TableHeader>
@@ -92,7 +93,7 @@ export default async function RunsPage({ searchParams }: { searchParams: Promise
               </TableBody>
             </Table>
           )}
-        <Pagination basePath="/logs/runs" sp={sp} page={rng.page} pages={rng.pages} size={paging.size} total={total} shownFrom={rng.shownFrom} shownTo={rng.shownTo} />
+        <Pagination basePath="/logs/runs" sp={sp} page={rng.page} pages={rng.pages} size={paging.size} />
         </CardContent>
       </Card>
 

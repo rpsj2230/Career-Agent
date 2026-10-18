@@ -32,7 +32,7 @@ describe("retention", () => {
     expect(jobs.args).toContainEqual(["lt", "found_at", "2026-05-02T00:00:00.000Z"]);
     const log = calls.find((c) => c.table === "activity_log")!;
     expect(log.args).toContainEqual(["eq", "kind", "job.rejected"]);
-    expect(log.args).toContainEqual(["lt", "created_at", "2026-03-03T00:00:00.000Z"]);
+    expect(log.args).toContainEqual(["lt", "at", "2026-03-03T00:00:00.000Z"]);
   });
   it("0 switches a rule off", async () => {
     calls.length = 0;

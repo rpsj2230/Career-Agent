@@ -12,6 +12,7 @@ import { reapStuckApplications } from "../src/lib/apply/reaper";
 import { promptPrepared } from "../src/lib/telegram-prompts";
 import { trackReplies } from "../src/lib/mail/track";
 import { applyRetention } from "../src/lib/jobs/retention";
+import { modelReadiness } from "../src/lib/llm/registry";
 import { liveDeps } from "../src/lib/pipeline/deps";
 import { pipelineSummaryText, runPipeline, type PipelineSummary } from "../src/lib/pipeline/run";
 import type { ScheduleRow } from "../src/lib/schedule";
@@ -41,6 +42,10 @@ async function main() {
   if (reaped) console.log(`Handed back ${reaped} application(s) whose worker stopped before finishing.`);
   const replies = await trackReplies();
   if (replies.updated.length) console.log(`Replies: ${replies.updated.map((u) => `${u.company} (${u.reply})`).join(", ")}`);
+  // say up front whether any model can be used here, so "nothing was scored" always has its reason in the log and in Telegram
+  const models = await modelReadiness().catch((e) => ({ usable: [] as string[], unreadable: [] as string[], message: `Could not check the models: ${e instanceof Error ? e.message : e}` }));
+  if (models.usable.length) console.log(`Models ready: ${models.usable.join(", ")}`);
+  else { console.error(`NO MODEL AVAILABLE: ${models.message}`); await notifyTelegram(`Career Agent: ${models.message}`).catch(() => undefined); }
   const id = process.env.SCHEDULE_ID?.trim();
   let list: ScheduleRow[];
   if (id) {

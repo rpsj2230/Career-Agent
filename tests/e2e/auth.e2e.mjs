@@ -334,7 +334,7 @@ r = await call(`/logs?job=${zeta.id}`); check("job filter follows one job throug
 r = await call(`/logs?from=${istToday}&to=${istToday}`); check("a date range in the display time zone includes today's events", r.text.includes("job.matched"), "missing");
 r = await call("/logs?from=2020-01-01&to=2020-01-02"); check("a date range with no activity says so", r.text.includes("No activity matches these filters"), "empty state missing");
 r = await call("/logs?level=bogus&portal=x%27%3B&company=%29%2Cid.neq.0&page=-5"); check("hostile filter values are ignored safely", r.status === 200 && r.text.includes("job.matched"), `${r.status}`);
-r = await call("/logs?page=2"); check("pagination works and offers a way back", r.status === 200 && r.text.includes("page 2 of") && r.text.includes("Newer"), `${r.status}`);
+r = await call("/logs?page=2"); check("pagination works and offers a way back", r.status === 200 && /Page 2 of/.test(r.text.replace(/<!--.*?-->/g, "")) && r.text.includes("Previous"), `${r.status}`);
 
 r = await call("/logs/runs"); check("Runs page lists runs with outcomes and totals per source", r.status === 200 && r.text.includes("Jobs found per source") && r.text.includes("succeeded") && r.text.includes("partial") && r.text.includes("Adzuna"), `${r.status}`);
 const scanRun = mock.rowsOf("automation_runs").find((x) => x.kind === "scan" && x.stats?.inserted === 1);
@@ -377,6 +377,15 @@ r = await call("/api/cron/discover", { auth: false, headers: { Authorization: `B
 r = await call("/api/settings", { method: "PUT", body: { key: "discovery", value: { countries: ["sg"], roles: ["Old Role"], greenhouse_boards: [], lever_companies: [], max_age_days: 30 } } }); check("an older Settings role list can be saved", r.status === 200, `${r.status} ${r.text}`);
 r = await call("/api/profile/preferences", { method: "PUT", body: { countries: ["sg"], roles: ["Product Manager", "Old Role"] } }); check("target roles are saved on the profile", r.status === 200, `${r.status} ${r.text}`);
 check("the older Settings copy of the roles is cleared", (mock.rowsOf("settings").find((x) => x.key === "discovery")?.value.roles ?? []).length === 0, JSON.stringify(mock.rowsOf("settings").find((x) => x.key === "discovery")));
+// automation checklist, GitHub connection test, background-first buttons and the daily backup check
+r = await call("/system"); check("the System page shows the automation checklist", r.status === 200 && /Automation/.test(r.text) && /Hourly GitHub check/.test(r.text), `${r.status}`);
+r = await call("/api/automation/test", { method: "POST" }); check("the GitHub connection test says exactly what is missing", r.status === 200 && r.json?.ok === false && /GITHUB_REPO|GITHUB_DISPATCH_TOKEN/.test(r.json?.note ?? ""), r.text);
+r = await call("/api/automation/test", { method: "POST", auth: false }); check("the GitHub connection test is not open to the public", r.status === 401 || r.status === 307, r.status);
+r = await call("/api/run/bogus", { method: "POST" }); check("an unknown background task is refused", r.status === 404, `${r.status}`);
+r = await call("/api/run/score", { method: "POST" }); check("without GitHub connected, the score button runs a short version here and says so", r.status === 200 && r.json?.where === "inline" && /short version|Connect GitHub/.test(r.json?.note ?? ""), `${r.status} ${r.text.slice(0, 300)}`);
+r = await call("/api/cron/health", { auth: false, headers: { Authorization: `Bearer ${SECRET}` } }); check("the daily backup check reports the checklist status", r.status === 200 && ["ok", "warn", "fail"].includes(r.json?.status), `${r.status} ${r.text.slice(0, 300)}`);
+r = await call("/api/cron/health", { auth: false }); check("the daily backup check is not open to the public", r.status === 401 || r.status === 307, r.status);
+r = await call("/"); check("the dashboard renders with the automation banner logic", r.status === 200, `${r.status}`);
 // Auto-Apply is off by default: nothing may submit by itself until it is switched on
 r = await call("/api/settings", { method: "PUT", body: { key: "autoapply", value: { enabled: false } } }); check("the Auto-Apply switch can be saved (off)", r.status === 200, `${r.status} ${r.text}`);
 r = await call("/api/settings", { method: "PUT", body: { key: "autoapply", value: { enabled: true } } }); check("the Auto-Apply switch can be turned on", r.status === 200, `${r.status} ${r.text}`);
@@ -690,10 +699,10 @@ if (process.env.PLAYWRIGHT_BROWSERS_PATH || process.env.CHROMIUM_PATH) {
 
 // ---- filters on applications now run against real embedded jobs in the emulator
 {
-  r = await call("/applications?country=sg"); check("applications: country filter keeps matching applications", r.text.includes("Zeta Pte"), "Zeta missing");
+  r = await call("/applications?country=sg&size=100"); check("applications: country filter keeps matching applications", r.text.includes("Zeta Pte"), "Zeta missing");
   r = await call("/applications?country=in"); check("applications: country filter hides others", !r.text.includes("Zeta Pte") && r.text.includes("Nothing"), "Zeta still shown");
-  r = await call("/applications?portal=naukri"); check("applications: portal filter keeps Naukri applications", r.text.includes("Zeta Pte") && !r.text.includes("FormCo"), "wrong rows");
-  r = await call("/applications?portal=greenhouse&country=sg"); check("applications: portal and country combine", r.text.includes("FormCo") && !r.text.includes("Zeta Pte"), "wrong rows");
+  r = await call("/applications?portal=naukri&size=100"); check("applications: portal filter keeps Naukri applications", r.text.includes("Zeta Pte") && !r.text.includes("FormCo"), "wrong rows");
+  r = await call("/applications?portal=greenhouse&country=sg&size=100"); check("applications: portal and country combine", r.text.includes("FormCo") && !r.text.includes("Zeta Pte"), "wrong rows");
   r = await call("/applications?status=submitted"); check("applications: 'Submitted' shows submitted ones only", r.text.includes("FormCo") && !r.text.includes("StuckCo"), "wrong rows");
   r = await call("/applications?status=manual"); check("applications: 'Requires manual action' includes hand-backs", r.text.includes("StuckCo") || r.text.includes("Requires manual action"), "missing");
   r = await call("/?country=in"); check("dashboard: another country is echoed", r.status === 200 && r.text.replace(/<!-- -->/g, "").includes("India only"), `${r.status}`);

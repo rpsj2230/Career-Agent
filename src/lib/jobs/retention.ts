@@ -21,7 +21,7 @@ export async function applyRetention(now = new Date(), r?: Retention): Promise<{
     out.trimmed = res.count ?? 0;
   }
   if (cfg.log_days > 0) {
-    const res = await db().from("activity_log").delete({ count: "exact" }).eq("kind", "job.rejected").lt("created_at", before(cfg.log_days));
+    const res = await db().from("activity_log").delete({ count: "exact" }).eq("kind", "job.rejected").lt("at", before(cfg.log_days));
     if (res.error) throw new Error(`trim rejection log: ${res.error.message}`);
     out.logsDeleted = res.count ?? 0;
   }

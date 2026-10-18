@@ -9,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { APP_STATUSES, countryLabel, parseAppFilters } from "@/lib/filters";
 import { filterOptions, listApplications } from "@/lib/queries";
 import { fmtDateTime } from "@/lib/time";
-import { Pagination } from "@/components/app/pagination";
+import { PageSizeBar, Pagination } from "@/components/app/pagination";
 import { parsePaging } from "@/lib/pagination";
 
 export const dynamic = "force-dynamic";
@@ -36,6 +36,7 @@ export default async function ApplicationsPage({ searchParams }: { searchParams:
       <Card>
         <CardHeader><CardTitle>{total} application{total === 1 ? "" : "s"} · {APP_STATUSES[f.status].label}{pages > 1 ? ` · page ${page} of ${pages}` : ""}</CardTitle></CardHeader>
         <CardContent>
+          <PageSizeBar basePath="/applications" sp={sp} size={paging.size} total={total} shownFrom={shownFrom} shownTo={shownTo} />
           {rows.length === 0 ? <p className="text-sm text-muted-foreground">Nothing here for these filters. Open a job from the review queue and prepare it.</p> : (
             <Table>
               <TableHeader><TableRow><TableHead>Role</TableHead><TableHead>Source</TableHead><TableHead>Country</TableHead><TableHead>Status</TableHead><TableHead>Method</TableHead><TableHead>Outcome</TableHead><TableHead>Resume</TableHead><TableHead>Submitted</TableHead></TableRow></TableHeader>
@@ -55,7 +56,7 @@ export default async function ApplicationsPage({ searchParams }: { searchParams:
               </TableBody>
             </Table>
           )}
-          <Pagination basePath="/applications" sp={sp} page={page} pages={pages} size={paging.size} total={total} shownFrom={shownFrom} shownTo={shownTo} />
+          <Pagination basePath="/applications" sp={sp} page={page} pages={pages} size={paging.size} />
         </CardContent>
       </Card>
     </div>

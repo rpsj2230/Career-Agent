@@ -1,12 +1,13 @@
 import { LOG_CATEGORIES, LOG_KINDS } from "./activity-types";
 import { safeSearch } from "./filters";
+import { PAGE_SIZES } from "./pagination";
 import { localDate } from "./time";
 
 type SP = Record<string, string | string[] | undefined>;
 const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v)?.trim();
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export const PAGE_SIZE = 50;
+export const PAGE_SIZE = 25; // the default; 10, 25, 50 or 100 can be chosen with ?size=
 export const LOG_LEVELS = ["info", "warn", "error"] as const;
 export const LOG_STATUSES = ["matched", "rejected", "verified", "unverified", "prepared", "approved", "assisted_pending", "submitted", "skipped", "blocked", "failed", "needs_input", "ok", "error", "succeeded", "partial"] as const;
 
@@ -17,6 +18,7 @@ export type LogFilters = {
   portal?: string; country?: string; company?: string; status?: string;
   run?: string; app?: string; job?: string; q?: string;
   page: number;
+  size: number;
 };
 
 const date = (v: string | undefined) => (v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : undefined);
@@ -43,13 +45,14 @@ export function parseLogFilters(sp: SP): LogFilters {
     run: id(sp.run), app: id(sp.app), job: id(sp.job),
     q: safeSearch(one(sp.q)) || undefined,
     page: Number.isFinite(page) && page >= 1 && page <= 10_000 ? page : 1,
+    size: (PAGE_SIZES as readonly number[]).includes(Number(one(sp.size))) ? Number(one(sp.size)) : PAGE_SIZE,
   };
 }
 
 /** Query string for a filter set (used for pagination, presets and deep links). Defaults are omitted. */
 export function logHref(f: Partial<LogFilters>, base = "/logs"): string {
   const p = new URLSearchParams();
-  for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== "" && !(k === "page" && v === 1)) p.set(k, String(v));
+  for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== "" && !(k === "page" && v === 1) && !(k === "size" && v === PAGE_SIZE)) p.set(k, String(v));
   const q = p.toString();
   return q ? `${base}?${q}` : base;
 }
