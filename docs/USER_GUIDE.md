@@ -144,7 +144,7 @@ One card per country: job titles, industries, preferred locations, remote, salar
 Status, requirements, limits and recent scans for each source, with **Test**, **Scan now**, credentials (stored encrypted, never shown again), and the mailbox and Apify sections.
 
 ### AI models
-- The **fallback chain**: if a model fails or is rate-limited, the next is tried automatically; the **local model** is last.
+- The **fallback chain**: if a model fails or is rate-limited, the next is tried automatically; the **local model** is last. Each model shows a **Status**: *Working* (its latest call succeeded), *Unstable* (some recent calls failed), *Not working* (all recent calls failed; the last error is shown with what it usually means: quota used up, key rejected, model name retired), *Daily limit reached*, *No key* or *Not used yet*. "Calls today" counts successes and failures against the daily allowance.
 - **Test** each model. **Recent failures** shows what went wrong.
 - **Local model: last fallback**: *Only when the hosted models are failing* (recommended), *Always*, or *Off*, and a **Test the local model now** button that runs a real question on GitHub (3 to 6 minutes) and shows whether it works.
 - If no model works at all, promising jobs are queued on the free rules alone, marked **rules only**, and a model re-checks them later. No job is lost.
@@ -158,7 +158,7 @@ See section 7.
 ### Jobs found & scored
 - Tabs: **Review queue** (matched), **Not scored yet**, **Rejected (with reasons)**, **Applied**, **All jobs**. Filter by source and country; choose 10, 25, 50 or 100 per page.
 - **What the last search did, source by source**: why a source added nothing (switched off, not connected, failed, nothing new).
-- Buttons: **Search job sites now**, **Score unscored jobs**, **Run full cycle now** (search, score and prepare in one background run, the same as a schedule).
+- Buttons: **Search job sites now**, **Score unscored jobs**. Tick rows to **Prepare resumes for selected**. To run the whole schedule, use Schedules → **Run this schedule now**.
 - **Add job manually**: paste a link and description for a posting you found yourself.
 - Open a job to see **Why this score** (matched skills, gaps, seniority and visa fit), then **Prepare resume and cover letter**.
 
@@ -204,6 +204,22 @@ A schedule is a saved plan. Every hour, a small GitHub job asks the app "is a sc
 **If a run fails or finds the models down**, it is retried an hour later, up to three times. If GitHub is late, a daily backup check on Vercel notices and starts the run. If your laptop is off, nothing is lost: cloud steps do not need it, and assistant applications wait in the queue.
 
 **Auto-Apply and limits.** A schedule can only submit when *Settings → Auto-Apply* is on, never beyond the daily limits, never to a company you applied to recently, and never with unverified documents.
+
+### The backlog clears by itself
+Searching finds more jobs than can be scored at once, so some wait to be scored. You do not need to press anything: every hour the app scores a batch of about 60, then writes the resume, cover letter and employer email for good matches (a few per hour, set in Settings → Automatic preparing and backlog clearing), following the rules of your active schedule. The **Waiting to be processed** card on Schedules and Jobs shows what is waiting and how long it will take. While a run is active, a banner shows what it has done so far (jobs found, scored, prepared). If no AI model works, the backlog waits and the app pauses for a few hours instead of retrying uselessly.
+
+### Which button does what
+| Button | Where | What it does |
+|---|---|---|
+| **Run this schedule now** | Schedules | Runs that schedule immediately: search, score, prepare, and apply if the schedule is set to. The whole cycle. |
+| **Search job sites now** | Jobs found & scored, Dashboard | Searches the connected sites and scores what it finds |
+| **Score unscored jobs** | Jobs found & scored, Dashboard | Scores jobs already found |
+| **Prepare resumes for selected** | Jobs found & scored (tick rows first) | Writes the resume and cover letter for the ticked matched jobs |
+| **Approve and apply selected / Skip selected** | Applications (tick rows first) | Approves or skips many applications in one go |
+| **Run history** | Logs & history | Not a button that runs anything: it opens the list of past runs |
+
+### Selecting many rows at once
+On **Jobs found & scored** and **Applications**, tick the boxes (or **Select all on this page**, then set the page size to 100 at the top) and use the buttons above the table. Each row also has **View resume** (opens in a new tab) and, where it applies, **Approve and apply**. Approving sends automatic applications from the cloud, emails the employer where an address is listed, and queues the rest for your assistant.
 
 ## 8. Resume quality, and writing a new resume
 
@@ -312,3 +328,7 @@ Every cover letter is written to show **why you are a strong fit for that specif
 **Do when needed:** check the email to the employer before approving (edit it if you like); answer handed-back questions on Profile; write a new resume for an application; add a job manually; check Logs when something looks wrong.
 
 **Commands on your computer:** `npm run assist` (apply by hand-assisted), `npm run assist:watch` (hands-free, keeps running), `npm run assist:check` (diagnose).
+
+## 15. Backups and the laptop
+- **Backups:** `docs/BACKUP.md` explains the nightly encrypted backup of the database and master resume to a private GitHub repository (newest 60 days kept), and how to restore.
+- **Laptop assistant, step by step with commands:** `docs/LAPTOP_SETUP.md`.

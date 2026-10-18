@@ -78,3 +78,10 @@ Models page → *Test the local model now*. It runs on GitHub (3 to 6 minutes): 
 ## Applying by email
 
 If a posting asks for applications by email, or lists an address, the application also gets an email: a subject, a message explaining why you fit the job (checked against your profile), and the tailored resume and cover letter attached. It is sent from your own mailbox (the one connected on Job sources; a Gmail app password) when you approve the application, only to an address that appears in the posting or one you type, never twice, and within a daily limit (Settings → Applying by email). When the posting accepts only email, the email *is* the application and sending it marks the application applied; if sending fails the application goes to "Needs your input" with the reason. The email is stored per application (settings key `email:<application id>`), so no database change is needed. Edit, re-write or send it from the "Email to the employer" card on the application page.
+
+## Backlog, bulk actions, backups
+
+- **Backlog:** the hourly check also works through jobs waiting to be scored and matches waiting for a resume (when no schedule is due), within a time and batch limit, and pauses for hours after rounds that make no progress.
+- **Bulk actions:** Jobs and Applications have checkboxes; `/api/bulk` prepares, approves or skips up to 50 rows. Automatic applications approved together are sent by one batch run.
+- **A service that refuses the key** (for example Apify rejecting its token) is tried once per run; its other searches are skipped instead of failing one by one.
+- **Backups:** `docs/BACKUP.md`; **laptop setup:** `docs/LAPTOP_SETUP.md`.

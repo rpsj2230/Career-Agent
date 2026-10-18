@@ -4,8 +4,8 @@ on:
   workflow_dispatch:
     inputs:
       application_id:
-        description: Application id approved in the dashboard
-        required: true
+        description: Application id approved in the dashboard (empty = send every automatic application that was approved)
+        required: false
 
 concurrency:
   group: apply-worker # one application at a time; also keeps pacing human-like
@@ -13,7 +13,7 @@ concurrency:
 jobs:
   apply:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -25,6 +25,7 @@ jobs:
       - run: npx tsx worker/apply.ts
         env:
           APPLICATION_ID: ${{ inputs.application_id }}
+          MAX_APPLY: "25"
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           LINKEDIN_STORAGE_STATE: ${{ secrets.LINKEDIN_STORAGE_STATE }}

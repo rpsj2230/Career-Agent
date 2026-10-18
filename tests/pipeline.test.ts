@@ -27,7 +27,8 @@ function setup(jobs: QueuedJob[], over: Partial<PipelineDeps> = {}) {
   const deps: PipelineDeps = {
     store: m.store,
     scan: async (ctx) => { ctx.stat("inserted", 4); },
-    score: async () => ({ scored: 4, queued: jobs.length, skipped: 1, failed: 0 }),
+    // a backlog of 4 jobs: the first pass scores it, later passes find nothing left
+    score: (() => { let first = true; return async () => { const r = first ? { scored: 4, queued: jobs.length, skipped: 1, failed: 0 } : { scored: 0, queued: 0, skipped: 0, failed: 0 }; first = false; return r; }; })(),
     queuedJobs: async () => jobs,
     failedPrepareAttempts: async () => 0,
     prepare: async (id) => { calls.prepared.push(id); return { applicationId: `app-${id}`, verified: true }; },
@@ -173,5 +174,22 @@ describe("pipelineSummaryText", () => {
     expect(t).toContain("Waiting for your approval: 1");
     expect(t).toContain("Need you to press submit: 1");
     expect(t).toContain("https://x.app/logs/runs/r1");
+  });
+});
+
+describe("clearing a backlog", () => {
+  it("keeps scoring pass after pass while each pass makes progress, and stops when nothing is left", async () => {
+    let backlog = 150; const passes: number[] = [];
+    const { deps } = setup([]);
+    deps.score = async () => { const n = Math.min(60, backlog); backlog -= n; passes.push(n); return { scored: n, queued: 0, skipped: 0, failed: 0 }; };
+    const sum = await runPipeline({ id: "backlog", name: "Backlog", countries: [], integrations: [], mode: "scan", require_approval: true, max_prepare: 0, max_apply: 0 }, deps, { trigger: "schedule", skipScan: true });
+    expect(passes).toEqual([60, 60, 30, 0]);
+    expect(sum.scored).toBe(150);
+  });
+  it("does not search when only clearing the backlog", async () => {
+    let scanned = false;
+    const { deps } = setup([], { scan: async () => { scanned = true; } });
+    await runPipeline({ id: "backlog", name: "Backlog", countries: [], integrations: ["adzuna"], mode: "scan", require_approval: true, max_prepare: 0, max_apply: 0 }, deps, { trigger: "schedule", skipScan: true });
+    expect(scanned).toBe(false);
   });
 });

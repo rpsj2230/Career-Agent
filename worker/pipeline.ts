@@ -16,7 +16,11 @@ import { modelReadiness } from "../src/lib/llm/registry";
 import { liveDeps } from "../src/lib/pipeline/deps";
 import { pipelineSummaryText, runPipeline, type PipelineSummary } from "../src/lib/pipeline/run";
 import type { ScheduleRow } from "../src/lib/schedule";
-import { claimDueSchedules, getSchedule, recordScheduleRun } from "../src/lib/schedule-store";
+import { claimDueSchedules, getSchedule, listSchedules, recordScheduleRun } from "../src/lib/schedule-store";
+import { backlogCounts } from "../src/lib/backlog";
+import { drainDecision, type DrainState } from "../src/lib/backlog-rules";
+import { db } from "../src/lib/db";
+import { getSetting, putSetting } from "../src/lib/settings";
 
 async function runOne(s: ScheduleRow, trigger: "schedule" | "manual"): Promise<PipelineSummary | null> {
   console.log(`== ${s.name} (${s.mode})`);
@@ -33,6 +37,28 @@ async function runOne(s: ScheduleRow, trigger: "schedule" | "manual"): Promise<P
     process.exitCode = 1;
     return null;
   }
+}
+
+/** Between schedules: score what is waiting and prepare resumes for the matches, following the rules of your active schedule (so nothing is sent without the approval it asks for). */
+async function drainBacklog(): Promise<number> {
+  const [counts, autoPrepare, schedules, stateRow, models] = await Promise.all([
+    backlogCounts(), getSetting("auto_prepare"), listSchedules(), db().from("settings").select("value").eq("key", "drain_state").maybeSingle(), modelReadiness().catch(() => ({ usable: [] as string[] })),
+  ]);
+  const active = schedules.rows.filter((s) => s.enabled && !s.paused);
+  const preparing = active.find((s) => s.mode !== "scan");
+  const state = (stateRow.data?.value as DrainState) ?? null;
+  const d = drainDecision({ ...counts, modelsUsable: models.usable.length > 0, autoPrepare: autoPrepare.enabled && autoPrepare.per_run > 0, preparingSchedule: !!preparing, state });
+  console.log(`Backlog: ${counts.unscored} to score, ${counts.unprepared} matched without a resume. ${d.reason}`);
+  if (!d.drain) return 0;
+  const sum = await runPipeline({
+    id: "backlog", name: "Backlog", countries: [], integrations: [], mode: preparing && autoPrepare.enabled ? preparing.mode : "scan",
+    require_approval: preparing ? preparing.require_approval : true, max_prepare: autoPrepare.enabled ? autoPrepare.per_run : 0, max_apply: preparing?.max_apply ?? 0,
+  }, liveDeps(), { trigger: "schedule", skipScan: true });
+  const progress = sum.scored + sum.prepared;
+  await putSetting("drain_state", { at: new Date().toISOString(), noProgress: progress === 0 ? (state?.noProgress ?? 0) + 1 : 0, last: { scored: sum.scored, matched: sum.matched, prepared: sum.prepared } });
+  if (progress > 0) await notifyTelegram(pipelineSummaryText("Backlog cleared a little", sum, process.env.APP_URL)).catch(() => undefined);
+  console.log(JSON.stringify(sum));
+  return sum.readyToSubmit;
 }
 
 async function main() {
@@ -58,6 +84,7 @@ async function main() {
   console.log(list.length ? `${list.length} schedule(s) to run.` : "Nothing is due.");
   let ready = 0;
   for (const s of list) ready += (await runOne(s, id ? "manual" : "schedule"))?.readyToSubmit ?? 0;
+  if (!list.length && !id) ready += await drainBacklog().catch((e) => { console.error("backlog round failed:", e instanceof Error ? e.message : e); return 0; });
   const prompted = await promptPrepared();
   if (prompted) console.log(`Sent ${prompted} application(s) to Telegram for one-tap approval.`);
   await applyRetention().then((r) => { if (r.trimmed || r.logsDeleted) console.log(`Housekeeping: cleared ${r.trimmed} old skipped description(s), deleted ${r.logsDeleted} old rejection log line(s).`); }).catch((e) => console.error("housekeeping failed (not fatal):", e instanceof Error ? e.message : e));

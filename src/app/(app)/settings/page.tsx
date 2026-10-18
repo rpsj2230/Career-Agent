@@ -1,6 +1,7 @@
 import { searchingCountries } from "@/lib/country-summary";
 import { AutoApplyCard } from "@/components/app/autoapply-card";
 import { DeliveryCard } from "@/components/app/delivery-card";
+import { AutoPrepareCard } from "@/components/app/auto-prepare-card";
 import { EmailApplyCard } from "@/components/app/email-apply-card";
 import { resolveCredentials } from "@/lib/integrations/credentials";
 import { appTimezone } from "@/lib/time";
@@ -17,12 +18,14 @@ export default async function SettingsPage() {
   const autoapply = await getSetting("autoapply");
   const delivery = await getSetting("delivery");
   const emailApply = await getSetting("email_apply");
+  const autoPrepare = await getSetting("auto_prepare");
   const mailbox = (await resolveCredentials().catch(() => null))?.creds.mailbox?.user ?? null;;
   const roles = dedupeList([...profile.preferences.roles, ...discovery.roles]);
   return (
     <div className="grid gap-4">
       <h1 className="text-2xl font-semibold">Settings</h1>
       <AutoApplyCard enabled={autoapply.enabled} />
+      <AutoPrepareCard initial={autoPrepare} />
       <EmailApplyCard initial={emailApply} mailbox={mailbox ?? ""} />
       <DeliveryCard initial={delivery} tz={appTimezone()} mailboxUser={mailbox} />
       <SettingsForm searching={searching} discovery={discovery} scoring={scoring} caps={caps} tailoring={tailoring} blocklist={blocklist} replies={replies} roles={roles} />

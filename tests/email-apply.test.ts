@@ -118,3 +118,50 @@ describe("greetings and sign-offs", () => {
     expect(bad.ok).toBe(false);
   });
 });
+
+import { explainError, modelHealth } from "@/lib/llm/health";
+import { drainDecision, hoursToClear } from "@/lib/backlog-rules";
+
+describe("is a model working?", () => {
+  const call = (ok: boolean, error?: string, at = "2026-10-18T10:00:00Z") => ({ ok, error, at });
+  const base = { enabled: true, keyed: true, todayOk: 0, todayBad: 0, dailyCap: 200 };
+  it("says working when the latest call succeeded, even after failures", () => {
+    expect(modelHealth({ ...base, calls: [call(true), call(false, "429"), call(false, "429")] })).toMatchObject({ status: "working" });
+  });
+  it("says not working, with the reason in plain words, when every recent call failed", () => {
+    const h = modelHealth({ ...base, calls: [call(false, "HTTP 429 quota exceeded"), call(false, "429")] });
+    expect(h.status).toBe("failing");
+    expect(h.hint).toMatch(/free quota/);
+    expect(modelHealth({ ...base, calls: [call(false, "401 invalid api key")] }).hint).toMatch(/rejected the key/);
+    expect(modelHealth({ ...base, calls: [call(false, "model_decommissioned: not found")] }).hint).toMatch(/model name/);
+  });
+  it("says unstable when the latest failed but some recent ones worked", () => {
+    expect(modelHealth({ ...base, calls: [call(false, "timeout"), call(true), call(true)] }).status).toBe("unstable");
+  });
+  it("handles no key, switched off, not used and a used-up daily allowance", () => {
+    expect(modelHealth({ ...base, keyed: false, calls: [] }).status).toBe("no_key");
+    expect(modelHealth({ ...base, enabled: false, calls: [] }).status).toBe("off");
+    expect(modelHealth({ ...base, calls: [] }).status).toBe("unused");
+    expect(modelHealth({ ...base, todayOk: 200, calls: [call(true)] }).status).toBe("limit");
+    expect(explainError("")).toBe("");
+  });
+});
+
+describe("working through a backlog by itself", () => {
+  const base = { unscored: 100, unprepared: 0, modelsUsable: true, autoPrepare: true, preparingSchedule: true, state: null };
+  it("runs when jobs wait and a model works, and not otherwise", () => {
+    expect(drainDecision(base).drain).toBe(true);
+    expect(drainDecision({ ...base, modelsUsable: false }).drain).toBe(false);
+    expect(drainDecision({ ...base, unscored: 0 }).drain).toBe(false);
+    expect(drainDecision({ ...base, unscored: 0, unprepared: 5 }).drain).toBe(true);
+    expect(drainDecision({ ...base, unscored: 0, unprepared: 5, preparingSchedule: false }).drain).toBe(false);
+    expect(drainDecision({ ...base, unscored: 0, unprepared: 5, autoPrepare: false }).drain).toBe(false);
+  });
+  it("pauses for hours after rounds that made no progress, then tries again", () => {
+    const now = new Date("2026-10-18T12:00:00Z");
+    expect(drainDecision({ ...base, state: { at: "2026-10-18T10:00:00Z", noProgress: 2 }, now }).drain).toBe(false);
+    expect(drainDecision({ ...base, state: { at: "2026-10-18T04:00:00Z", noProgress: 2 }, now }).drain).toBe(true);
+    expect(drainDecision({ ...base, state: { at: "2026-10-18T11:00:00Z", noProgress: 1 }, now }).drain).toBe(true);
+  });
+  it("estimates the hours to clear", () => { expect(hoursToClear(230, 20, 8)).toBe(4); expect(hoursToClear(0, 0)).toBe(0); });
+});

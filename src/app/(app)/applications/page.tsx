@@ -5,7 +5,6 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { APP_STATUSES, countryLabel, parseAppFilters } from "@/lib/filters";
 import { filterOptions, listApplications } from "@/lib/queries";
 import { fmtDateTime } from "@/lib/time";
@@ -15,6 +14,7 @@ import { assistantPanelData } from "@/lib/apply/assistant-health";
 import { PageSizeBar, Pagination } from "@/components/app/pagination";
 import { parsePaging } from "@/lib/pagination";
 import { ActionButton } from "@/components/app/action-button";
+import { SelectableTable } from "@/components/app/selectable-table";
 import { applyRoute, nextStep } from "@/lib/apply/route";
 import { draftStates } from "@/lib/apply/email-store";
 
@@ -52,26 +52,25 @@ export default async function ApplicationsPage({ searchParams }: { searchParams:
         <CardContent>
           <PageSizeBar basePath="/applications" sp={sp} size={paging.size} total={total} shownFrom={shownFrom} shownTo={shownTo} />
           {rows.length === 0 ? <p className="text-sm text-muted-foreground">Nothing here for these filters. Open a job from the review queue and prepare it.</p> : (
-            <Table>
-              <TableHeader><TableRow><TableHead>Role</TableHead><TableHead>Source · country</TableHead><TableHead>Status</TableHead><TableHead>How it is applied</TableHead><TableHead>Next step</TableHead><TableHead>Reply</TableHead><TableHead>Resume · submitted</TableHead></TableRow></TableHeader>
-              <TableBody>
-                {rows.map((r) => (
-                  <TableRow key={r.id}>
-                    <TableCell className="whitespace-normal"><Link className="font-medium hover:underline" href={`/applications/${r.id}`}>{r.job?.title}</Link><div className="text-xs text-muted-foreground">{r.job?.company}</div></TableCell>
-                    <TableCell className="whitespace-normal"><SourceBadge portal={r.job?.portal} source={r.job?.source} /><div className="mt-1 text-xs text-muted-foreground">{countryLabel(r.job?.country)}</div></TableCell>
-                    <TableCell><StatusBadge status={r.status} /></TableCell>
-                    <TableCell className="whitespace-normal text-xs" title={route(r).detail}>{route(r).label}</TableCell>
-                    <TableCell className="whitespace-normal">
-                      {(() => { const n = nextStep(r.status, route(r), r.id); return n.action === "assistant"
-                        ? <div className="flex flex-col gap-1"><ActionButton endpoint="/api/assistant/run" success="Assistant asked to run" size="sm" disabled={panel?.pending}>{panel?.pending ? "Requested" : n.text}</ActionButton><span className="text-xs text-muted-foreground">{panel?.online ? "Assistant is running; starts within ~30 s." : "Starts when your computer is on."}</span></div>
-                        : n.href ? <Link className="text-sm underline" href={n.href}>{n.text}</Link> : <span className="text-sm text-muted-foreground">{n.text}</span>; })()}
-                    </TableCell>
-                    <TableCell>{r.lifecycle === "none" ? "-" : <Badge>{r.lifecycle}</Badge>}</TableCell>
-                    <TableCell className="whitespace-normal text-xs">v{r.resume?.version ?? "?"}<div className="text-muted-foreground">{fmt(r.submitted_at)}</div></TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            <SelectableTable
+              hint="Approving sends automatic ones from the cloud, emails the employer where an address is listed, and queues the rest for your assistant."
+              actions={[{ label: "Approve and apply selected", action: "approve", confirm: "Approve and apply {n} application(s)? Anything that can be sent automatically will be sent." }, { label: "Skip selected", action: "skip", variant: "outline", confirm: "Skip {n} application(s)?" }]}
+              head={["Role", "Source · country", "Status", "How it is applied", "Next step", "Reply", "Resume · submitted"]}
+              rows={rows.map((r) => ({
+                id: r.id, selectId: ["prepared", "needs_input", "failed"].includes(r.status) ? r.id : null,
+                cells: [
+                  <div key="r"><Link className="font-medium hover:underline" href={`/applications/${r.id}`}>{r.job?.title}</Link><div className="text-xs text-muted-foreground">{r.job?.company}</div></div>,
+                  <div key="s"><SourceBadge portal={r.job?.portal} source={r.job?.source} /><div className="mt-1 text-xs text-muted-foreground">{countryLabel(r.job?.country)}</div></div>,
+                  <StatusBadge key="st" status={r.status} />,
+                  <span key="h" className="text-xs" title={route(r).detail}>{route(r).label}</span>,
+                  (() => { const n = nextStep(r.status, route(r), r.id); return n.action === "assistant"
+                    ? <div key="n" className="flex flex-col gap-1"><ActionButton endpoint="/api/assistant/run" success="Assistant asked to run" size="sm" disabled={panel?.pending}>{panel?.pending ? "Requested" : n.text}</ActionButton><span className="text-xs text-muted-foreground">{panel?.online ? "Assistant is running; starts within ~30 s." : "Starts when your computer is on."}</span></div>
+                    : n.href ? <Link key="n" className="text-sm underline" href={n.href}>{n.text}</Link> : <span key="n" className="text-sm text-muted-foreground">{n.text}</span>; })(),
+                  r.lifecycle === "none" ? "-" : <Badge key="l">{r.lifecycle}</Badge>,
+                  <div key="v" className="text-xs"><Link className="underline" href={`/applications/${r.id}#documents`} target="_blank" rel="noreferrer">View resume v{r.resume?.version ?? "?"}</Link><div className="text-muted-foreground">{fmt(r.submitted_at)}</div></div>,
+                ],
+              }))}
+            />
           )}
           <Pagination basePath="/applications" sp={sp} page={page} pages={pages} size={paging.size} />
         </CardContent>

@@ -13,7 +13,10 @@ export type ScanDeps = {
   now?: () => number;
 };
 
-export type RunScansResult = { outcomes: ScanOutcome[]; skipped: number; legacy: boolean };
+export type RunScansResult = { outcomes: ScanOutcome[]; skipped: number; legacy: boolean; /** searches not even tried because their service had just rejected the login or key */ blocked: { integration: string; reason: string; count: number }[] };
+
+/** Errors that no retry can fix: the service refused the key, token or login. */
+export const isAuthFailure = (message: string) => /rejected the token|rejected the key|\b(401|403)\b|unauthori[sz]ed|forbidden|invalid.{0,20}(api.?key|token|credentials)|incorrect (api )?key|authentication failed/i.test(message);
 
 /**
  * Run every scan (fetching in parallel across integrations, storing one at a time). Each scan is recorded before it starts and finalised whether it succeeds or
@@ -27,11 +30,14 @@ export async function runScans(specs: ScanSpec[], deps: ScanDeps, opts: { budget
   const outcomes: ScanOutcome[] = [];
   let skipped = 0;
   let legacy = false;
+  const blockedBy = new Map<string, { reason: string; count: number }>();
 
   // Fetching is the slow part (network, and for hosted scrapers minutes), so each integration's requests run in the order given
   // but different integrations run at the same time. Storing stays strictly one scan after another, in the original order, so
   // two sources finding the same job can never both insert it.
-  type Fetched = { jobs: NormalizedJob[] } | { error: string } | { skipped: true };
+  type Fetched = { jobs: NormalizedJob[] } | { error: string } | { skipped: true } | { blocked: string };
+  // once a service refuses the key or token, trying its other searches only repeats the same refusal (and used up the whole time budget)
+  const broken = new Map<string, string>();
   const pending = new Map<ScanSpec, Promise<Fetched>>();
   const groups = new Map<string, ScanSpec[]>();
   for (const spec of specs) groups.set(spec.integration, [...(groups.get(spec.integration) ?? []), spec]);
@@ -40,7 +46,13 @@ export async function runScans(specs: ScanSpec[], deps: ScanDeps, opts: { budget
     for (const spec of list) {
       const p: Promise<Fetched> = chain.then(async () => {
         if (opts.budgetMs !== undefined && now() - started > opts.budgetMs) return { skipped: true } as const;
-        try { return { jobs: await spec.fetch() }; } catch (e) { return { error: e instanceof Error ? e.message : String(e) }; }
+        const refusal = broken.get(spec.integration);
+        if (refusal) return { blocked: refusal } as const;
+        try { return { jobs: await spec.fetch() }; } catch (e) {
+          const error = e instanceof Error ? e.message : String(e);
+          if (isAuthFailure(error)) broken.set(spec.integration, error);
+          return { error };
+        }
       });
       pending.set(spec, p);
       chain = p;
@@ -63,6 +75,7 @@ export async function runScans(specs: ScanSpec[], deps: ScanDeps, opts: { budget
     if (waited === TIMED_OUT) { skipped++; continue; }
     const got = waited;
     if ("skipped" in got) { skipped++; continue; }
+    if ("blocked" in got) { const b = blockedBy.get(spec.integration) ?? { reason: got.blocked, count: 0 }; b.count++; blockedBy.set(spec.integration, b); continue; }
     const meta = { integration: spec.integration, country: spec.country, query: spec.query };
     const scanId = await deps.startScan(meta);
     const detail = spec.windowDays ? { window_days: spec.windowDays, window_from: new Date(now() - spec.windowDays * 86_400_000).toISOString(), window_to: new Date(now()).toISOString() } : undefined;
@@ -89,5 +102,5 @@ export async function runScans(specs: ScanSpec[], deps: ScanDeps, opts: { budget
     const inserted = list.reduce((n, o) => n + o.counts.inserted, 0);
     await deps.recordIntegration(id, { ok: failed.length === 0, error: failed[0]?.error, inserted });
   }
-  return { outcomes, skipped, legacy };
+  return { outcomes, skipped, legacy, blocked: [...blockedBy].map(([integration, b]) => ({ integration, ...b })) };
 }

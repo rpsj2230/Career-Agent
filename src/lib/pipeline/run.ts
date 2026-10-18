@@ -51,19 +51,19 @@ export type PipelineSummary = {
 export async function runPipeline(
   schedule: Pick<ScheduleConfig, "countries" | "integrations" | "mode" | "require_approval" | "max_prepare" | "max_apply"> & { id: string; name: string },
   deps: PipelineDeps,
-  o: { trigger: RunTrigger; budgetMs?: number },
+  o: { trigger: RunTrigger; budgetMs?: number; /** clearing the backlog between schedules: nothing is searched */ skipScan?: boolean },
 ): Promise<PipelineSummary> {
   const budgetMs = o.budgetMs ?? 40 * 60_000;
   const started = deps.now();
   const left = () => Math.max(0, budgetMs - (deps.now() - started));
   const out: PipelineSummary = { runId: null, inserted: 0, scored: 0, matched: 0, prepared: 0, prepareFailed: 0, autoApproved: 0, manualRequired: 0, awaitingApproval: 0, blocked: 0, readyToSubmit: 0, timedOut: false, partial: false };
 
-  await withRun({ trigger: o.trigger, kind: "pipeline", schedule_id: schedule.id, scope: { schedule: schedule.name, mode: schedule.mode, countries: schedule.countries, integrations: schedule.integrations } }, async (rc) => {
+  await withRun({ trigger: o.trigger, kind: "pipeline", schedule_id: schedule.id === "backlog" ? null : schedule.id, scope: { schedule: schedule.name, mode: schedule.mode, countries: schedule.countries, integrations: schedule.integrations } }, async (rc) => {
     out.runId = rc.id;
     const ctx: RunCtx = { ...rc, markPartial: (reason) => { out.partial = true; rc.markPartial(reason); } };
 
     // 1. find jobs. A failing source never stops the rest of the run.
-    try { await deps.scan(ctx, { countries: schedule.countries, integrations: schedule.integrations, budgetMs: Math.min(left(), 10 * 60_000) }); }
+    if (!o.skipScan) try { await deps.scan(ctx, { countries: schedule.countries, integrations: schedule.integrations, budgetMs: Math.min(left(), 10 * 60_000) }); }
     catch (e) {
       const error = e instanceof Error ? e.message : String(e);
       ctx.markPartial(`Searching failed: ${error}`);
@@ -72,11 +72,16 @@ export async function runPipeline(
     out.inserted = ctx.stats.inserted ?? 0;
     await heartbeat(ctx.id, deps.store);
 
-    // 2. score everything waiting, including a backlog left by an earlier run
+    // 2. score everything waiting, including a backlog left by an earlier run. One pass scores a limited batch, so keep going
+    //    (while time is left and each pass makes progress) until nothing is waiting.
     try {
-      const r = await deps.score(ctx, { countries: schedule.countries, budgetMs: Math.min(left(), 15 * 60_000) });
-      out.scored = r.scored; out.matched = r.queued;
-      if (r.failed) ctx.markPartial(`${r.failed} job(s) could not be scored; they will be retried next run`);
+      for (let pass = 0; pass < 8 && left() > 120_000; pass++) {
+        const r = await deps.score(ctx, { countries: schedule.countries, budgetMs: Math.min(left(), 15 * 60_000) });
+        out.scored += r.scored; out.matched += r.queued;
+        if (r.failed) ctx.markPartial(`${r.failed} job(s) could not be scored; they will be retried next run`);
+        await heartbeat(ctx.id, deps.store);
+        if (r.scored + r.skipped === 0) break; // nothing (more) to score, or nothing could be scored
+      }
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e);
       ctx.markPartial(`Scoring failed: ${error}`);

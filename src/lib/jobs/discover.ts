@@ -135,6 +135,7 @@ export async function scanStep(ctx: RunCtx, o: ScanScope) {
   }
   const failed = res.outcomes.filter((s) => !s.ok);
   if (failed.length) ctx.markPartial(`${failed.length} of ${res.outcomes.length} scans failed. First: ${failed[0].integration}${failed[0].query ? ` "${failed[0].query}"` : ""}: ${failed[0].error}`);
+  for (const b of res.blocked) { ctx.stat("scans_blocked", b.count); ctx.markPartial(`${b.integration}: ${b.reason} The other ${b.count} ${b.integration} search(es) were not tried until this is fixed (Job sources page).`); }
   if (res.skipped) ctx.markPartial(`${res.skipped} scan(s) not started because the time limit was reached; run again to continue`);
   if (res.legacy) ctx.markPartial("Database update pending: portal and scan details were not saved. Open System to apply it.");
   return { ...res, settings };

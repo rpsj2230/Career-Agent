@@ -324,6 +324,19 @@ export function startMock(port) {
       return send(res, 200, { id: "c1", object: "chat.completion", created: 0, model: body.model, choices: [{ index: 0, finish_reason: "stop", message: { role: "assistant", content } }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } });
     }
 
+    // storage listing (as supabase-js sends it): folders have no id, files do
+    const lst = url.pathname.match(/^\/storage\/v1\/object\/list\/([^/]+)$/);
+    if (lst && req.method === "POST") {
+      const prefix = (body?.prefix ?? "").replace(/\/$/, "");
+      const names = new Map();
+      for (const k of files.keys()) {
+        if (prefix && !k.startsWith(prefix + "/")) continue;
+        const rest = prefix ? k.slice(prefix.length + 1) : k;
+        const first = rest.split("/")[0];
+        names.set(first, rest.includes("/") ? null : randomUUID());
+      }
+      return send(res, 200, [...names].map(([name, id]) => ({ name, id })));
+    }
     // ---- file storage (uploads are kept so tests can inspect them)
     const st = url.pathname.match(/^\/storage\/v1\/object\/([^/]+)\/(.+)$/);
     if (st && req.method === "GET") {

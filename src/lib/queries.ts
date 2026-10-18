@@ -128,3 +128,12 @@ export async function reportRows(country?: string): Promise<ReportRow[]> {
 
 /** Start of a trailing window; kept outside components so render stays pure. */
 export const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000);
+
+/** The application (if any) for each of these jobs, so the list can link to the resume and offer Apply. */
+export async function applicationsForJobs(jobIds: string[]): Promise<Map<string, { id: string; status: string }>> {
+  const out = new Map<string, { id: string; status: string }>();
+  if (jobIds.length === 0) return out;
+  const rows = must<{ id: string; job_id: string; status: string }[]>(await db().from("applications").select("id,job_id,status").in("job_id", jobIds), "load applications for jobs");
+  for (const r of rows) out.set(r.job_id, { id: r.id, status: r.status });
+  return out;
+}
