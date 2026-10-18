@@ -12,9 +12,10 @@ Nothing here runs in Claude's cloud session: it runs on **your** Windows PC or M
 curl -fsSL https://raw.githubusercontent.com/rpsj2230/Career-Agent/main/scripts/mac-setup.sh | bash
 ```
 
-3. Answer its questions. It installs what is missing (Node.js), downloads the project to `~/Career-Agent`, installs it, asks you to paste two values from Supabase (Project URL and the `service_role` key: Supabase, your project, Project Settings, API), checks everything, opens the browser so you can sign in to LinkedIn, Naukri and Indeed once, and offers to start the assistant automatically whenever you sign in to the Mac.
+3. Answer its questions. It installs what is missing (Node.js), downloads the project to your Google Drive folder `Laptop Folders/E Drive/RP/AI Work/Career Job Agent` (set `CAREER_AGENT_DIR=/some/folder` before the command to choose another place), installs it, asks you to paste two values from Supabase (Project URL and the `service_role` key: Supabase, your project, Project Settings, API), checks everything, opens the browser so you can sign in to LinkedIn, Naukri and Indeed once, and offers to start the assistant automatically whenever you sign in to the Mac.
 4. If it says "A window asked to install the Apple developer tools", click Install, wait for it to finish, and paste the same line again. It is safe to run again at any time; it only fills in what is missing.
-5. In the app: **Settings, Auto-Apply** on, and **Application limits, "Let the apply assistant on my computer press Submit by itself"** on. The **Apply assistant** card on the Applications page then turns green.
+5. Your Supabase key is kept in `~/.career-agent/env` (not in Google Drive); `.env.local` in the project is a shortcut to it. If the install cannot complete inside Google Drive, the script installs the program in `~/Career-Agent` instead. Google Drive can slow the install and may show sync conflicts for `node_modules`; if that happens, mark `node_modules` as not synced or use a local folder.
+6. In the app: **Settings, Auto-Apply** on, and **Application limits, "Let the apply assistant on my computer press Submit by itself"** on. The **Apply assistant** card on the Applications page then turns green.
 
 The manual steps below are the same thing written out, for Windows or if you want to see each step.
 
@@ -117,7 +118,7 @@ Nothing. Applications that need the assistant wait in the queue ("Waiting for as
 ## 9. Updating later
 
 ```
-cd ~/Career-Agent
+cd "<the project folder>"
 git pull
 npm ci
 ```
