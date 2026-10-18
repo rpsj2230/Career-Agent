@@ -11,7 +11,7 @@ The same four steps always run in the same order. The only difference is who sta
 
 ## Where the work runs
 
-- **Buttons on the site** (*Find jobs now*, *Score new jobs*, *Scan now*) run inside a Vercel request, which the host stops at 60 seconds on the free plan. They are built to finish well inside it (see below). They are for a quick look, not the main route.
+- **Buttons on the site** (*Find jobs now*, *Score new jobs*, *Prepare*) hand the work to GitHub Actions (`task.yml`) and answer at once, so a task can take several minutes with no 60-second limit. A banner on the Dashboard and Review queue shows "starting / running / finished" and refreshes itself. This needs `GITHUB_REPO` and `GITHUB_DISPATCH_TOKEN` in Vercel; without them the buttons run a short, time-boxed version inside the site (see below) and say so. *System > Automation > Test GitHub connection* checks both.
 - **Schedules** run in GitHub Actions, which has no 60-second limit. An hourly check asks the app whether a schedule is due and only then starts the full run (search, score, prepare, approve within your rules). Hosted scrapers (Apify) run only there.
 - **The apply assistant** runs on your computer for portals that need your own browser.
 
@@ -29,3 +29,10 @@ The same four steps always run in the same order. The only difference is who sta
 - Questions the agent cannot answer are handed back to you on the Profile page; answer once and every waiting application resumes.
 - Portals that need your own browser (LinkedIn, Naukri, Indeed): run the assistant and press Submit (or turn on hands-free mode).
 - Security checks, CAPTCHAs and consent boxes are never handled for you.
+
+## Keeping it working by itself
+
+- **Hourly check** (GitHub): asks the app whether a schedule is due and starts the full run. Every check is recorded, so the app knows if the clock stops. GitHub sometimes runs scheduled checks hours late.
+- **Daily backup check** (Vercel cron, `/api/cron/health`): independent of GitHub. It messages you on Telegram if anything on the checklist has failed and, if the hourly check has been silent for more than 3 hours, starts the pipeline itself.
+- **System > Automation** lists every condition (clock, schedule, models, GitHub connection, last run, what to search) with the fix for anything wrong, and the Dashboard shows a banner when something needs attention.
+- **Model keys** saved in the app are stored under both `SUPABASE_SERVICE_ROLE_KEY` and `CRON_SECRET`, so the GitHub runner can read them even if its Supabase key differs from the one in Vercel. The scheduled run prints which models it can use and messages you if none.

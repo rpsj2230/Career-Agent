@@ -1,10 +1,10 @@
-export const PAGE_SIZES = [25, 50, 100] as const;
-export const DEFAULT_PAGE_SIZE = 25;
+export const PAGE_SIZES = [10, 25, 50, 100] as const;
+export const DEFAULT_PAGE_SIZE = 10;
 
 type SP = Record<string, string | string[] | undefined>;
 const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 
-/** `?page=3&size=50` from a page's search params. Anything unusable falls back to page 1, 25 per page. */
+/** `?page=3&size=50` from a page's search params. Anything unusable falls back to page 1, 10 per page. */
 export function parsePaging(sp: SP, fallbackSize: number = DEFAULT_PAGE_SIZE): { page: number; size: number } {
   const size = Number(first(sp.size));
   const page = Number(first(sp.page));
@@ -33,14 +33,14 @@ export function pageNumbers(page: number, pages: number, around = 2): (number | 
 }
 
 /** The same page with another page number (and size), keeping every filter in the URL. */
-export function pageHref(basePath: string, sp: SP, page: number, size?: number): string {
+export function pageHref(basePath: string, sp: SP, page: number, size?: number, defaultSize: number = DEFAULT_PAGE_SIZE): string {
   const q = new URLSearchParams();
   for (const [k, v] of Object.entries(sp)) {
     if (k === "page" || (k === "size" && size !== undefined)) continue;
     const val = first(v);
     if (val) q.set(k, val);
   }
-  if (size !== undefined && size !== DEFAULT_PAGE_SIZE) q.set("size", String(size));
+  if (size !== undefined && size !== defaultSize) q.set("size", String(size));
   if (page > 1) q.set("page", String(page));
   const s = q.toString();
   return s ? `${basePath}?${s}` : basePath;

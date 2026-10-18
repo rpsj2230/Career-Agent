@@ -3,6 +3,7 @@ import { RecheckButton } from "@/components/app/recheck-button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
+import { AutomationCard } from "@/components/app/automation-card";
 import { MIGRATIONS } from "@/lib/migrations";
 import { checkSchema, REQUIRED_SCHEMA } from "@/lib/schema";
 import { fmtDateTime } from "@/lib/time";
@@ -34,6 +35,8 @@ export default async function SystemPage({ searchParams }: { searchParams: Promi
         <h1 className="text-2xl font-semibold">System</h1>
         <RecheckButton />
       </div>
+
+      <AutomationCard />
 
       <Card>
         <CardHeader>

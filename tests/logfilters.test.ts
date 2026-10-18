@@ -5,14 +5,14 @@ import { summarizeScans } from "@/lib/scan-summary";
 const RUN = "d4468231-5c0d-47eb-b66c-1c76b2796b10";
 
 describe("parseLogFilters", () => {
-  it("defaults to no filters on page 1", () => expect(parseLogFilters({})).toEqual({ page: 1 }));
+  it("defaults to no filters on page 1", () => expect(parseLogFilters({})).toEqual({ page: 1, size: 25 }));
   it("accepts every valid filter", () => {
     const f = parseLogFilters({ from: "2026-10-01", to: "2026-10-16", level: "error", category: "job", kind: "job.rejected", portal: "LinkedIn", country: "SG", company: "Acme", status: "rejected", run: RUN.toUpperCase(), q: "below threshold", page: "3" });
     expect(f).toMatchObject({ from: "2026-10-01", to: "2026-10-16", level: "error", category: "job", kind: "job.rejected", portal: "linkedin", country: "sg", company: "Acme", status: "rejected", run: RUN, q: "below threshold", page: 3 });
   });
   it("drops malformed or hostile values", () => {
     const f = parseLogFilters({ from: "yesterday", to: "2026-13-99x", level: "debug", category: "x'; drop", kind: "nope.nope", portal: "a b", country: "usa", status: "Bad Status!", run: "not-a-uuid", app: "1", job: "2", page: "-4" });
-    expect(f).toEqual({ page: 1 });
+    expect(f).toEqual({ page: 1, size: 25 });
   });
   it("neutralises filter-breaking characters in free text", () => {
     expect(parseLogFilters({ company: "Acme),id.neq.0,(x" }).company).toBe("Acme id.neq.0 x");
@@ -56,4 +56,16 @@ describe("summarizeScans", () => {
     expect(t.find((x) => x.integration === "jsearch")).toMatchObject({ scans: 1, failed: 1, lastError: "429 quota" });
   });
   it("is empty for no scans", () => expect(summarizeScans([])).toEqual([]));
+});
+
+describe("log page size", () => {
+  it("accepts 10, 25, 50 or 100 and ignores anything else", () => {
+    for (const n of [10, 25, 50, 100]) expect(parseLogFilters({ size: String(n) }).size).toBe(n);
+    expect(parseLogFilters({ size: "7" }).size).toBe(25);
+    expect(parseLogFilters({ size: "abc" }).size).toBe(25);
+  });
+  it("keeps a chosen size in links but drops the default", () => {
+    expect(logHref({ page: 2, size: 50 })).toBe("/logs?page=2&size=50");
+    expect(logHref({ page: 2, size: 25 })).toBe("/logs?page=2");
+  });
 });

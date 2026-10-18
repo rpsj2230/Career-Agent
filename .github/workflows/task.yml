@@ -1,0 +1,53 @@
+name: Background task
+
+# Started by the buttons on the site (Find jobs now, Score new jobs, Prepare). Running here instead of inside the website means there is
+# no 60-second limit: a task can take several minutes. Progress shows under Logs > Runs and in the banner on the Jobs page.
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: discover, score or prepare
+        required: true
+      job_id:
+        description: Job to prepare (task = prepare)
+        required: false
+
+concurrency:
+  group: pipeline # never overlaps the scheduled pipeline, so two runs cannot score the same jobs at once
+  cancel-in-progress: false
+
+jobs:
+  task:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Start local model (Ollama)
+        if: vars.LOCAL_MODEL != ''
+        env:
+          LOCAL_MODEL: ${{ vars.LOCAL_MODEL }}
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          (ollama serve > /tmp/ollama.log 2>&1 &)
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:11434/api/tags >/dev/null && break; sleep 2; done
+          ollama pull "$LOCAL_MODEL"
+      - run: npx tsx worker/task.ts
+        env:
+          LOCAL_MODEL: ${{ vars.LOCAL_MODEL }}
+          NODE_OPTIONS: --conditions=react-server
+          TASK: ${{ inputs.task }}
+          JOB_ID: ${{ inputs.job_id }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_URL: ${{ secrets.APP_URL }}
+          APP_TIMEZONE: ${{ secrets.APP_TIMEZONE }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}

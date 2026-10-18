@@ -85,3 +85,23 @@ export async function runStructured<S extends z.ZodType>(opts: {
   );
   return { output: value.output, model: used.label, tier: tierOf(used) };
 }
+
+/**
+ * Whether a model call can work in THIS environment: how many enabled models have a usable key, and which saved keys cannot be read here.
+ * The scheduled run prints and reports this first, so "no model available" always comes with its reason.
+ */
+export async function modelReadiness(): Promise<{ usable: string[]; unreadable: string[]; message: string | null }> {
+  await ensureDefaultModels();
+  const rows = withLocalFallback(must(await db().from("model_configs").select("*"), "load model_configs") as ModelRow[], process.env);
+  const keys = await resolveKeys(rows);
+  const { keyReadiness } = await import("./keys");
+  const k = await keyReadiness();
+  const usable = rows.filter((m) => (m as ModelRow & { enabled?: boolean }).enabled !== false && (keys.has(m.label) || m.api_key_env === null)).map((m) => m.label);
+  let message: string | null = null;
+  if (usable.length === 0) {
+    message = k.unreadable.length
+      ? `No model can be used here: ${k.unreadable.length} key(s) saved in the app (${k.unreadable.join(", ")}) cannot be read in this environment, because SUPABASE_SERVICE_ROLE_KEY${k.hasShared ? " and CRON_SECRET differ" : " differs (and CRON_SECRET is not set)"} from the ones used when they were saved. Open the app once (the hourly check re-saves the keys under CRON_SECRET), or set GEMINI_API_KEY / GROQ_API_KEY as GitHub secrets.`
+      : "No model has an API key. Add a key on the Models page (or set GEMINI_API_KEY / GROQ_API_KEY as secrets).";
+  }
+  return { usable, unreadable: k.unreadable, message };
+}

@@ -2,7 +2,7 @@ import "server-only";
 import { db } from "@/lib/db";
 import { isMissingSchemaError } from "@/lib/schema";
 import { localDayBounds } from "@/lib/time";
-import { PAGE_SIZE, type LogFilters } from "./log-filters";
+import { type LogFilters } from "./log-filters";
 
 export type LogRow = {
   id: number; at: string; level: "info" | "warn" | "error"; kind: string; run_id: string | null; scan_id: string | null;
@@ -33,9 +33,9 @@ export function applyLogFilters<Q extends { eq: any; gte: any; lte: any; like: a
 }
 
 export async function queryLogs(f: LogFilters, tz?: string): Promise<{ rows: LogRow[]; total: number; missing: boolean }> {
-  const start = (f.page - 1) * PAGE_SIZE;
+  const start = (f.page - 1) * f.size;
   const base = db().from("activity_log").select("*", { count: "exact" });
-  const res = await applyLogFilters(base, f, tz).order("at", { ascending: false }).order("id", { ascending: false }).range(start, start + PAGE_SIZE - 1);
+  const res = await applyLogFilters(base, f, tz).order("at", { ascending: false }).order("id", { ascending: false }).range(start, start + f.size - 1);
   if (res.error) {
     if (isMissingSchemaError(res.error.message)) return { rows: [], total: 0, missing: true };
     throw new Error(`load logs: ${res.error.message}`);
