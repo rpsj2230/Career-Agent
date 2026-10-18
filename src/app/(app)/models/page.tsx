@@ -19,7 +19,8 @@ export default async function ModelsPage() {
   await ensureDefaultModels();
   const rows = must<Row[]>(await db().from("model_configs").select("*").order("priority"), "load models");
   const stored = await storedKeyLabels();
-  const hasKey = (r: Row) => stored.has(r.label) || r.api_key_env === null || !!process.env[r.api_key_env];
+  const hasStored = (r: Row) => stored.has(r.label) || (!!r.api_key_env && stored.has(`env:${r.api_key_env}`));
+  const hasKey = (r: Row) => hasStored(r) || r.api_key_env === null || !!process.env[r.api_key_env];
   const since = new Date(); since.setUTCHours(0, 0, 0, 0);
   const usage = must<{ model_label: string; ok: boolean }[]>(await db().from("model_usage").select("model_label,ok").gte("created_at", since.toISOString()), "load usage");
   const history = must<{ model_label: string; ok: boolean; error: string | null; created_at: string }[]>(await db().from("model_usage").select("model_label,ok,error,created_at").order("created_at", { ascending: false }).limit(600), "load model history");
@@ -57,7 +58,7 @@ export default async function ModelsPage() {
                   <TableRow key={r.id} className={r.enabled ? "" : "opacity-50"}>
                     <TableCell>{r.priority}</TableCell>
                     <TableCell><div className="font-medium">{r.label}</div><div className="text-xs text-muted-foreground">{r.provider} · {r.model}</div><div className="text-xs text-muted-foreground">for {r.tasks.join(", ")}</div></TableCell>
-                    <TableCell>{stored.has(r.label) ? <Badge>key saved</Badge> : r.api_key_env === null ? <Badge variant="secondary">none needed</Badge> : keyed ? <Badge variant="secondary">{r.api_key_env} (env)</Badge> : <Badge variant="outline">no key yet</Badge>}</TableCell>
+                    <TableCell>{hasStored(r) ? <Badge>key saved</Badge> : r.api_key_env === null ? <Badge variant="secondary">none needed</Badge> : keyed ? <Badge variant="secondary">{r.api_key_env} (env)</Badge> : <Badge variant="outline">no key yet</Badge>}</TableCell>
                     <TableCell className="max-w-xs whitespace-normal">
                       <Badge className={tone} variant={tone ? "default" : "outline"}>{h.label}</Badge>
                       <div className="mt-1 text-xs text-muted-foreground">{h.hint}</div>
@@ -67,7 +68,7 @@ export default async function ModelsPage() {
                     <TableCell className="text-sm">{s.ok} succeeded{r.daily_cap ? ` (daily allowance ${r.daily_cap})` : ""}{s.bad > 0 && <span className="text-destructive">, {s.bad} failed</span>}</TableCell>
                     <TableCell className="flex gap-2">
                       <ActionButton size="sm" variant="secondary" endpoint="/api/models/test" body={{ label: r.label }} disabled={!keyed}>Test</ActionButton>
-                      <ModelDialog id={r.id} hasStoredKey={stored.has(r.label)} initial={{ ...r, notes: r.notes ?? "" }} />
+                      <ModelDialog id={r.id} hasStoredKey={hasStored(r)} initial={{ ...r, notes: r.notes ?? "" }} />
                     </TableCell>
                   </TableRow>
                 );

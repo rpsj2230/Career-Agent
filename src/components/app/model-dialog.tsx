@@ -56,7 +56,7 @@ export function ModelDialog({ initial, id, hasStoredKey }: { initial?: ModelForm
           <div className="grid gap-1">
             <Label htmlFor="apikey">API key {hasStoredKey && <span className="text-xs text-muted-foreground">(saved; paste a new one to replace)</span>}</Label>
             <Input id="apikey" type="password" autoComplete="off" placeholder={hasStoredKey ? "••••••••••••" : "Paste the key from the provider"} value={m.apiKey ?? ""} onChange={(e) => set("apiKey", e.target.value)} />
-            <p className="text-xs text-muted-foreground">Stored encrypted in your database; never shown again. Rotate a key by pasting a new one.</p>
+            <p className="text-xs text-muted-foreground">Stored encrypted in your database; never shown again. The key is shared by every model that uses the same variable name below (one Gemini key enables all Gemini rows). Rotate a key by pasting a new one.</p>
             {hasStoredKey && <Button type="button" variant="link" className="h-auto w-fit p-0 text-xs" onClick={removeSavedKey}>Remove saved key</Button>}
           </div>
           <div className="grid gap-1"><Label htmlFor="env">Or: environment variable name</Label><Input id="env" placeholder="GROQ_API_KEY (optional; blank for local models)" value={m.api_key_env ?? ""} onChange={(e) => set("api_key_env", e.target.value)} /></div>
