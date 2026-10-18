@@ -70,9 +70,12 @@ export async function removeKey(label: string) {
  */
 export async function healKeys(): Promise<number> {
   const s = shared();
-  if (!s) return 0;
+  // keys that exist only as environment variables on THIS server (for example in Vercel) are invisible to the GitHub runner:
+  // copy them into the encrypted store, which both can read, the first time they are seen
+  const imported = await importEnvKeys().catch(() => 0);
+  if (!s) return imported;
   const [enc, sh] = await Promise.all([load("model_keys"), load("model_keys_shared")]);
-  let added = 0;
+  let added = imported;
   for (const label of Object.keys(enc)) {
     if (sh[label] && decryptSecret(sh[label], s)) continue;
     const plain = decryptSecret(enc[label], primary());
@@ -80,6 +83,18 @@ export async function healKeys(): Promise<number> {
   }
   if (added) await save("model_keys_shared", sh);
   return added;
+}
+
+/** Models whose key is supplied by an environment variable here but is not yet saved in the app. Returns how many were saved. */
+export async function importEnvKeys(): Promise<number> {
+  const rows = ((await db().from("model_configs").select("label,api_key_env")).data ?? []) as { label: string; api_key_env: string | null }[];
+  const have = await storedKeyLabels();
+  let n = 0;
+  for (const m of rows) {
+    const v = m.api_key_env ? process.env[m.api_key_env]?.trim() : undefined;
+    if (v && !have.has(m.label)) { await saveKey(m.label, v); n++; }
+  }
+  return n;
 }
 
 export type KeyReadiness = { saved: string[]; readable: string[]; unreadable: string[]; hasShared: boolean; sharedCopies: number };

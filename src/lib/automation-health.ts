@@ -25,7 +25,7 @@ export async function automationHealth(now = new Date()): Promise<{ checks: Chec
     safe(lastTick, null),
     safe(() => listSchedules(), { rows: [], missing: false }),
     safe(async () => (await db().from("automation_runs").select("status,started_at,finished_at,error").eq("kind", "pipeline").order("started_at", { ascending: false }).limit(1)).data?.[0] ?? null, null),
-    safe(() => modelReadiness(), { usable: [] as string[], unreadable: [] as string[], message: "Could not check the models." }),
+    safe(() => modelReadiness(), { usable: [] as string[], unreadable: [] as string[], message: "Could not check the models." as string | null, envOnly: [] as string[], stored: [] as string[] }),
     safe(() => getProfile(), null),
     safe(() => loadEffectiveCountries(), { countries: [], configured: false, globalRoles: [] as string[] }),
     safe(() => getSetting("autoapply"), { enabled: false }),
@@ -35,7 +35,9 @@ export async function automationHealth(now = new Date()): Promise<{ checks: Chec
   const titles = new Set(countries.countries.flatMap((c) => c.titles.map((t) => t.toLowerCase()))).size;
   const checks = evaluateHealth({
     now, tickAt, schedules: sched.rows.map((s) => ({ name: s.name, enabled: s.enabled, paused: s.paused, next_run_at: s.next_run_at })),
-    lastPipeline: runRow as never, models: { usable: models.usable.length, message: models.message },
+    lastPipeline: runRow as never,
+    // what counts is what the GitHub runner can use: keys saved in the app (keys that only exist as Vercel variables are copied over at the next hourly check)
+    models: { usable: models.stored.length, message: models.message ?? (models.envOnly.length ? `Your model keys (${models.envOnly.join(", ")}) exist only as Vercel environment variables, which the GitHub runner cannot see. They are copied into the app automatically at the next hourly check; or save them on the Models page now.` : "No saved model key.") },
     dispatchConfigured: workerConfigured(), profileReady: !!profile && profile.experience.length > 0, titles, countries: countries.countries.length,
     newJobs, queuedJobs: queued, autoApply: autoapply.enabled,
   });
