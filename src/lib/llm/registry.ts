@@ -9,6 +9,7 @@ import { callStructured } from "./call";
 import { runWithFallback, selectCandidates, timeoutFor, withLocalFallback, type ModelRow } from "./fallback";
 import { resolveKeys } from "./keys";
 import { defaultPrefer, orderForTier, tierOf, type Tier } from "./tiers";
+import { nextTick, parking, spreadOrder } from "./spread";
 
 let ensured = false;
 /** Make sure the verified default models exist (never overwrites rows you edited). Runs once per server instance. */
@@ -62,7 +63,9 @@ export async function runStructured<S extends z.ZodType>(opts: {
   const loaded = await loadCandidates(opts.task);
   const keys = loaded.keys;
   const routing = (await getSetting("scoring").catch(() => null))?.routing !== false;
-  const candidates = routing ? orderForTier(loaded.candidates, opts.prefer ?? defaultPrefer(opts.task)) : loaded.candidates;
+  const ordered = routing ? orderForTier(loaded.candidates, opts.prefer ?? defaultPrefer(opts.task)) : loaded.candidates;
+  // calls running at the same time start on different models, and a model that just failed goes to the back for a while
+  const candidates = spreadOrder(ordered, { tierOf: (m) => tierOf(m), tick: nextTick(), parked: parking.isParked });
   const { value, used } = await runWithFallback(
     opts.task,
     candidates,
@@ -71,6 +74,7 @@ export async function runStructured<S extends z.ZodType>(opts: {
       return callStructured(buildModel(m, keys.get(m.label)), { schema: opts.schema, system: opts.system, prompt: opts.prompt, timeoutMs: remaining === undefined ? own : Math.min(own ?? Infinity, remaining) });
     },
     async (m, ok, ms, error) => {
+      if (ok) parking.clear(m.label); else parking.park(m.label, error ?? "");
       await db().from("model_usage").insert({
         model_config_id: m.id,
         model_label: m.label,
