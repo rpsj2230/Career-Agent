@@ -62,13 +62,20 @@ async function main() {
     const scored = await scoreNewJobs({ limit: 80, budgetMs: 12 * MIN, trigger: "manual" });
     console.log(JSON.stringify(scored));
     await sendTelegram(`Career Agent: scoring finished. ${scored.scored} scored, ${scored.queued} matched, ${scored.remaining} still waiting.`).catch(() => undefined);
+  } else if (task === "regenerate") {
+    const id = (process.env.JOB_ID ?? "").trim();
+    if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error("JOB_ID must be a job id");
+    const r = await withRun({ trigger: "manual", kind: "prepare", scope: { job_id: id, regenerate: true } }, (ctx) =>
+      prepareApplication(id, ctx.id, { regenerate: true, guidance: process.env.GUIDANCE ?? "", confirmSubmitted: process.env.CONFIRM === "1" }));
+    console.log(JSON.stringify(r));
+    await sendTelegram(`Career Agent: a new resume was written for an application${r.verified ? " (verified)" : " (needs your review)"}. Open Applications to approve it.`).catch(() => undefined);
   } else if (task === "prepare") {
     const id = (process.env.JOB_ID ?? "").trim();
     if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error("JOB_ID must be a job id");
     const r = await withRun({ trigger: "manual", kind: "prepare", scope: { job_id: id } }, (ctx) => prepareApplication(id, ctx.id));
     console.log(JSON.stringify(r));
   } else {
-    throw new Error(`Unknown task "${task}" (use discover, score, prepare or localtest)`);
+    throw new Error(`Unknown task "${task}" (use discover, score, prepare, regenerate or localtest)`);
   }
 }
 

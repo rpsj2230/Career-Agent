@@ -9,6 +9,8 @@ letter **using only facts from your own profile**, prepares the application, and
 - Free LLMs by default, configurable from the Models page (no code changes)
 - Playwright apply worker on GitHub Actions (free)
 
+**New here? Read the [User Guide](docs/USER_GUIDE.md)** (also as a shareable Word file: `docs/Career-Agent-User-Guide.docx`, rebuilt with `node scripts/build-guide.mjs`).
+
 ## How it works
 
 ```

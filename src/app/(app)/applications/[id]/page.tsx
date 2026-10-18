@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ActionButton } from "@/components/app/action-button";
+import { applyRoute } from "@/lib/apply/route";
+import { RegenerateCard } from "@/components/app/regenerate-card";
 import { ApplyTypeBadge, ScoreBadge, SourceBadge, StatusBadge } from "@/components/app/badges";
 import { ResumePreview } from "@/components/app/resume-preview";
 import { Badge } from "@/components/ui/badge";
@@ -54,6 +56,7 @@ export default async function ApplicationPage({ params }: { params: Promise<{ id
   const sub = submissionView(app);
   const moved = changedSince(snap, live);
   const issues = [...(resume?.verification?.issues ?? []), ...(cover?.verification?.issues ?? [])];
+  const route = applyRoute({ apply_type: job.apply_type, url: job.url, portal: job.portal });
   const dl = (path: string | null | undefined, label: string) => path ? <Button asChild size="sm" variant="outline"><a href={`/api/files?path=${encodeURIComponent(path)}`}>{label}</a></Button> : null;
 
   return (
@@ -74,6 +77,33 @@ export default async function ApplicationPage({ params }: { params: Promise<{ id
       </div>
 
       {app.error && <Card className="border-destructive"><CardHeader><CardTitle className="text-destructive">Last error</CardTitle></CardHeader><CardContent className="text-sm">{app.error}{app.status === "failed" && <div className="mt-3"><ActionButton variant="outline" endpoint={`/api/applications/${id}`} body={{ action: "retry" }} success="Back in the queue">Return to queue</ActionButton></div>}</CardContent></Card>}
+
+      {["prepared", "needs_input", "failed"].includes(app.status) && (
+        <Card>
+          <CardHeader><CardTitle>What to do now</CardTitle><CardDescription>{route.detail}</CardDescription></CardHeader>
+          <CardContent className="flex flex-wrap items-center gap-2">
+            {issues.length > 0 ? (
+              <ActionButton variant="destructive" endpoint={`/api/applications/${id}`} body={{ action: "approve", override: true }} confirm="Approve despite unverified claims?" success="Approved">Approve with override</ActionButton>
+            ) : (
+              <ActionButton endpoint={`/api/applications/${id}`} body={{ action: "approve" }} success="Approved">{route.kind === "cloud" ? "Approve and apply" : route.kind === "assistant" ? "Approve (the assistant applies)" : "Approve (I will submit)"}</ActionButton>
+            )}
+            <ActionButton variant="outline" endpoint={`/api/applications/${id}`} body={{ action: "skip" }} success="Skipped">Skip</ActionButton>
+            {issues.length > 0 && <span className="text-xs text-destructive">{issues.length} claim(s) could not be verified against your profile. Review them below, or write a new resume.</span>}
+          </CardContent>
+        </Card>
+      )}
+      {app.status === "assisted_pending" && (
+        <Card>
+          <CardHeader><CardTitle>What to do now</CardTitle><CardDescription>{route.detail}</CardDescription></CardHeader>
+          <CardContent className="flex flex-wrap items-center gap-2">
+            {route.kind === "assistant" && <ActionButton endpoint="/api/assistant/run" success="Assistant asked to run">Apply with assistant</ActionButton>}
+            <Button variant="outline" asChild><a href={job.url} target="_blank" rel="noreferrer">Open the application page</a></Button>
+            <ActionButton variant="outline" endpoint={`/api/applications/${id}`} body={{ action: "mark_submitted" }} success="Marked as submitted">I have submitted it</ActionButton>
+          </CardContent>
+        </Card>
+      )}
+
+      <RegenerateCard id={id} status={app.status} />
 
       <Card>
         <CardHeader><CardTitle>Outcome</CardTitle><CardDescription>Update as employers respond.</CardDescription></CardHeader>

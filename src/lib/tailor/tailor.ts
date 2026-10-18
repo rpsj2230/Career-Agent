@@ -11,7 +11,7 @@ export type Runner = <S extends z.ZodType>(o: {
   task: Task; schema: S; system: string; prompt: string; jobId?: string;
 }) => Promise<{ output: z.infer<S>; model: string }>;
 
-export type JobText = { id?: string; title: string; company: string; description: string; /** country style for wording (spelling, bullets per role) */ style?: ResumeStyle };
+export type JobText = { id?: string; title: string; company: string; description: string; /** country style for wording (spelling, bullets per role) */ style?: ResumeStyle; /** your own steer for this resume; a preference, not a fact */ guidance?: string };
 
 const RULES = `HARD RULES (a deterministic checker rejects violations):
 1. Use ONLY facts from the CANDIDATE FACTS list. Every sentence you write must cite the ids of the facts it is based on in "sourceIds".
@@ -33,7 +33,7 @@ export function factsBlock(p: MasterProfile): string {
   return lines.join("\n");
 }
 
-const jobBlock = (j: JobText) => `JOB\nTitle: ${j.title}\nCompany: ${j.company}\nDescription:\n${j.description.slice(0, 6000)}${j.style ? `\n\nWRITING STYLE: ${styleInstruction(j.style)}` : ""}`;
+const jobBlock = (j: JobText) => `JOB\nTitle: ${j.title}\nCompany: ${j.company}\nDescription:\n${j.description.slice(0, 6000)}${j.style ? `\n\nWRITING STYLE: ${styleInstruction(j.style)}` : ""}${j.guidance ? `\n\nTHE CANDIDATE'S OWN INSTRUCTIONS FOR THIS APPLICATION (a preference about emphasis and tone, not a fact; follow it only where the CANDIDATE FACTS support it): ${j.guidance}` : ""}`;
 const feedback = (r: VerifyResult) => `\n\nYOUR PREVIOUS ATTEMPT WAS REJECTED. Fix every problem and return the full corrected output:\n${r.issues.map((i) => `- ${i.where}: ${i.problem}`).join("\n")}`;
 
 export type TailorOutcome<T> = { content: T; verification: VerifyResult & { attempts: number }; model: string; quality?: Quality };

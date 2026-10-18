@@ -898,6 +898,26 @@ r = await call("/api/models/test", { method: "POST", body: { label: "e2e-model" 
   const leakedLog = Object.entries(secrets).filter(([, v]) => log.includes(v)).map(([k]) => k);
   check("no secret value is present in the server's console output", leakedLog.length === 0, leakedLog.join(", "));
 }
+// regenerating the resume for an existing application
+{
+  const prepared = mock.rowsOf("applications").find((x) => x.status === "prepared");
+  const sentApp = mock.rowsOf("applications").find((x) => x.status === "submitted");
+  const oldResume = prepared?.resume_doc_id;
+  r = await call(`/api/applications/${prepared.id}/regenerate`, { method: "POST", body: { guidance: "stress my SQL work and keep the summary short" } });
+  const after = mock.rowsOf("applications").find((x) => x.id === prepared.id);
+  const docsFor = mock.rowsOf("documents").filter((d) => d.job_id === prepared.job_id && d.kind === "resume");
+  check("regenerate writes a new resume version for the same application", r.status === 200 && after.status === "prepared" && after.resume_doc_id !== oldResume && docsFor.length >= 2 && mock.rowsOf("applications").filter((x) => x.job_id === prepared.job_id).length === 1, `${r.status} ${r.text.slice(0, 200)}`);
+  check("your instructions reached the model as a preference", (mock.seen.chatPrompts ?? []).some((c) => c.task === "tailor" && /stress my SQL work/.test(c.prompt) && /not a fact/.test(c.prompt)), "not in any prompt");
+  check("the regeneration is recorded in the application's history", mock.rowsOf("apply_events").some((e) => e.application_id === prepared.id && e.kind === "regenerated"), "no event");
+  r = await call(`/api/applications/${sentApp.id}/regenerate`, { method: "POST", body: {} });
+  check("an already-submitted application needs your confirmation first", r.status === 409 && r.json?.needsConfirm === true && mock.rowsOf("applications").find((x) => x.id === sentApp.id).status === "submitted", `${r.status} ${r.text.slice(0, 160)}`);
+  const sentJob = sentApp.job_id;
+  r = await call(`/api/applications/${sentApp.id}/regenerate`, { method: "POST", body: { confirmSubmitted: true } });
+  const sa = mock.rowsOf("applications").find((x) => x.id === sentApp.id);
+  check("once confirmed, it is back to Pending approval with the old submission kept in the history", r.status === 200 && sa.status === "prepared" && !sa.submitted_at && mock.rowsOf("apply_events").some((e) => e.application_id === sentApp.id && e.kind === "regenerated" && e.detail?.previousStatus === "submitted"), `${r.status} ${r.text.slice(0, 160)} ${sentJob}`);
+  r = await call(`/applications/${prepared.id}`); check("the application page offers to write a new resume", /Write a new resume/.test(r.text.replace(/<!-- -->/g, "")), r.status);
+  r = await call(`/api/applications/${prepared.id}/regenerate`, { method: "POST", body: { guidance: "x".repeat(700) } }); check("over-long instructions are refused", r.status === 400, r.status);
+}
 // no model available at all: a promising job is still queued (on the free rules, marked rules-only) instead of being left unseen, and a model re-checks it later
 {
   const strong = "Product Manager to own the roadmap, activation metrics and SQL analysis, partnering with engineering and design on a fintech product in Singapore. Stakeholder management, experimentation and growth. ".repeat(3);
