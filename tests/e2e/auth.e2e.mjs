@@ -118,8 +118,7 @@ r = await call("/api/files?path=bad"); check("owner session still works", r.stat
   const adminJar = new Map(jar); jar.clear();
   r = await call("/api/auth/login", { method: "POST", body: { email: "stranger@x.com", password: PW } }); check("the added person can now sign in", r.status === 200, `${r.status} ${r.text}`);
   r = await call("/jobs"); check("a view-only person can open Jobs found & scored", r.status === 200 && /View only/.test(strip(r.text)), r.status);
-  check("...and the menu shows only the two sections", !/href="\/(settings|models|profile|logs|system|schedules)"/.test(r.text) && /href="\/applications"/.test(r.text) && /href="\/jobs"/.test(r.text), "menu shows other sections");
-  r = await call("/applications"); check("...and Applications", r.status === 200, `${r.status} ${r.text.slice(0, 200)}`);
+  { const nav = r.text.match(/<nav[^>]*aria-label="Main"[\s\S]*?<\/nav>/)?.[0] ?? ""; check("...and the menu shows only the two sections", nav.length > 0 && !/href="\/(settings|models|profile|logs|system|schedules|reports|portals|countries|resumes)"/.test(nav) && !/href="\/"/.test(nav) && /href="\/applications"/.test(nav) && /href="\/jobs"/.test(nav), nav.slice(0, 300)); }
   for (const page of ["/settings", "/models", "/", "/profile", "/logs", "/system", "/schedules"]) { r = await call(page); check(`...but ${page} sends them back to Jobs`, r.status === 307 && /\/jobs$/.test(r.location ?? ""), `${r.status} ${r.location}`); }
   r = await call("/api/models"); check("...and the models API is closed to them", r.status === 403, r.status);
   r = await call("/api/settings", { method: "PUT", body: { key: "autoapply", value: { enabled: true } } }); check("...they cannot change settings", r.status === 403, r.status);
@@ -1021,6 +1020,15 @@ r = await call("/api/models/test", { method: "POST", body: { label: "e2e-model" 
   r = await call("/applications?size=100"); check("the Applications page has select-all with Approve and apply selected and Skip selected", /Approve and apply selected/.test(strip(r.text)) && /Skip selected/.test(strip(r.text)) && /View resume/.test(strip(r.text)), r.status);
   r = await call("/schedules"); check("the Schedules page shows what is waiting and says it clears by itself", /Waiting to be processed/.test(strip(r.text)), r.status);
   r = await call("/models"); check("the Models page says which model works and why one does not", /Models by provider/.test(strip(r.text)) && /(Working|Not used yet|Unstable|Not working|No key)/.test(strip(r.text)), r.status);
+  {
+    const adminJar = new Map(jar);
+    r = await call("/api/team", { method: "PUT", body: { email: "stranger@x.com", role: "viewer" } });
+    jar.clear(); r = await call("/api/auth/login", { method: "POST", body: { email: "stranger@x.com", password: PW } });
+    r = await call("/applications"); check("a view-only person can open Applications and sees the read-only notice", r.status === 200 && /View only/.test(strip(r.text)) && /Applications/.test(strip(r.text)), `${r.status} ${r.text.slice(0, 120)}`);
+    r = await call("/jobs?view=all&size=100"); check("...and the Jobs list without the admin-only cards", r.status === 200 && !/Run full cycle/.test(strip(r.text)) && !/Waiting to be processed/.test(strip(r.text)), r.status);
+    jar.clear(); for (const [k, v] of adminJar) jar.set(k, v);
+    r = await call("/api/team?email=stranger%40x.com", { method: "DELETE" }); check("the view-only person is removed again", r.status === 200, r.status);
+  }
   r = await call("/settings"); check("Settings has automatic preparing", /Automatic preparing and backlog clearing/.test(strip(r.text)), r.status);
   r = await call("/logs"); check("the logs page names its link as run history", /Run history/.test(strip(r.text)), r.status);
 
