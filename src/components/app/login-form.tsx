@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
+import { Brand } from "./brand";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,7 +10,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-export function LoginForm({ next, notAllowed }: { next: string; notAllowed: boolean }) {
+function GoogleMark() {
+  return (
+    <svg viewBox="0 0 24 24" className="mr-2 size-4" aria-hidden="true">
+      <path fill="#EA4335" d="M12 10.2v3.9h5.5c-.2 1.3-1.6 3.9-5.5 3.9-3.3 0-6-2.7-6-6s2.7-6 6-6c1.9 0 3.1.8 3.8 1.5l2.6-2.5C16.8 3.3 14.6 2.3 12 2.3 6.7 2.3 2.4 6.6 2.4 12s4.3 9.7 9.6 9.7c5.5 0 9.2-3.9 9.2-9.4 0-.6-.1-1.1-.2-1.6H12z" />
+    </svg>
+  );
+}
+
+export function LoginForm({ next, notAllowed, googleError }: { next: string; notAllowed: boolean; googleError?: boolean }) {
   const [busy, setBusy] = useState(false);
 
   async function signIn(email: string, password: string): Promise<boolean> {
@@ -48,10 +57,13 @@ export function LoginForm({ next, notAllowed }: { next: string; notAllowed: bool
   return (
     <Card className="w-full max-w-md">
       <CardHeader>
-        <CardTitle>Career Agent</CardTitle>
-        <CardDescription>Sign in with your account. Your browser or password manager can remember it.</CardDescription>
+        <Brand size={96} />
+        <CardTitle className="sr-only">Sign in</CardTitle>
+        <CardDescription>Sign in with Google, or with your email and password.</CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4">
+        <Button asChild variant="outline" className="w-full"><a href={`/api/auth/google?next=${encodeURIComponent(next)}`}><GoogleMark /> Continue with Google</a></Button>
+        {googleError && <Alert variant="destructive"><AlertTitle>Google sign-in did not complete</AlertTitle><AlertDescription>Try again, or use your email and password. If it keeps failing, Google sign-in may not be switched on yet (see docs/GOOGLE_LOGIN.md).</AlertDescription></Alert>}
         {notAllowed && <Alert variant="destructive"><AlertTitle>This account is not allowed</AlertTitle><AlertDescription>Its email is not on the allowed list. Sign in with a different account.</AlertDescription></Alert>}
         <Tabs defaultValue="signin">
           <TabsList className="grid w-full grid-cols-2"><TabsTrigger value="signin">Sign in</TabsTrigger><TabsTrigger value="create">Create account</TabsTrigger></TabsList>

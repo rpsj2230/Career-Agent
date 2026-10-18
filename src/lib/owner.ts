@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { parseAllowlist } from "./access";
+import { cleanTeam, type Role, type TeamMember } from "./roles";
 
 /**
  * Who may use the app: the owner (first account created, stored in the database) plus any extra emails in
@@ -39,4 +40,28 @@ export async function claimOwner(email: string): Promise<"claimed" | "taken"> {
 export async function releaseOwner(): Promise<void> {
   cache = null;
   await client().from("settings").delete().eq("key", "owner");
+}
+
+/**
+ * People the super admin has given limited access (Settings, Team access).
+ * Not cached: the access check and the pages run in separate server bundles, so a cache could keep letting someone in after they were
+ * removed. It is one small row, read once per request.
+ */
+export async function getTeam(): Promise<TeamMember[]> {
+  const { data, error } = await client().from("settings").select("value").eq("key", "team").maybeSingle();
+  if (error) throw new Error(`load team: ${error.message}`);
+  return cleanTeam((data?.value as { members?: unknown } | undefined)?.members);
+}
+
+export async function saveTeam(team: TeamMember[]): Promise<void> {
+  const { error } = await client().from("settings").upsert({ key: "team", value: { members: cleanTeam(team) }, updated_at: new Date().toISOString() });
+  if (error) throw new Error(`save team: ${error.message}`);
+}
+
+/** The role of a signed-in email: admin for the owner and ALLOWED_EMAILS, otherwise the role given in Team access, otherwise nothing. */
+export async function getRole(email: string | null | undefined, fresh = false): Promise<Role | null> {
+  const e = email?.trim().toLowerCase();
+  if (!e) return null;
+  if ((await getAllowedEmails(fresh)).includes(e)) return "admin";
+  return (await getTeam()).find((m) => m.email === e)?.role ?? null;
 }

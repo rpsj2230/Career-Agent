@@ -1,4 +1,4 @@
-import { ActionButton } from "@/components/app/action-button";
+import { TestModelButton } from "@/components/app/test-model-button";
 import { LocalModelCard } from "@/components/app/local-model-card";
 import { getSetting } from "@/lib/settings";
 import { ModelDialog, type ModelForm } from "@/components/app/model-dialog";
@@ -54,7 +54,7 @@ export default async function ModelsPage() {
                       {h.lastError && h.status !== "working" ? <details><summary className="cursor-pointer">Last error</summary><div className="mt-1 break-words">{h.lastError.slice(0, 300)}{h.lastOkAt ? ` · last worked ${fmtDateTime(h.lastOkAt)}` : ""}</div></details> : s.bad > 0 ? "some earlier errors" : "none"}
                     </TableCell>
                     <TableCell className="flex gap-2">
-                      <ActionButton size="sm" variant="secondary" endpoint="/api/models/test" body={{ label: r.label }} disabled={!keyed}>Test</ActionButton>
+                      <TestModelButton label={r.label} disabled={!keyed} />
                       <ModelDialog id={r.id} hasStoredKey={hasStored(r)} initial={{ ...r, notes: r.notes ?? "" }} />
                     </TableCell>
                   </TableRow>

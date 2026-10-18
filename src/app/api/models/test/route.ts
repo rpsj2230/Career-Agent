@@ -8,6 +8,11 @@ import { buildModel } from "@/lib/llm/registry";
 
 export const maxDuration = 60;
 
+/** A test counts like any other call, so the Status column on the Models page shows the result straight away. */
+async function record(row: ModelRow, ok: boolean, ms: number, error?: string) {
+  await db().from("model_usage").insert({ model_config_id: row.id, model_label: row.label, task: "test", latency_ms: ms, ok, error: error ?? null });
+}
+
 /** Sends one tiny structured-output request to a single model, so you can verify its key and model id. */
 export async function POST(request: Request) {
   const parsed = z.object({ label: z.string().min(1) }).safeParse(await request.json().catch(() => null));
@@ -29,8 +34,11 @@ export async function POST(request: Request) {
       output: Output.object({ schema: z.object({ answer: z.string() }) }),
       temperature: 0,
     });
+    await record(row, true, Date.now() - t0);
     return NextResponse.json({ ok: true, note: `${row.label} works: answered "${res.output.answer}" in ${Date.now() - t0} ms` });
   } catch (e) {
-    return NextResponse.json({ error: `${row.label} failed: ${(e instanceof Error ? e.message : String(e)).slice(0, 300)}` }, { status: 422 });
+    const msg = (e instanceof Error ? e.message : String(e)).slice(0, 300);
+    await record(row, false, Date.now() - t0, msg);
+    return NextResponse.json({ error: `${row.label} failed: ${msg}` }, { status: 422 });
   }
 }

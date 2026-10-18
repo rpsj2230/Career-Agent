@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { authClient, isHttps } from "@/lib/auth-server";
-import { getAllowedEmails } from "@/lib/owner";
+import { getRole } from "@/lib/owner";
 import { logActivity } from "@/lib/activity";
 
 const Body = z.object({ email: z.email(), password: z.string().min(1) });
@@ -20,8 +20,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Wrong email or password" }, { status: 401 });
   }
 
-  // Valid credentials are not enough: the account must be the owner (or on ALLOWED_EMAILS).
-  if (!(await getAllowedEmails(true)).includes(email)) {
+  // Valid credentials are not enough: the account must be the owner, on ALLOWED_EMAILS, or given access in Team access.
+  if (!(await getRole(email, true))) {
     await supabase.auth.signOut();
     await logActivity({ kind: "auth.login_failed", level: "warn", message: `Sign-in refused for ${email}: not the owner or an allowed email`, detail: { email, ip, reason: "not allowed" } });
     return NextResponse.json({ error: "This account is not allowed to use this app" }, { status: 403 });

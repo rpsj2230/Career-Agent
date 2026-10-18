@@ -20,3 +20,10 @@ export function authClient(store: CookieStore, secure: boolean) {
 }
 
 export const isHttps = (request: Request) => request.headers.get("x-forwarded-proto") === "https" || new URL(request.url).protocol === "https:";
+
+/** The address people use to reach the site (behind Vercel the request URL can show an internal host). */
+export function publicOrigin(request: Request): string {
+  const host = request.headers.get("x-forwarded-host") ?? new URL(request.url).host;
+  const proto = request.headers.get("x-forwarded-proto") ?? new URL(request.url).protocol.replace(":", "");
+  return `${proto}://${host}`;
+}

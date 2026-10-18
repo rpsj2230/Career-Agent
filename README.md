@@ -11,6 +11,9 @@ letter **using only facts from your own profile**, prepares the application, and
 
 **New here? Read the [User Guide](docs/USER_GUIDE.md)** (also as a shareable Word file: `docs/Career-Agent-User-Guide.docx`, rebuilt with `node scripts/build-guide.mjs`).
 
+## Sign in with Google and team access
+See `docs/GOOGLE_LOGIN.md`: Google sign-in (one-time Supabase setup) and limited accounts (Jobs & Apply, View only) under Settings, Team access.
+
 ## How it works
 
 ```
