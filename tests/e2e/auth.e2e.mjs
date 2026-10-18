@@ -729,20 +729,20 @@ if (process.env.PLAYWRIGHT_BROWSERS_PATH || process.env.CHROMIUM_PATH) {
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
   r = await call("/api/reports/daily", { method: "POST", body: { date: "2026-02-31" } }); check("an impossible report date is rejected", r.status === 400, `${r.status} ${r.text}`);
   r = await call("/api/reports/daily", { method: "POST", body: { date: "yesterday" } }); check("a non-date is rejected", r.status === 400, `${r.status}`);
-  r = await call("/api/reports/daily", { method: "POST", body: {} }); check("today's report is generated and stored", r.status === 200 && r.json?.date === today && r.json.summary.found > 0 && mock.rowsOf("daily_reports").length === 1, `${r.status} ${r.text}`);
-  const stored = mock.rowsOf("daily_reports")[0];
+  r = await call("/api/reports/daily", { method: "POST", body: {} }); check("today's report is generated and stored", r.status === 200 && r.json?.date === today && r.json.summary.found > 0 && mock.rowsOf("daily_reports").filter((x) => x.report_date === today).length === 1, `${r.status} ${r.text}`);
+  const stored = mock.rowsOf("daily_reports").find((x) => x.report_date === today);
   check("it records the counts, linked items and the message body", stored.status === "ok" && stored.items.length > 0 && stored.items.every((x) => x.href.startsWith("/")) && stored.body.includes("Career Agent daily report"), JSON.stringify(stored).slice(0, 300));
   check("every item links to an existing job or application", stored.items.filter((x) => x.href.startsWith("/jobs/") || x.href.startsWith("/applications/")).every((x) => mock.rowsOf(x.href.startsWith("/jobs/") ? "jobs" : "applications").some((row) => row.id === x.href.split("/")[2])), "dangling link");
   check("the submitted application is in the report with its link", stored.items.some((x) => x.section === "submitted" && x.href.startsWith("/applications/")), "missing");
   check("failures carry their reasons", stored.items.some((x) => x.section === "failed" && x.detail && x.detail !== "No reason was recorded"), JSON.stringify(stored.items.filter((x) => x.section === "failed")));
-  r = await call("/api/reports/daily", { method: "POST", body: {} }); check("generating again replaces the day's report instead of adding another", r.status === 200 && mock.rowsOf("daily_reports").length === 1, `${mock.rowsOf("daily_reports").length}`);
+  r = await call("/api/reports/daily", { method: "POST", body: {} }); check("generating again replaces the day's report instead of adding another", r.status === 200 && mock.rowsOf("daily_reports").filter((x) => x.report_date === today).length === 1, `${mock.rowsOf("daily_reports").filter((x) => x.report_date === today).length}`);
   r = await call(`/reports/daily/${today}`); let t = strip(r.text);
   check("the report page shows sections with deep links", r.status === 200 && t.includes("Daily report: " + today) && t.includes("Submitted") && t.includes('href="/applications/') && t.includes("Message as sent to Telegram"), `${r.status}`);
   r = await call("/reports"); check("the Reports page lists stored reports", strip(r.text).includes(`href="/reports/daily/${today}"`), "not listed");
   r = await call("/reports/daily/2026-02-31"); check("an invalid report date is a 404", r.status === 404, `${r.status}`);
   r = await call("/reports/daily/2001-01-01"); check("a day without a report is a 404", r.status === 404, `${r.status}`);
   const before = mock.seen.telegram.length;
-  r = await call("/api/reports/daily", { method: "POST", body: { send: true } }); check("send=true delivers to Telegram and records it", r.status === 200 && r.json?.delivered === true && mock.seen.telegram.length === before + 1 && mock.rowsOf("daily_reports")[0].delivered === true, `${r.status} ${r.text}`);
+  r = await call("/api/reports/daily", { method: "POST", body: { send: true } }); check("send=true delivers to Telegram and records it", r.status === 200 && r.json?.delivered === true && mock.seen.telegram.length === before + 1 && mock.rowsOf("daily_reports").filter((x) => x.report_date === today)[0].delivered === true, `${r.status} ${r.text}`);
   const tg = mock.seen.telegram.at(-1);
   check("the Telegram message uses the bot token and chat, and carries absolute-style report text", tg.path.includes("tg-token-123") && tg.body.chat_id === "98765" && /Found \d+ · matched/.test(tg.body.text), JSON.stringify(tg).slice(0, 300));
   r = await call("/api/cron/digest", { auth: false, headers: { Authorization: `Bearer ${SECRET}` } });
@@ -894,6 +894,20 @@ r = await call("/api/models/test", { method: "POST", body: { label: "e2e-model" 
   check("no secret value is present in any activity, run, scan, report, job or application record", leaked.length === 0, leaked.join(", "));
   const leakedLog = Object.entries(secrets).filter(([, v]) => log.includes(v)).map(([k]) => k);
   check("no secret value is present in the server's console output", leakedLog.length === 0, leakedLog.join(", "));
+}
+// no model available at all: a promising job is still queued (on the free rules, marked rules-only) instead of being left unseen, and a model re-checks it later
+{
+  const strong = "Product Manager to own the roadmap, activation metrics and SQL analysis, partnering with engineering and design on a fintech product in Singapore. Stakeholder management, experimentation and growth. ".repeat(3);
+  r = await call("/api/jobs/manual", { method: "POST", body: { url: "https://boards.greenhouse.io/rulesco/jobs/777", title: "Product Manager", company: "RulesCo", description: strong, country: "sg" } }); check("a strong job is added for the no-model scenario", r.status === 200, `${r.status} ${r.text}`);
+  r = await call("/api/models/key?label=e2e-pipeline", { method: "DELETE" }); check("every model key is removed", r.status === 200, r.status);
+  r = await call("/api/cron/score?limit=40"); check("scoring with no model available still answers", r.status === 200, `${r.status} ${r.text.slice(0, 200)}`);
+  const rj = mock.rowsOf("jobs").find((x) => x.company === "RulesCo");
+  const rs = mock.rowsOf("job_scores").find((x) => x.job_id === rj?.id);
+  check("the strong job is queued on rules alone and marked as such", rj?.status === "queued" && rs?.model === "rules" && /rules only|free rules/i.test(rs?.detail?.summary ?? ""), JSON.stringify({ status: rj?.status, model: rs?.model, score: rs?.score }));
+  r = await call("/api/models/key", { method: "PUT", body: { label: "e2e-pipeline", apiKey: PIPE_KEY } }); check("the key is restored", r.status === 200, r.status);
+  r = await call("/api/cron/score?limit=40"); check("scoring runs again once a model is available", r.status === 200, `${r.status} ${r.text.slice(0, 200)}`);
+  const rs2 = mock.rowsOf("job_scores").find((x) => x.job_id === rj?.id);
+  check("the rules-only job is now scored by a model", !!rs2 && rs2.model !== "rules", JSON.stringify({ model: rs2?.model }));
 }
 r = await call("/api/auth/logout", { method: "POST" }); check("logout succeeds and clears cookies", r.status === 200 && jar.size === 0, `${r.status} cookies=${jar.size}`);
 r = await call("/api/files?path=bad"); check("after logout the API is closed again", r.status === 401, r.status);

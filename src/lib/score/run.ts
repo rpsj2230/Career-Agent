@@ -3,7 +3,7 @@ import { withRun, type RunCtx } from "@/lib/activity";
 import { jobLogFields } from "@/lib/activity-helpers";
 import type { RunTrigger } from "@/lib/activity-types";
 import { db, must } from "@/lib/db";
-import { runStructured } from "@/lib/llm/registry";
+import { modelReadiness, runStructured } from "@/lib/llm/registry";
 import { loadEffectiveCountries } from "@/lib/country-config-store";
 import { getProfile } from "@/lib/profile/store";
 import { withLegacyFallback } from "@/lib/schema";
@@ -42,6 +42,7 @@ export async function scoreStep(ctx: RunCtx, opts: { limit: number; budgetMs: nu
 
   // The pool: far more jobs than the model will see. Everything in it is judged by free rules first; only the most promising
   // few go to the model, best first, so a flood of postings can never burn the model quota and nothing waits behind newer noise.
+  await releaseProvisional(opts.limit).catch(() => undefined); // jobs queued on rules alone get a proper model score once a model is available
   const pool = Math.max(opts.limit * 8, 400);
   const loaded = must<JobRow[]>(
     await (opts.countries?.length
@@ -136,9 +137,27 @@ export async function scoreStep(ctx: RunCtx, opts: { limit: number; budgetMs: nu
     await ctx.log(queued
       ? { kind: "job.matched", message: `Matched (fit ${output.score}): ${job.title}`, status: "matched", ...ref, detail: { stage: "fit", score: output.score, threshold, summary: output.summary, matchedSkills: output.matchedSkills, gaps: output.gaps, model, title: job.title, adjustments: notes, evidenceScore: evidence.score } }
       : { kind: "job.rejected", message: reasonText!, status: "rejected", ...ref, detail: { stage: "fit", score: output.score, threshold, summary: output.summary, gaps: output.gaps, model, title: job.title, adjustments: notes, evidenceScore: evidence.score } });
+    decidedIds.add(job.id);
     ctx.stat("scored"); ctx.stat(queued ? "matched" : "rejected");
     out.scored++; out.remaining--;
     if (queued) out.queued++; else out.skipped++;
+  };
+
+  // If no model can be used at all, a promising job must not be lost or left unseen: it is queued on the strength of the free rules alone,
+  // marked "rules only", and a model re-scores it as soon as one is available (see releaseProvisional).
+  const decidedIds = new Set<string>();
+  const unscored: Candidate[] = [];
+  let noModel = false;
+  const provisionalMin = Math.max(minEvidence + 10, threshold - 20);
+  const provisional = async (c: Candidate) => {
+    const s = c.evidence.score;
+    const detail = { score: s, matchedSkills: [], gaps: c.evidence.missingTerms.slice(0, 8), seniorityFit: "unknown", locationVisaFit: "unknown", salarySignal: "unknown", summary: `Scored by the free rules only (${s}) because no AI model could be used; a model will re-check it as soon as one is available.` };
+    must(await db().from("job_scores").upsert({ job_id: c.job.id, score: s, detail, model: "rules" }).select("job_id"), "save score");
+    if (s >= provisionalMin) {
+      await decide(c.job, "queued", null);
+      await ctx.log({ kind: "job.matched", message: `Matched provisionally (rules only, ${s}): ${c.job.title}`, status: "matched", ...{ ...jobLogFields(c.job), run_id: ctx.id }, detail: { stage: "rules_only", score: s, title: c.job.title } });
+      ctx.stat("matched_by_rules_only"); out.queued++;
+    } // below that it stays "new" and is scored properly next time
   };
 
   let stop = false;
@@ -160,7 +179,7 @@ export async function scoreStep(ctx: RunCtx, opts: { limit: number; budgetMs: nu
         ctx.stat("model_calls"); ctx.stat("jobs_in_batches", batch.length);
         for (const item of res.output.results) if (batch.some((c) => c.job.id === item.id) && !results.has(item.id)) results.set(item.id, { output: item, model: res.model, tier: res.tier });
       } catch (e) {
-        if (/No model available|All models failed/.test(e instanceof Error ? e.message : String(e))) { for (const c of batch) await fail(c, e); ctx.markPartial(e instanceof Error ? e.message : String(e)); break; }
+        if (/No model available|All models failed/.test(e instanceof Error ? e.message : String(e))) { for (const c of batch) await fail(c, e); noModel = true; unscored.push(...batch); ctx.markPartial(e instanceof Error ? e.message : String(e)); break; }
         /* a bad batch answer: every job is scored on its own below */
       }
     }
@@ -173,10 +192,26 @@ export async function scoreStep(ctx: RunCtx, opts: { limit: number; budgetMs: nu
         }
         await finish(c, r);
       } catch (e) {
-        if (await fail(c, e)) { ctx.markPartial(e instanceof Error ? e.message : String(e)); stop = true; break; }
+        if (await fail(c, e)) { ctx.markPartial(e instanceof Error ? e.message : String(e)); stop = true; noModel = true; unscored.push(...batch.filter((b) => !decidedIds.has(b.job.id))); break; }
       }
     }
   }
+  if (noModel) {
+    const seen = new Set<string>();
+    for (const c of [...unscored, ...queue, ...candidates.slice(opts.limit)]) { if (seen.has(c.job.id) || decidedIds.has(c.job.id)) continue; seen.add(c.job.id); await provisional(c); }
+  }
   if (out.failed.length) ctx.markPartial(`${out.failed.length} job(s) could not be scored`);
   return out;
+}
+
+/** Put jobs that were queued on rules alone back to "new" so a model can score them, but only when a model can be used now. */
+export async function releaseProvisional(limit: number): Promise<number> {
+  const { usable } = await modelReadiness();
+  if (usable.length === 0) return 0;
+  const rules = must<{ job_id: string }[]>(await db().from("job_scores").select("job_id").eq("model", "rules").limit(300), "load rules-only scores");
+  if (rules.length === 0) return 0;
+  const queued = must<{ id: string }[]>(await db().from("jobs").select("id").in("id", rules.map((r) => r.job_id)).eq("status", "queued").limit(Math.max(10, limit)), "load rules-only jobs");
+  if (queued.length === 0) return 0;
+  must(await db().from("jobs").update({ status: "new", skip_reason: null }).in("id", queued.map((j) => j.id)).select("id"), "release rules-only jobs");
+  return queued.length;
 }

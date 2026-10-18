@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { logActivity } from "@/lib/activity";
 import { dispatchWorkflow, workerConfigured } from "@/lib/apply/dispatch";
 import { noteBackgroundStart } from "@/lib/background-status";
+import { listSchedules } from "@/lib/schedule-store";
 import { GET as discoverInline } from "../../cron/discover/route";
 import { GET as scoreInline } from "../../cron/score/route";
 
@@ -13,8 +14,24 @@ export const maxDuration = 60;
  */
 export async function POST(request: Request, { params }: { params: Promise<{ task: string }> }) {
   const { task } = await params;
-  if (task !== "discover" && task !== "score") return NextResponse.json({ error: "Unknown task" }, { status: 404 });
-  const label = task === "discover" ? "Search and score" : "Scoring";
+  if (task !== "discover" && task !== "score" && task !== "all") return NextResponse.json({ error: "Unknown task" }, { status: 404 });
+  const label = task === "discover" ? "Search and score" : task === "all" ? "The full cycle" : "Scoring";
+
+  // the whole cycle (search, score, prepare) is your schedule's job: start it now instead of waiting for its time
+  if (task === "all") {
+    const sched = (await listSchedules().catch(() => ({ rows: [] }))).rows.find((s) => s.enabled && !s.paused);
+    if (!sched) return NextResponse.json({ error: "There is no active schedule. Open Schedules and create or resume one." }, { status: 409 });
+    if (workerConfigured()) {
+      const err = await dispatchWorkflow("pipeline.yml", { schedule_id: sched.id });
+      if (!err) {
+        await noteBackgroundStart("pipeline");
+        await logActivity({ kind: "schedule.changed", message: `Full cycle started now: ${sched.name}`, status: "dispatched", detail: { schedule_id: sched.id, where: "github-actions" } }).catch(() => undefined);
+        return NextResponse.json({ ok: true, where: "github", note: `Started "${sched.name}" now: search, score and prepare. It runs in the background (about 10 to 30 minutes); this page shows progress.` });
+      }
+      return NextResponse.json({ error: `GitHub did not start it: ${err}` }, { status: 502 });
+    }
+    return NextResponse.json({ error: "Running the full cycle needs GitHub connected (System > Automation). Use the Search and Score buttons for a short version here." }, { status: 409 });
+  }
 
   let why = "";
   if (workerConfigured()) {

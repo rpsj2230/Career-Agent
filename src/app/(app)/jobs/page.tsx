@@ -3,6 +3,8 @@ import { AddJob } from "@/components/app/add-job";
 import { ActionButton } from "@/components/app/action-button";
 import { ApplyTypeBadge, ScoreBadge, SourceBadge, StatusBadge } from "@/components/app/badges";
 import { BackgroundBanner } from "@/components/app/background-banner";
+import { PipelineStrip } from "@/components/app/pipeline-strip";
+import { SearchSummary } from "@/components/app/search-summary";
 import { FilterBar } from "@/components/app/filter-bar";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,14 +26,20 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
   return (
     <div className="grid gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-2xl font-semibold">Jobs</h1>
-        <div className="flex flex-wrap gap-2">
-          <AddJob />
-          <ActionButton variant="outline" method="POST" endpoint="/api/run/score" success="Started">Score new jobs</ActionButton>
-          <ActionButton method="POST" endpoint="/api/run/discover" success="Started">Find jobs now</ActionButton>
+        <div>
+          <h1 className="text-2xl font-semibold">Jobs found &amp; scored</h1>
+          <p className="max-w-2xl text-sm text-muted-foreground">Jobs move left to right: <b>found</b> on the job sites, <b>scored</b> against your profile, then a <b>resume is prepared</b> for the good ones. Your schedule does all of this by itself; the buttons are for doing a step right now.</p>
         </div>
+        <div className="flex flex-wrap items-start gap-2">
+          <AddJob />
+          <ActionButton method="POST" endpoint="/api/run/discover" success="Started" title="Looks on every connected job site for new postings that match your roles and countries, then scores them. New postings appear under 'Found, not scored' until scored.">Search job sites now</ActionButton>
+          <ActionButton variant="outline" method="POST" endpoint="/api/run/score" success="Started" title="Rates every job that is still 'Found, not scored' from 0 to 100 against your profile. Jobs at or above your threshold move to the matched list.">Score unscored jobs</ActionButton>
+          <ActionButton variant="secondary" method="POST" endpoint="/api/run/all" success="Started" title="Runs your whole schedule right now: search, score and prepare resumes. Same as waiting for its time.">Run full cycle now</ActionButton>
+      </div>
       </div>
       <BackgroundBanner />
+      <PipelineStrip />
+      <SearchSummary />
       {f.view !== "new" && c.fresh > 0 && (
         <Alert><AlertDescription>
           <b>{c.fresh} new job{c.fresh === 1 ? " is" : "s are"} waiting to be scored</b> and do not show in this list yet. The next scheduled run scores them, or press <i>Score new jobs</i>.{" "}

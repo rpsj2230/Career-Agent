@@ -9,6 +9,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { APP_STATUSES, countryLabel, parseAppFilters } from "@/lib/filters";
 import { filterOptions, listApplications } from "@/lib/queries";
 import { fmtDateTime } from "@/lib/time";
+import { AssistantPanel } from "@/components/app/assistant-panel";
+import { PipelineStrip } from "@/components/app/pipeline-strip";
+import { assistantPanelData } from "@/lib/apply/assistant-health";
 import { PageSizeBar, Pagination } from "@/components/app/pagination";
 import { parsePaging } from "@/lib/pagination";
 
@@ -18,7 +21,7 @@ export default async function ApplicationsPage({ searchParams }: { searchParams:
   const sp = await searchParams;
   const f = parseAppFilters(sp);
   const paging = parsePaging(sp);
-  const [{ rows, total, page, pages, shownFrom, shownTo, portalUnavailable }, opts] = await Promise.all([listApplications(f, paging), filterOptions()]);
+  const [{ rows, total, page, pages, shownFrom, shownTo, portalUnavailable }, opts, panel] = await Promise.all([listApplications(f, paging), filterOptions(), assistantPanelData().catch(() => null)]);
   const fmt = (d: string | null) => fmtDateTime(d);
   const exportQuery = new URLSearchParams(Object.entries({ portal: f.portal, country: f.country }).filter(([, v]) => v) as [string, string][]).toString();
   return (
@@ -27,6 +30,12 @@ export default async function ApplicationsPage({ searchParams }: { searchParams:
         <h1 className="text-2xl font-semibold">Applications</h1>
         <Button variant="outline" asChild><a href={`/api/export/applications${exportQuery ? `?${exportQuery}` : ""}`}>Export CSV</a></Button>
       </div>
+      <p className="max-w-3xl text-sm text-muted-foreground">
+        Every application waits here for your OK (<b>prepared</b>). After you approve it: Greenhouse, Lever, Ashby and Workable are sent automatically from the cloud;
+        LinkedIn, Naukri and Indeed need the <b>assistant on your computer</b> (they queue below until your computer is on); anything else is yours to submit.
+      </p>
+      <PipelineStrip />
+      {panel && <AssistantPanel {...panel} />}
       <FilterBar
         action="/applications" statusName="status" status={f.status}
         statusOptions={Object.entries(APP_STATUSES).map(([key, v]) => ({ key, label: v.label }))}

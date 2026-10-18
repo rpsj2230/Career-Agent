@@ -20,7 +20,7 @@ const schema = { v2: false };
 
 // ------------------------------------------------------------------ table store
 const PK = { settings: ["key"], profile: ["id"], model_configs: ["label"], integrations: ["id"], country_prefs: ["country"], jobs: ["id"] };
-const UNIQUE = { jobs: [["source", "external_id"]], applications: [["job_id"]], documents: [["job_id", "kind", "version"]], answer_bank: [["key"]], daily_reports: [["report_date", "timezone"]] };
+const UNIQUE = { jobs: [["source", "external_id"]], applications: [["job_id"]], job_scores: [["job_id"]], documents: [["job_id", "kind", "version"]], answer_bank: [["key"]], daily_reports: [["report_date", "timezone"]] };
 const DEFAULTS = {
   jobs: () => ({ id: randomUUID(), found_at: new Date().toISOString(), status: "new" }),
   automation_runs: () => ({ id: randomUUID(), started_at: new Date().toISOString(), heartbeat_at: new Date().toISOString(), status: "running", stats: {}, scope: {} }),

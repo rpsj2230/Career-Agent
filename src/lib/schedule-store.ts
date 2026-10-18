@@ -78,8 +78,27 @@ export async function claimDueSchedules(now = new Date()): Promise<ScheduleRow[]
   return claimed;
 }
 
+/** A run that failed, or stopped part-way because no model could be used, is tried again in an hour, at most three times in a row. */
+export const RETRY_AFTER_MS = 60 * 60_000;
+export const MAX_RETRIES = 3;
+export function shouldRetry(status: string, latestError: string | null, recent: { status: string }[]): boolean {
+  const transient = status === "failed" || (status === "partial" && /no model|all models failed|rate.?limit|quota|429|timed? ?out|econn|network/i.test(latestError ?? ""));
+  if (!transient) return false;
+  return recent.slice(0, MAX_RETRIES).filter((r) => r.status === "failed" || r.status === "partial").length < MAX_RETRIES;
+}
+
 export async function recordScheduleRun(id: string, status: string, at = new Date()) {
-  const { error } = await db().from("schedules").update({ last_run_at: at.toISOString(), last_run_status: status }).eq("id", id);
+  const patch: Record<string, unknown> = { last_run_at: at.toISOString(), last_run_status: status };
+  if (status === "failed" || status === "partial") {
+    // do not wait a whole day for the next slot when the cause is probably temporary (the laptop is not involved: this runs in the cloud)
+    const recent = await db().from("automation_runs").select("status,error").eq("schedule_id", id).eq("kind", "pipeline").order("started_at", { ascending: false }).limit(MAX_RETRIES);
+    const rows = (recent.data ?? []) as { status: string; error: string | null }[];
+    if (shouldRetry(status, rows[0]?.error ?? null, rows)) {
+      patch.next_run_at = new Date(at.getTime() + RETRY_AFTER_MS).toISOString();
+      await logConfig(`Schedule run ${status}: trying again in an hour`, { schedule_id: id, reason: rows[0]?.error ?? null }, "schedule.changed").catch(() => undefined);
+    }
+  }
+  const { error } = await db().from("schedules").update(patch).eq("id", id);
   if (error) throw new Error(error.message);
 }
 

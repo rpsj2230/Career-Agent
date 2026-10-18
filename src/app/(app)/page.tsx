@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ActionButton } from "@/components/app/action-button";
 import { AutomationBanner } from "@/components/app/automation-banner";
 import { BackgroundBanner } from "@/components/app/background-banner";
+import { PipelineStrip } from "@/components/app/pipeline-strip";
 import { StatusBadge } from "@/components/app/badges";
 import { ConnectionBadge } from "@/components/app/status-badge";
 import { Badge } from "@/components/ui/badge";
@@ -86,14 +87,15 @@ export default async function Dashboard({ searchParams }: { searchParams: SP }) 
         <h1 className="text-2xl font-semibold">Dashboard</h1>
         {ready && (
           <div className="flex gap-2">
-            <ActionButton method="POST" endpoint="/api/run/discover" success="Started">Find jobs now</ActionButton>
-            <ActionButton variant="outline" method="POST" endpoint="/api/run/score" success="Started">Score new jobs</ActionButton>
+            <ActionButton method="POST" endpoint="/api/run/discover" success="Started">Search job sites now</ActionButton>
+            <ActionButton variant="outline" method="POST" endpoint="/api/run/score" success="Started">Score unscored jobs</ActionButton>
           </div>
         )}
       </div>
 
       <BackgroundBanner />
       <AutomationBanner />
+      <PipelineStrip />
 
       {!ready && (
         <Card className="border-amber-500">
