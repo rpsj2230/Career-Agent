@@ -10,6 +10,7 @@ import { storedKeyLabels } from "@/lib/llm/keys";
 import { ensureDefaultModels } from "@/lib/llm/registry";
 import { fmtDateTime } from "@/lib/time";
 import { modelHealth, type Call } from "@/lib/llm/health";
+import { CLASS_INFO, modelClass, type ModelClass } from "@/lib/llm/classes";
 
 export const dynamic = "force-dynamic";
 
@@ -33,23 +34,7 @@ export default async function ModelsPage() {
   const localTest = await getSetting("local_model_test");
   const anyUsable = rows.some((r) => r.enabled && hasKey(r));
 
-  return (
-    <div className="grid gap-4">
-      <div className="flex items-center justify-between"><h1 className="text-2xl font-semibold">Models</h1><ModelDialog /></div>
-      {!anyUsable && (
-        <Card className="border-destructive"><CardHeader><CardTitle className="text-destructive">No usable model</CardTitle><CardDescription>Click Edit on a model below, paste its API key, then press Test. Scoring and tailoring cannot run until at least one model has a key.</CardDescription></CardHeader></Card>
-      )}
-      <LocalModelCard initial={localModel} test={localTest} />
-      <Card>
-        <CardHeader>
-          <CardTitle>Fallback chain: which model works?</CardTitle>
-          <CardDescription>Lowest priority number is tried first; on rate limit, error or bad output the next model is used, and the local model (above) is last. Models without a key set are skipped. Free-tier model ids and limits change often: edit them here when a provider renames or retires one.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader><TableRow><TableHead>#</TableHead><TableHead>Model</TableHead><TableHead>Key</TableHead><TableHead>Status</TableHead><TableHead>Calls today</TableHead><TableHead /></TableRow></TableHeader>
-            <TableBody>
-              {rows.map((r) => {
+  const renderRow = (r: Row) => {
                 const keyed = hasKey(r);
                 const s = stat(r.label);
                 const h = modelHealth({ enabled: r.enabled, keyed, todayOk: s.ok, todayBad: s.bad, dailyCap: r.daily_cap, calls: callsOf(r.label) });
@@ -72,11 +57,47 @@ export default async function ModelsPage() {
                     </TableCell>
                   </TableRow>
                 );
-              })}
-            </TableBody>
-          </Table>
-        </CardContent>
+              };
+
+  const head = <TableHeader><TableRow><TableHead>#</TableHead><TableHead>Model</TableHead><TableHead>Key</TableHead><TableHead>Status</TableHead><TableHead>Calls today</TableHead><TableHead /></TableRow></TableHeader>;
+  const classes: ModelClass[] = ["strong", "medium", "small"];
+  const inClass = (k: ModelClass) => rows.filter((r) => modelClass(r) === k);
+
+  return (
+    <div className="grid gap-4">
+      <div className="flex items-center justify-between"><h1 className="text-2xl font-semibold">Models</h1><ModelDialog /></div>
+      {!anyUsable && (
+        <Card className="border-destructive"><CardHeader><CardTitle className="text-destructive">No usable model</CardTitle><CardDescription>Click Edit on a model below, paste its API key, then press Test. Scoring and tailoring cannot run until at least one model has a key.</CardDescription></CardHeader></Card>
+      )}
+      <LocalModelCard initial={localModel} test={localTest} />
+      <Card>
+        <CardHeader>
+          <CardTitle>Fallback chain: which model works?</CardTitle>
+          <CardDescription>Models are grouped by size. Lowest priority number is tried first; on rate limit, error or bad output the next model is used, and the local model (above) is last. Models without a key are listed under &quot;Not set up yet&quot; and skipped. Free-tier model ids and limits change often: edit them here when a provider renames or retires one.</CardDescription>
+        </CardHeader>
       </Card>
+      {classes.map((k) => {
+        const list = inClass(k);
+        const ready = list.filter((r) => hasKey(r));
+        const idle = list.filter((r) => !hasKey(r));
+        return (
+          <Card key={k}>
+            <CardHeader>
+              <CardTitle>{CLASS_INFO[k].title} <span className="text-sm font-normal text-muted-foreground">({ready.length} ready, {idle.length} not set up)</span></CardTitle>
+              <CardDescription>{CLASS_INFO[k].blurb}</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-3">
+              {ready.length > 0 ? <Table>{head}<TableBody>{ready.map(renderRow)}</TableBody></Table> : <p className="text-sm text-muted-foreground">No model in this group has a key yet.</p>}
+              {idle.length > 0 && (
+                <details>
+                  <summary className="cursor-pointer text-sm text-muted-foreground">Not set up yet ({idle.length}): paste a key to switch them on</summary>
+                  <Table>{head}<TableBody>{idle.map(renderRow)}</TableBody></Table>
+                </details>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })}
       {recentErrors.length > 0 && (
         <Card><CardHeader><CardTitle>Recent failures</CardTitle></CardHeader><CardContent className="grid gap-1 text-sm">
           {recentErrors.map((e, i) => <div key={i}><span className="font-medium">{e.model_label}</span> <span className="text-muted-foreground">{fmtDateTime(e.created_at)}</span>: {e.error}</div>)}
