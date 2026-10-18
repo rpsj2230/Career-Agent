@@ -84,7 +84,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
                           <>
                             <StatusBadge status={app.status} />
                             <Link className="text-sm underline" href={`/applications/${app.id}#documents`} target="_blank" rel="noreferrer">View resume</Link>
-                            {app.status === "prepared" && <ActionButton size="sm" endpoint={`/api/applications/${app.id}`} body={{ action: "approve" }} success="Approved">Approve and apply</ActionButton>}
+                            {app.status === "prepared" && <ActionButton size="sm" endpoint={`/api/applications/${app.id}`} body={{ action: "approve" }} success="Approved">{route.kind === "cloud" ? "Approve and apply" : route.kind === "assistant" ? "Approve (assistant applies)" : route.kind === "email" ? "Approve and send email" : "Approve (I submit)"}</ActionButton>}
                           </>
                         ) : waiting ? (
                           <>

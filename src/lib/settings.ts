@@ -37,7 +37,7 @@ export const DEFAULTS = {
   apify: { actors: [] as ApifyActor[], monthly_item_budget: 2500 },
   /** last-resort model that runs for free on the GitHub runner when every hosted model fails: off, only when needed (default), or always */
   automation_pause: { paused: false, since: "", note: "" },
-  auto_prepare: { enabled: true, per_run: 8 },
+  auto_prepare: { enabled: true, per_run: 15 },
   email_apply: { enabled: true, also_when_listed: true, daily_cap: 20 },
   local_model_test: { at: "", ok: false, model: "", ms: 0, note: "", run_url: "" },
   local_model: { mode: "when_needed" as "off" | "when_needed" | "always", model: "qwen2.5:3b-instruct" },
