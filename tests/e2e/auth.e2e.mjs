@@ -1005,6 +1005,18 @@ r = await call("/api/models/test", { method: "POST", body: { label: "e2e-model" 
   r = await call("/api/bulk", { method: "POST", body: { action: "approve", ids: [] } }); check("bulk with nothing selected is refused", r.status === 400, r.status);
   r = await call("/api/bulk", { method: "POST", body: { action: "approve", ids: ["not-a-uuid"] } }); check("bulk with a bad id is refused", r.status === 400, r.status);
 }
+// the master pause
+{
+  const strip = (t) => t.replace(/<!-- -->/g, "");
+  r = await call("/settings"); check("Settings has the pause switch", /Pause everything/.test(strip(r.text)), r.status);
+  r = await call("/api/settings", { method: "PUT", body: { key: "automation_pause", value: { paused: true, since: new Date().toISOString(), note: "" } } }); check("pausing is saved", r.status === 200, `${r.status} ${r.text}`);
+  const pdue = await fetch(`${BASE}/api/cron/due`, { headers: { Authorization: `Bearer ${SECRET}` } }).then(async (x) => ({ status: x.status, json: await x.json().catch(() => null) }));
+  check("while paused the hourly check reports nothing due and no backlog work", pdue.json?.paused === true && pdue.json?.due === 0 && pdue.json?.drain === false, JSON.stringify(pdue.json)?.slice(0, 200));
+  const pw = await runWorker(); check("while paused the worker does nothing by itself", pw.code === 0 && /Everything is paused/.test(pw.text), `${pw.code} ${pw.text.slice(-200)}`);
+  r = await call("/"); check("the dashboard says everything is paused", /Everything is paused/.test(strip(r.text)), r.status);
+  r = await call("/api/settings", { method: "PUT", body: { key: "automation_pause", value: { paused: false, since: "", note: "" } } }); check("resuming is saved", r.status === 200, `${r.status}`);
+  r = await call("/portals"); check("the sources page shows which sources are worth it", /Which job sources are worth it/.test(strip(r.text)) || /Job portals and sources/.test(strip(r.text)), r.status);
+}
 // no model available at all: a promising job is still queued (on the free rules, marked rules-only) instead of being left unseen, and a model re-checks it later
 {
   const strong = "Product Manager to own the roadmap, activation metrics and SQL analysis, partnering with engineering and design on a fintech product in Singapore. Stakeholder management, experimentation and growth. ".repeat(3);

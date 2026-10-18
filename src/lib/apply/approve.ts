@@ -45,6 +45,7 @@ export async function approveApplication(id: string, o: { override?: boolean; ac
   }
   if (!jobRow) return { ok: false, status: 404, error: "Job not found" };
   const capsNow = await getSetting("caps");
+  if (o.actor === "schedule" && (await getSetting("automation_pause")).paused) return { ok: false, status: 409, error: "Everything is paused (Settings). The application stays prepared for you." };
   if (o.actor === "schedule") {
     // the master switch: with Auto-Apply off nothing is approved by a schedule; the application stays prepared for you
     if (!(await getSetting("autoapply")).enabled) {

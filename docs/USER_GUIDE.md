@@ -332,3 +332,9 @@ Every cover letter is written to show **why you are a strong fit for that specif
 ## 15. Backups and the laptop
 - **Backups:** `docs/BACKUP.md` explains the nightly encrypted backup of the database and master resume to a private GitHub repository (newest 60 days kept), and how to restore.
 - **Laptop assistant, step by step with commands:** `docs/LAPTOP_SETUP.md`.
+
+## 16. Pausing, and which job sources are worth it
+- **Pause everything** (Settings, top card): found a job, or need a break? One switch stops everything that runs by itself (scheduled runs, searching, background scoring and preparing, automatic approving and applying from the cloud and from the assistant, and automatic employer emails). Your data stays; buttons you press yourself still work. The Dashboard shows a banner while paused. Switch it off to continue.
+- **Why not every source on every run?** A search that already ran within the last few hours is skipped (it would only find the same jobs; the number of hours is under Settings → Job discovery), hosted scrapers (Apify) run only in scheduled runs, and a service that refuses its key is tried once, not once per search. *What the last search did, source by source* (Jobs page) lists every source with its reason, and says how many searches were skipped and why.
+- **Which sources are worth it:** the Job sources page has a table for the last 30 days: searches, failures, postings read, new jobs, good matches, and a verdict per source (Productive, Some yield, Many jobs few fits, Nothing new, Returns nothing, Mostly failing) with advice to keep, fix or switch off. Numbers are labelled early until about a month of runs.
+- **Apply assistant "not running":** having the computer on is not enough. The assistant is a program you start once on the computer (`docs/LAPTOP_SETUP.md`); the card turns green when it reports in.

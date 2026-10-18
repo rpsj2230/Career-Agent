@@ -3,6 +3,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ActionButton } from "./action-button";
+import { SETUP_GUIDE_URL } from "@/lib/apply/assistant-request";
 
 export function AssistantPanel({ online, pending, text }: { online: boolean; pending: boolean; text: string }) {
   return (
@@ -12,8 +13,10 @@ export function AssistantPanel({ online, pending, text }: { online: boolean; pen
         <CardDescription>{text}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-wrap items-center gap-3">
-        <ActionButton endpoint="/api/assistant/run" success="Requested" disabled={pending}>{pending ? "Run requested" : "Run assistant now"}</ActionButton>
-        <span className="text-xs text-muted-foreground">A web page cannot start a program on your computer, so the assistant must be running there (it can start by itself when you sign in: see docs/ASSISTANT_AUTOSTART.md). This button then makes it start a round immediately instead of waiting for its next check.</span>
+        <ActionButton endpoint="/api/assistant/run" success="Requested" disabled={pending}>{pending ? (online ? "Requested: starting" : "Requested: waiting for the assistant to start") : "Ask the assistant to run now"}</ActionButton>
+        <span className="text-xs text-muted-foreground">
+          {online ? "The assistant is running; the button makes it start a round immediately instead of waiting for its next check." : <>This button only leaves a request; it cannot start anything on your computer. To get the assistant running: <a className="underline" href={SETUP_GUIDE_URL} target="_blank" rel="noreferrer">open the step-by-step setup guide</a>, then run <code>npm run assist:check</code> in the project folder to see what is missing.</>}
+        </span>
       </CardContent>
     </Card>
   );

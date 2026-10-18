@@ -11,6 +11,7 @@ import { integrationById } from "@/lib/integrations/catalog";
 import { loadPortalsView } from "@/lib/integrations/view";
 import { portalLabel } from "@/lib/jobs/portal";
 import { fmtDateTime } from "@/lib/time";
+import { SourcePerformanceCard } from "@/components/app/source-performance-card";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +30,7 @@ export default async function PortalsPage() {
         <h1 className="text-2xl font-semibold">Job portals and sources</h1>
         <p className="text-sm text-muted-foreground">{working} of {v.portals.length} portals receiving jobs · {feedsOk} of {feeds.length} scanning sources working · {v.totalJobs} jobs stored in total</p>
       </div>
+      <SourcePerformanceCard />
 
       {v.schemaMissing && (
         <Alert variant="destructive"><AlertTitle>Database update needed</AlertTitle><AlertDescription>Connection status and scan history cannot be saved until the update is applied. <Link className="underline" href="/system">Open System</Link>.</AlertDescription></Alert>

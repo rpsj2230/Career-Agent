@@ -62,6 +62,12 @@ async function drainBacklog(): Promise<number> {
 }
 
 async function main() {
+  // the master pause: nothing runs by itself (a schedule you start by hand with "Run this schedule now" still runs)
+  if (!process.env.SCHEDULE_ID?.trim() && (await getSetting("automation_pause").catch(() => null))?.paused) {
+    console.log("Everything is paused (Settings → Pause everything). Nothing was run.");
+    if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, "ready_to_submit=0\n");
+    return;
+  }
   const swept = await failStaleRuns(30);
   if (swept) console.log(`Marked ${swept} stalled run(s) as failed.`);
   const reaped = await reapStuckApplications().catch((e) => { console.error("could not check for stuck applications (not fatal):", e instanceof Error ? e.message : e); return 0; });

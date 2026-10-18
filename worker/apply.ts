@@ -238,6 +238,8 @@ async function main() {
     await processOne(sb, single);
     return;
   }
+  const pausedRow = await sb.from("settings").select("value").eq("key", "automation_pause").maybeSingle();
+  if ((pausedRow.data?.value as { paused?: boolean } | null)?.paused) { console.log("Everything is paused (Settings → Pause everything). Nothing was sent."); return; }
   const limit = Math.max(1, Math.min(50, Number(process.env.MAX_APPLY ?? 10) || 10));
   const { data, error } = await sb.from("applications").select("id").eq("status", "approved").eq("method", "automated").order("approved_at", { ascending: true }).limit(limit);
   if (error) throw error;
