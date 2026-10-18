@@ -26,6 +26,7 @@ export default async function ModelsPage() {
   );
   const stat = (label: string) => ({ ok: usage.filter((u) => u.model_label === label && u.ok).length, bad: usage.filter((u) => u.model_label === label && !u.ok).length });
   const localModel = await getSetting("local_model");
+  const localTest = await getSetting("local_model_test");
   const anyUsable = rows.some((r) => r.enabled && hasKey(r));
 
   return (
@@ -34,7 +35,7 @@ export default async function ModelsPage() {
       {!anyUsable && (
         <Card className="border-destructive"><CardHeader><CardTitle className="text-destructive">No usable model</CardTitle><CardDescription>Click Edit on a model below, paste its API key, then press Test. Scoring and tailoring cannot run until at least one model has a key.</CardDescription></CardHeader></Card>
       )}
-      <LocalModelCard initial={localModel} />
+      <LocalModelCard initial={localModel} test={localTest} />
       <Card>
         <CardHeader>
           <CardTitle>Fallback chain</CardTitle>

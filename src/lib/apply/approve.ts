@@ -1,4 +1,5 @@
 import "server-only";
+import { requestAssistantRun } from "./assistant-run";
 import { logActivity } from "@/lib/activity";
 import { jobLogFields, type JobRef } from "@/lib/activity-helpers";
 import type { LogEntry } from "@/lib/activity-types";
@@ -75,6 +76,8 @@ export async function approveApplication(id: string, o: { override?: boolean; ac
   await log({ kind: "application.approved", message: `Approved ${by} (${decision.mode})${o.override ? " with override of unverified claims" : ""}${decision.reason ? `: ${decision.reason}` : ""}`, status: automated ? "approved" : "assisted_pending", detail: { mode: decision.mode, override: !!o.override, note: decision.reason ?? null } });
   await logEvent(id, "approved", { mode: decision.mode, override: !!o.override, note: decision.reason ?? null, actor: o.actor });
   let warning: string | null = null;
+  // queued for the assistant on your computer: wake it now so a running assistant does not wait for its next round
+  if (!automated) await requestAssistantRun("An application was queued for the assistant on your computer: asked it to run").catch(() => undefined);
   if (automated && o.dispatch) {
     warning = await dispatchApply(id);
     if (warning) { await logEvent(id, "dispatch_failed", { error: warning }); await log({ kind: "application.failed", level: "error", message: `Could not start the apply worker: ${warning}`, status: "approved", detail: { error: warning } }); }

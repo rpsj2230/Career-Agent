@@ -13,6 +13,7 @@
     "test:e2e": "node tests/e2e/auth.e2e.mjs",
     "gen:migrations": "node scripts/gen-migrations.mjs",
     "assist": "tsx --env-file-if-exists=.env.local worker/assist.ts",
+    "assist:check": "tsx --env-file-if-exists=.env.local worker/assist-check.ts",
     "assist:auto": "ASSIST_MODE=auto tsx --env-file-if-exists=.env.local worker/assist.ts",
     "canary": "tsx --env-file-if-exists=.env.local worker/canary.ts",
     "assist:watch": "ASSIST_MODE=auto ASSIST_WATCH=1 tsx --env-file-if-exists=.env.local worker/assist.ts"

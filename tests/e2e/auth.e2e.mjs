@@ -441,7 +441,7 @@ r = await call(`/api/schedules/${askId}`, { method: "DELETE" });
   check("the invented tools were caught and the model was asked again with the reasons", calls.some((c) => c.task === "tailor" && !c.retry) && calls.some((c) => c.task === "tailor" && c.retry && /not found anywhere in the candidate's profile: Kubernetes/.test(c.prompt)), JSON.stringify(calls.map((c) => [c.task, c.retry])));
   check("the invented number in the cover letter was caught the same way", calls.some((c) => c.task === "cover" && c.retry && /number\(s\) not in cited sources: 40/.test(c.prompt)), JSON.stringify(calls.filter((c) => c.task === "cover").map((c) => c.prompt.slice(-200))));
   const sdocs = mock.rowsOf("documents").filter((d) => d.job_id === sj.id);
-  check("the final documents are clean: no invented tool, no invented number", sdocs.length === 2 && sdocs.every((d) => d.verification.ok && d.verification.attempts === 2) && !JSON.stringify(sdocs.map((d) => d.content)).match(/Kubernetes|Terraform|Google|40 engineers/), JSON.stringify(sdocs.map((d) => d.verification)));
+  check("the final documents are clean: no invented tool, no invented number", sdocs.length === 2 && sdocs.every((d) => d.verification.ok && d.verification.attempts >= 2) && !JSON.stringify(sdocs.map((d) => d.content)).match(/Kubernetes|Terraform|Google|40 engineers/), JSON.stringify(sdocs.map((d) => d.verification)));
 
   // (2) a model that keeps inventing: the documents are flagged, approval is blocked, and an auto-applying schedule never submits them
   mock.fixtures.chatMode = "broken";
@@ -705,6 +705,9 @@ if (process.env.PLAYWRIGHT_BROWSERS_PATH || process.env.CHROMIUM_PATH) {
   r = await call("/applications?portal=greenhouse&country=sg&size=100"); check("applications: portal and country combine", r.text.includes("FormCo") && !r.text.includes("Zeta Pte"), "wrong rows");
   r = await call("/applications?status=submitted"); check("applications: 'Submitted' shows submitted ones only", r.text.includes("FormCo") && !r.text.includes("StuckCo"), "wrong rows");
   r = await call("/applications?status=manual"); check("applications: 'Requires manual action' includes hand-backs", r.text.includes("StuckCo") || r.text.includes("Requires manual action"), "missing");
+  r = await call("/applications"); { const tx = r.text.replace(/<!-- -->/g, ""); check("applications list says how each is applied and what to do next", /How it is applied/.test(tx) && /Next step/.test(tx) && /(Automatic · |Assistant · your computer|Manual · you submit)/.test(tx), r.status); }
+  r = await call("/api/run/localtest", { method: "POST" }); check("the local model test refuses politely when GitHub is not connected", r.status === 409 && /GitHub/.test(r.text), `${r.status} ${r.text.slice(0, 120)}`);
+  r = await call("/models"); check("the Models page shows the local model test button", /Test the local model now/.test(r.text.replace(/<!-- -->/g, "")), r.status);
   r = await call("/?country=in"); check("dashboard: another country is echoed", r.status === 200 && r.text.replace(/<!-- -->/g, "").includes("India only"), `${r.status}`);
 }
 

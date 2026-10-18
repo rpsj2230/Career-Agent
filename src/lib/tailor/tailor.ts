@@ -4,6 +4,7 @@ import { CoverLetter, ResumePatchSchema, TailoredResume, type MasterProfile, typ
 import { vocabulary } from "@/lib/docs/verify";
 import { applyPatch, baseResumeBlock, carryCoverLetter, decideReuse, estimateTokens, DEFAULT_THRESHOLDS, type Library, type Provenance } from "./memory";
 import { tokenize } from "./similarity";
+import { assessTailoring, GOOD_ENOUGH, type Quality } from "./quality";
 import { styleFor, styleInstruction, type ResumeStyle } from "./template";
 
 export type Runner = <S extends z.ZodType>(o: {
@@ -27,6 +28,7 @@ export function factsBlock(p: MasterProfile): string {
   }
   if (p.highlights.length) { lines.push("CAREER HIGHLIGHTS (shown verbatim; you only choose which ones):"); for (const h of p.highlights) lines.push(`  [${h.id}] ${h.text}`); }
   lines.push("SKILLS: " + p.skills.map((s) => `[${s.id}] ${s.name}${s.group ? ` (${s.group})` : ""}`).join("; "));
+  if (p.caseStudies.length) { lines.push("CASE STUDIES (shown verbatim; you only choose which ones):"); for (const c of p.caseStudies) lines.push(`  [${c.id}] ${c.title}`); }
   if (p.certifications.length) lines.push("CERTIFICATIONS: " + p.certifications.map((c) => `[${c.id}] ${c.name}`).join("; "));
   return lines.join("\n");
 }
@@ -34,21 +36,45 @@ export function factsBlock(p: MasterProfile): string {
 const jobBlock = (j: JobText) => `JOB\nTitle: ${j.title}\nCompany: ${j.company}\nDescription:\n${j.description.slice(0, 6000)}${j.style ? `\n\nWRITING STYLE: ${styleInstruction(j.style)}` : ""}`;
 const feedback = (r: VerifyResult) => `\n\nYOUR PREVIOUS ATTEMPT WAS REJECTED. Fix every problem and return the full corrected output:\n${r.issues.map((i) => `- ${i.where}: ${i.problem}`).join("\n")}`;
 
-export type TailorOutcome<T> = { content: T; verification: VerifyResult & { attempts: number }; model: string };
+export type TailorOutcome<T> = { content: T; verification: VerifyResult & { attempts: number }; model: string; quality?: Quality };
 
-export async function tailorResume(p: MasterProfile, job: JobText, run: Runner, maxAttempts = 2): Promise<TailorOutcome<TailoredResume> & { diff: ReturnType<typeof buildDiff> }> {
-  const system = `You tailor a candidate's resume to one job.\n${RULES}\nSelect and order the most relevant roles' bullets (about 3-5 per role, most relevant first), pick the most relevant skills by id (the ones the job asks for first), choose 3-4 CAREER HIGHLIGHTS by id in "highlightIds" (most relevant first; they are shown exactly as written, so never put text there), and write a 2-3 sentence summary.`;
+const TAILOR_SYSTEM = `You tailor a candidate's resume to one job, as an expert resume writer and recruiter, so that it reads as written for this job, never as a generic resume with a few lines swapped.
+${RULES}
+Work in this order:
+1. Read the job and note its 6-10 most important requirements and keywords (role, tools, methods, domain, outcomes).
+2. "headline": one line that names the role this job hires for, followed by 2-3 strengths the job asks for. Use only titles and areas the candidate has really held (see the facts); never add seniority words such as Senior, Lead or Head unless the candidate held that level.
+3. "summary": 3-4 sentences. Open with the candidate's level and the job's main need, show the 2-3 strengths the job values most, and include one quantified achievement from the facts. Use the job's own terminology for things the candidate really did.
+4. "experience": keep every role from the facts that matters for this job (most recent first; leave out only clearly irrelevant older roles). For each role choose the bullets that best prove the job's requirements, strongest first (about 3-5), and REWRITE each: start with a strong action verb, put what this job values first, name the tools and methods the job names when the cited fact says the candidate used them, and end with the result and its exact figure. You may merge two related facts into one bullet. Cite every fact used in "sourceIds". Never copy a bullet word for word unless it is already the best possible wording.
+5. "skillIds": the skills the job asks for first, then other strong ones; keep every group that matters for this job.
+6. "highlightIds": the 3-4 Career Highlights most relevant to this job, best first. "caseStudyIds": up to 3 most relevant Case Studies, best first. They are shown exactly as written, so never put text there.
+7. "certificationIds": those that help for this job.
+Do not pad, do not add anything the facts do not support, and do not mention what the candidate lacks.`;
+
+export async function tailorResume(p: MasterProfile, job: JobText, run: Runner, maxAttempts = 3): Promise<TailorOutcome<TailoredResume> & { diff: ReturnType<typeof buildDiff>; quality: Quality }> {
+  const system = TAILOR_SYSTEM;
   const base = `CANDIDATE FACTS\n${factsBlock(p)}\n\n${jobBlock(job)}`;
-  let prompt = base, last: { out: TailoredResume; model: string; v: VerifyResult } | undefined;
+  let prompt = base;
+  type Try = { out: TailoredResume; model: string; v: VerifyResult; q: Quality };
+  let best: Try | undefined;
+  // a verified resume always beats an unverified one; among verified ones the better-aimed wins
+  const better = (a: Try, b: Try | undefined) => !b || (a.v.ok !== b.v.ok ? a.v.ok : a.v.ok ? a.q.score > b.q.score : a.v.issues.length < b.v.issues.length);
+  let attempts = 0;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    attempts = attempt;
     const { output, model } = await run({ task: "tailor", schema: TailoredResume, system, prompt, jobId: job.id });
     const v = verifyTailored(p, output, [job.company, job.title]);
-    last = { out: output, model, v };
-    if (v.ok) return { content: output, model, verification: { ...v, attempts: attempt }, diff: buildDiff(p, output) };
-    prompt = base + feedback(v);
+    const q = assessTailoring(p, output, job);
+    const cur: Try = { out: output, model, v, q };
+    if (better(cur, best)) best = cur;
+    if (v.ok && q.score >= GOOD_ENOUGH) break;
+    if (attempt === maxAttempts) break;
+    // either the checker rejected it, or it is correct but not aimed well enough: say exactly what to fix
+    prompt = base + (v.ok
+      ? `\n\nYOUR PREVIOUS ATTEMPT WAS ACCEPTED BUT IS NOT TAILORED ENOUGH (quality ${q.score}/100, ${q.keywordCoverage}% of the job's key terms covered). Improve it and return the full output:\n${q.problems.map((x) => `- ${x}`).join("\n")}`
+      : feedback(v));
   }
-  // Still failing: return it flagged so the UI blocks one-click approval.
-  return { content: last!.out, model: last!.model, verification: { ...last!.v, attempts: maxAttempts }, diff: buildDiff(p, last!.out) };
+  const b = best!;
+  return { content: b.out, model: b.model, verification: { ...b.v, attempts }, diff: buildDiff(p, b.out), quality: b.q };
 }
 
 export async function writeCoverLetter(p: MasterProfile, job: JobText, run: Runner, maxAttempts = 2): Promise<TailorOutcome<CoverLetter>> {
@@ -68,7 +94,7 @@ export async function writeCoverLetter(p: MasterProfile, job: JobText, run: Runn
 
 // ---------------------------------------------------------------- resume memory
 
-export type SmartOutcome = TailorOutcome<TailoredResume> & { diff: ReturnType<typeof buildDiff>; provenance: Provenance };
+export type SmartOutcome = TailorOutcome<TailoredResume> & { diff: ReturnType<typeof buildDiff>; provenance: Provenance; quality: Quality };
 
 const TYPICAL_ANSWER_TOKENS = 700;
 
@@ -99,7 +125,7 @@ export async function tailorResumeSmart(p: MasterProfile, job: JobText & { descr
   if (d.mode === "reuse" && sameSpelling) {
     const content = structuredClone(d.from.past.content);
     const v = verifyTailored(p, content, allow);
-    if (v.ok) return { content, model: "memory", verification: { ...v, attempts: 0 }, diff: buildDiff(p, content), provenance: { mode: "reused", from, modelCalls: 0, tokensSavedEstimate: freshTokens } };
+    if (v.ok) return { content, model: "memory", verification: { ...v, attempts: 0 }, diff: buildDiff(p, content), quality: assessTailoring(p, content, job), provenance: { mode: "reused", from, modelCalls: 0, tokensSavedEstimate: freshTokens } };
   }
 
   // adapt: ask only for the changes
@@ -113,7 +139,7 @@ export async function tailorResumeSmart(p: MasterProfile, job: JobText & { descr
     const { output, model } = await run({ task: "tailor", schema: ResumePatchSchema, system, prompt, jobId: job.id });
     const content = applyPatch(d.from.past.content, output);
     const v = verifyTailored(p, content, allow);
-    if (v.ok) return { content, model, verification: { ...v, attempts: calls }, diff: buildDiff(p, content), provenance: { mode: "adapted", from, modelCalls: calls, tokensSavedEstimate: Math.round(TYPICAL_ANSWER_TOKENS * 0.55) } };
+    if (v.ok) return { content, model, verification: { ...v, attempts: calls }, diff: buildDiff(p, content), quality: assessTailoring(p, content, job), provenance: { mode: "adapted", from, modelCalls: calls, tokensSavedEstimate: Math.round(TYPICAL_ANSWER_TOKENS * 0.55) } };
     prompt = base + feedback(v);
   }
   // the adapted version would not pass: quality comes first, so write it fresh

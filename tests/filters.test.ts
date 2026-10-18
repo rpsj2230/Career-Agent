@@ -28,8 +28,8 @@ describe("application status model", () => {
     const grouped = new Set(Object.values(APP_STATUSES).flatMap((v) => v.statuses ?? []));
     for (const s of stored) { expect(grouped.has(s), s).toBe(true); expect(APP_STATUS_LABEL[s], s).toBeTruthy(); }
     expect(APP_STATUS_LABEL.prepared).toBe("Pending approval");
-    expect(APP_STATUS_LABEL.needs_input).toBe("Requires manual action");
-    expect(APP_STATUS_LABEL.assisted_pending).toBe("Requires manual action");
+    expect(APP_STATUS_LABEL.needs_input).toBe("Needs your input");
+    expect(APP_STATUS_LABEL.assisted_pending).toBe("Waiting for assistant / you");
   });
   it("parses application filters with the same safety", () => {
     expect(parseAppFilters({ status: "failed", portal: "naukri", country: "in" })).toEqual({ status: "failed", portal: "naukri", country: "in", q: undefined });

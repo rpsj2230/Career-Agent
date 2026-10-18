@@ -1,0 +1,35 @@
+import { AUTO_APPLY_ATS, ATS_LABEL, parseAtsUrl, type Ats } from "@/lib/jobs/ats";
+
+/**
+ * Who sends an application, in plain words:
+ *  - cloud: Greenhouse, Lever, Ashby and Workable forms are public, so GitHub's computer fills and sends them; no login and no laptop needed
+ *  - assistant: LinkedIn, Naukri, Indeed and similar need YOUR signed-in browser, so the assistant on your computer does it
+ *  - manual: any other site; open the link and apply yourself (the resume and answers are ready to copy)
+ */
+export type ApplyRoute = { kind: "cloud" | "assistant" | "manual"; label: string; detail: string };
+
+const ASSISTED_TYPES = new Set(["linkedin", "portal"]);
+
+export function applyRoute(job: { apply_type?: string | null; url?: string | null; portal?: string | null }): ApplyRoute {
+  const ats: Ats | null = (job.url ? parseAtsUrl(job.url)?.ats : null) ?? (job.apply_type === "greenhouse" || job.apply_type === "lever" ? job.apply_type : null);
+  if (ats && (AUTO_APPLY_ATS as string[]).includes(ats)) return { kind: "cloud", label: `Automatic · ${ATS_LABEL[ats]}`, detail: `Sent automatically from the cloud (${ATS_LABEL[ats]} needs no login), after you approve it or if your schedule applies by itself.` };
+  if (job.apply_type && ASSISTED_TYPES.has(job.apply_type)) return { kind: "assistant", label: "Assistant · your computer", detail: "This site needs you signed in, so the assistant on your computer opens it and fills the form. It waits in the queue while your computer is off." };
+  return { kind: "manual", label: "Manual · you submit", detail: "This site cannot be automated. Open the posting and apply yourself; your tailored resume and answers are ready." };
+}
+
+export type NextStep = { text: string; href?: string; action?: "assistant" };
+
+/** What you should do with an application right now, from its status and route. */
+export function nextStep(status: string, route: ApplyRoute, id: string): NextStep {
+  const href = `/applications/${id}`;
+  switch (status) {
+    case "prepared": return { text: "Review and approve", href };
+    case "approved": return route.kind === "cloud" ? { text: "Sending from the cloud soon" } : { text: "Approved, waiting for the assistant" };
+    case "submitting": return { text: "Being sent now" };
+    case "assisted_pending": return route.kind === "assistant" ? { text: "Apply with assistant", href, action: "assistant" } : { text: "Review and apply yourself", href };
+    case "needs_input": return { text: "Answer and finish", href };
+    case "failed": return { text: "See why and retry", href };
+    case "submitted": return { text: "Done", href };
+    default: return { text: "Open", href };
+  }
+}

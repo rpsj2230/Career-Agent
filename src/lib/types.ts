@@ -85,6 +85,8 @@ export const TailoredResume = z.object({
   certificationIds: z.array(z.string()).default([]),
   /** which Career Highlights to show, most relevant first (shown verbatim, never reworded) */
   highlightIds: z.array(z.string()).default([]),
+  /** which Case Studies to show, most relevant first (optional: all are shown when absent) */
+  caseStudyIds: z.array(z.string()).optional(),
 });
 export type TailoredResume = z.infer<typeof TailoredResume>;
 
@@ -102,6 +104,7 @@ export const ResumePatchSchema = z.object({
   skillIds: z.array(z.string()).optional(),
   certificationIds: z.array(z.string()).optional(),
   highlightIds: z.array(z.string()).optional(),
+  caseStudyIds: z.array(z.string()).optional(),
 });
 
 /** `score` may come back as "82", 82.5 or 82; it is rounded wherever it is stored (see roundScore). */

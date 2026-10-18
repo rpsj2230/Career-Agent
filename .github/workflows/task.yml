@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       task:
-        description: discover, score or prepare
+        description: discover, score, prepare or localtest
         required: true
       job_id:
         description: Job to prepare (task = prepare)
@@ -35,7 +35,9 @@ jobs:
           FORCED: ${{ vars.LOCAL_MODEL }}
         run: |
           m="$FORCED"
-          if [ -z "$m" ]; then m=$(curl -fsS -m 20 -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/runner-config" | jq -r '.local_model // ""' 2>/dev/null || true); fi
+          q=""; [ "${{ inputs.task }}" = "localtest" ] && q="?force=1"
+          if [ -z "$m" ]; then m=$(curl -fsS -m 20 -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/runner-config$q" | jq -r '.local_model // ""' 2>/dev/null || true); fi
+          if [ -z "$m" ] && [ "${{ inputs.task }}" = "localtest" ]; then m="qwen2.5:3b-instruct"; fi
           echo "local_model=$m" >> "$GITHUB_OUTPUT"
           echo "Local model for this run: ${m:-none}"
       - name: Start local model (Ollama)

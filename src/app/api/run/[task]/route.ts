@@ -14,6 +14,13 @@ export const maxDuration = 60;
  */
 export async function POST(request: Request, { params }: { params: Promise<{ task: string }> }) {
   const { task } = await params;
+  if (task === "localtest") {
+    if (!workerConfigured()) return NextResponse.json({ error: "Testing the local model needs GitHub connected (System > Automation), because the local model runs on GitHub's computer." }, { status: 409 });
+    const err = await dispatchWorkflow("task.yml", { task: "localtest" });
+    if (err) return NextResponse.json({ error: `GitHub did not start the test: ${err}` }, { status: 502 });
+    await logActivity({ kind: "config.changed", message: "Started a test of the local model on GitHub", status: "dispatched" }).catch(() => undefined);
+    return NextResponse.json({ ok: true, where: "github", note: "Test started on GitHub. It downloads the model and asks it a real job-scoring question; this takes about 3 to 6 minutes. Refresh this page to see the result." });
+  }
   if (task !== "discover" && task !== "score" && task !== "all") return NextResponse.json({ error: "Unknown task" }, { status: 404 });
   const label = task === "discover" ? "Search and score" : task === "all" ? "The full cycle" : "Scoring";
 

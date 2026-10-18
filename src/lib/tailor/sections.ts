@@ -41,7 +41,7 @@ export function resumeView(p: MasterProfile, t: TailoredResume, style?: ResumeSt
     contact: [b.email, b.phone, [b.location, b.workStatus].filter(Boolean).join(" - "), ...b.links].filter(Boolean).join("  |  "),
     summary: t.summary.text,
     highlights: (t.highlightIds ?? []).map((id) => p.highlights.find((h) => h.id === id)?.text).filter((x): x is string => !!x),
-    caseStudies: p.caseStudies.map((c) => c.title),
+    caseStudies: t.caseStudyIds?.length ? t.caseStudyIds.flatMap((id) => p.caseStudies.find((c) => c.id === id)?.title ?? []) : p.caseStudies.map((c) => c.title),
     competencies: groupSkills(chosen, "competency"),
     technical: groupSkills(chosen, "technical"),
     skills: chosen.filter((s) => !s.kind).map((s) => s.name),
