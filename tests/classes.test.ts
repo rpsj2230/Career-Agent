@@ -18,3 +18,19 @@ describe("modelClass", () => {
     for (const m of DEFAULT_MODELS) expect(["strong", "medium", "small"]).toContain(modelClass(m));
   });
 });
+
+import { groupByProvider, providerName } from "@/lib/llm/classes";
+describe("groupByProvider", () => {
+  const rows = [
+    { provider: "groq", priority: 20, k: false }, { provider: "google", priority: 10, k: true }, { provider: "Groq", priority: 18, k: false }, { provider: "mistral", priority: 50, k: true },
+  ];
+  it("groups case-insensitively, orders rows by priority and puts providers with something ready first", () => {
+    const g = groupByProvider(rows, (r) => r.k);
+    expect(g.map((x) => x.name)).toEqual(["Google Gemini", "Mistral", "Groq"]);
+    expect(g[2].rows.map((r) => r.priority)).toEqual([18, 20]);
+  });
+  it("has readable names and a fallback", () => {
+    expect(providerName("sambanova")).toBe("SambaNova");
+    expect(providerName("newco")).toBe("Newco");
+  });
+});

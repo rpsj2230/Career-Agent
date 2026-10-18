@@ -18,3 +18,18 @@ export const CLASS_INFO: Record<ModelClass, { title: string; blurb: string }> = 
   medium: { title: "Medium models", blurb: "Good all-rounders. Used for writing when the strong ones are busy, and for scoring." },
   small: { title: "Small models", blurb: "Fast and light, with the most generous limits. Used for scoring and simple extraction." },
 };
+
+const PROVIDER_NAMES: Record<string, string> = {
+  google: "Google Gemini", groq: "Groq", mistral: "Mistral", nvidia: "NVIDIA", cerebras: "Cerebras", sambanova: "SambaNova", github: "GitHub Models",
+  alibaba: "Alibaba Qwen", zai: "Z.ai GLM", siliconflow: "SiliconFlow", cohere: "Cohere", openrouter: "OpenRouter", ollama: "Local model", anthropic: "Anthropic Claude",
+};
+export const providerName = (provider: string): string => PROVIDER_NAMES[provider.toLowerCase()] ?? (provider ? provider[0].toUpperCase() + provider.slice(1) : "Other");
+
+/** Group rows by provider: providers with something ready first, then the rest, each alphabetical. */
+export function groupByProvider<T extends { provider: string; priority: number }>(rows: T[], ready: (r: T) => boolean): { provider: string; name: string; rows: T[] }[] {
+  const map = new Map<string, T[]>();
+  for (const r of rows) { const k = r.provider.toLowerCase(); map.set(k, [...(map.get(k) ?? []), r]); }
+  return [...map.entries()]
+    .map(([provider, list]) => ({ provider, name: providerName(provider), rows: [...list].sort((a, b) => a.priority - b.priority) }))
+    .sort((a, b) => Number(b.rows.some(ready)) - Number(a.rows.some(ready)) || a.name.localeCompare(b.name));
+}
