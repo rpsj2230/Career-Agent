@@ -29,7 +29,7 @@ export default async function SettingsPage() {
     <div className="grid gap-4">
       <h1 className="text-2xl font-semibold">Settings</h1>
       <PauseCard initial={pause} />
-      <TeamCard owner={await getOwnerEmail()} members={await getTeam(true)} />
+      <TeamCard owner={await getOwnerEmail()} members={await getTeam()} />
       <AutoApplyCard enabled={autoapply.enabled} caps={caps} />
       <AutoPrepareCard initial={autoPrepare} />
       <EmailApplyCard initial={emailApply} mailbox={mailbox ?? ""} />

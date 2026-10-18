@@ -118,8 +118,8 @@ r = await call("/api/files?path=bad"); check("owner session still works", r.stat
   const adminJar = new Map(jar); jar.clear();
   r = await call("/api/auth/login", { method: "POST", body: { email: "stranger@x.com", password: PW } }); check("the added person can now sign in", r.status === 200, `${r.status} ${r.text}`);
   r = await call("/jobs"); check("a view-only person can open Jobs found & scored", r.status === 200 && /View only/.test(strip(r.text)), r.status);
-  check("...and the menu shows only the two sections", !/AI models/.test(strip(r.text)) && !/Settings/.test(strip(r.text)) && /Applications/.test(strip(r.text)), "menu shows other sections");
-  r = await call("/applications"); check("...and Applications", r.status === 200, r.status);
+  check("...and the menu shows only the two sections", !/href="\/(settings|models|profile|logs|system|schedules)"/.test(r.text) && /href="\/applications"/.test(r.text) && /href="\/jobs"/.test(r.text), "menu shows other sections");
+  r = await call("/applications"); check("...and Applications", r.status === 200, `${r.status} ${r.text.slice(0, 200)}`);
   for (const page of ["/settings", "/models", "/", "/profile", "/logs", "/system", "/schedules"]) { r = await call(page); check(`...but ${page} sends them back to Jobs`, r.status === 307 && /\/jobs$/.test(r.location ?? ""), `${r.status} ${r.location}`); }
   r = await call("/api/models"); check("...and the models API is closed to them", r.status === 403, r.status);
   r = await call("/api/settings", { method: "PUT", body: { key: "autoapply", value: { enabled: true } } }); check("...they cannot change settings", r.status === 403, r.status);
@@ -1076,5 +1076,5 @@ r = await call("/api/cron/score", { auth: false, headers: { Authorization: `Bear
 r = await call("/api/models", { auth: false, headers: { Authorization: `Bearer ${SECRET}` } }); check("cron bearer token does NOT open other APIs", r.status === 401, r.status);
 
 next.kill(); mock.server.close();
-if (failed) { console.log(`\n${failed} check(s) failed. Server log tail:\n${log.slice(-1500)}`); process.exit(1); }
+if (failed) { const errs = log.split("\n").filter((l) => /⨯|Error:|error:|digest/i.test(l) && !/AI SDK Warning/.test(l)).slice(-15).join("\n"); console.log(`\n${failed} check(s) failed. Server errors:\n${errs}\n\nServer log tail:\n${log.slice(-800)}`); process.exit(1); }
 console.log("\nAll end-to-end auth checks passed.");

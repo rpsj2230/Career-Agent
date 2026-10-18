@@ -10,7 +10,7 @@ const Body = z.object({ email: z.email().max(200), role: z.enum(TEAM_ROLES) });
 const MAX_MEMBERS = 25;
 
 export async function GET() {
-  return NextResponse.json({ members: await getTeam(true) });
+  return NextResponse.json({ members: await getTeam() });
 }
 
 export async function PUT(request: Request) {
@@ -19,7 +19,7 @@ export async function PUT(request: Request) {
   const email = parsed.data.email.toLowerCase();
   const admins = [await getOwnerEmail(true), ...parseAllowlist(process.env.ALLOWED_EMAILS)];
   if (admins.includes(email)) return NextResponse.json({ error: "That address is already a super admin" }, { status: 409 });
-  const team = await getTeam(true);
+  const team = await getTeam();
   const rest = team.filter((m) => m.email !== email);
   if (rest.length >= MAX_MEMBERS) return NextResponse.json({ error: `At most ${MAX_MEMBERS} people can be added` }, { status: 400 });
   await saveTeam([...rest, { email, role: parsed.data.role }]);
@@ -30,7 +30,7 @@ export async function PUT(request: Request) {
 export async function DELETE(request: Request) {
   const email = new URL(request.url).searchParams.get("email")?.trim().toLowerCase();
   if (!email) return NextResponse.json({ error: "email required" }, { status: 400 });
-  const team = await getTeam(true);
+  const team = await getTeam();
   if (!team.some((m) => m.email === email)) return NextResponse.json({ error: "Not on the list" }, { status: 404 });
   await saveTeam(team.filter((m) => m.email !== email));
   await logConfig(`Team access removed: ${email}`, { email });

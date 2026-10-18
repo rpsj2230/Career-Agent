@@ -42,21 +42,20 @@ export async function releaseOwner(): Promise<void> {
   await client().from("settings").delete().eq("key", "owner");
 }
 
-/** People the super admin has given limited access (Settings, Team access). */
-let teamCache: { at: number; team: TeamMember[] } | null = null;
-export async function getTeam(fresh = false): Promise<TeamMember[]> {
-  if (!fresh && teamCache && Date.now() - teamCache.at < TTL_MS) return teamCache.team;
+/**
+ * People the super admin has given limited access (Settings, Team access).
+ * Not cached: the access check and the pages run in separate server bundles, so a cache could keep letting someone in after they were
+ * removed. It is one small row, read once per request.
+ */
+export async function getTeam(): Promise<TeamMember[]> {
   const { data, error } = await client().from("settings").select("value").eq("key", "team").maybeSingle();
   if (error) throw new Error(`load team: ${error.message}`);
-  const team = cleanTeam((data?.value as { members?: unknown } | undefined)?.members);
-  teamCache = { at: Date.now(), team };
-  return team;
+  return cleanTeam((data?.value as { members?: unknown } | undefined)?.members);
 }
 
 export async function saveTeam(team: TeamMember[]): Promise<void> {
   const { error } = await client().from("settings").upsert({ key: "team", value: { members: cleanTeam(team) }, updated_at: new Date().toISOString() });
   if (error) throw new Error(`save team: ${error.message}`);
-  teamCache = null;
 }
 
 /** The role of a signed-in email: admin for the owner and ALLOWED_EMAILS, otherwise the role given in Team access, otherwise nothing. */
@@ -64,5 +63,5 @@ export async function getRole(email: string | null | undefined, fresh = false): 
   const e = email?.trim().toLowerCase();
   if (!e) return null;
   if ((await getAllowedEmails(fresh)).includes(e)) return "admin";
-  return (await getTeam(fresh)).find((m) => m.email === e)?.role ?? null;
+  return (await getTeam()).find((m) => m.email === e)?.role ?? null;
 }
