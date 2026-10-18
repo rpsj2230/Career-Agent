@@ -6,10 +6,13 @@ on:
   workflow_dispatch:
     inputs:
       task:
-        description: discover, score, prepare, regenerate or localtest
+        description: discover, score, prepare, prepare_many, regenerate or localtest
         required: true
       job_id:
         description: Job to prepare (task = prepare or regenerate)
+        required: false
+      job_ids:
+        description: Comma-separated job ids to prepare (task = prepare_many)
         required: false
       guidance:
         description: Your instructions for the new resume (task = regenerate)
@@ -61,6 +64,7 @@ jobs:
           NODE_OPTIONS: --conditions=react-server
           TASK: ${{ inputs.task }}
           JOB_ID: ${{ inputs.job_id }}
+          JOB_IDS: ${{ inputs.job_ids }}
           GUIDANCE: ${{ inputs.guidance }}
           CONFIRM: ${{ inputs.confirm }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

@@ -9,6 +9,7 @@ import { db, must } from "@/lib/db";
 import { storedKeyLabels } from "@/lib/llm/keys";
 import { ensureDefaultModels } from "@/lib/llm/registry";
 import { fmtDateTime } from "@/lib/time";
+import { modelHealth, type Call } from "@/lib/llm/health";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +22,8 @@ export default async function ModelsPage() {
   const hasKey = (r: Row) => stored.has(r.label) || r.api_key_env === null || !!process.env[r.api_key_env];
   const since = new Date(); since.setUTCHours(0, 0, 0, 0);
   const usage = must<{ model_label: string; ok: boolean }[]>(await db().from("model_usage").select("model_label,ok").gte("created_at", since.toISOString()), "load usage");
+  const history = must<{ model_label: string; ok: boolean; error: string | null; created_at: string }[]>(await db().from("model_usage").select("model_label,ok,error,created_at").order("created_at", { ascending: false }).limit(600), "load model history");
+  const callsOf = (label: string): Call[] => history.filter((h) => h.model_label === label).slice(0, 20).map((h) => ({ ok: h.ok, error: h.error, at: h.created_at }));
   const recentErrors = must<{ model_label: string; error: string; created_at: string }[]>(
     await db().from("model_usage").select("model_label,error,created_at").eq("ok", false).order("created_at", { ascending: false }).limit(5), "load errors",
   );
@@ -38,23 +41,30 @@ export default async function ModelsPage() {
       <LocalModelCard initial={localModel} test={localTest} />
       <Card>
         <CardHeader>
-          <CardTitle>Fallback chain</CardTitle>
+          <CardTitle>Fallback chain: which model works?</CardTitle>
           <CardDescription>Lowest priority number is tried first; on rate limit, error or bad output the next model is used, and the local model (above) is last. Models without a key set are skipped. Free-tier model ids and limits change often: edit them here when a provider renames or retires one.</CardDescription>
         </CardHeader>
         <CardContent>
           <Table>
-            <TableHeader><TableRow><TableHead>#</TableHead><TableHead>Model</TableHead><TableHead>Key</TableHead><TableHead>Today</TableHead><TableHead>Tasks</TableHead><TableHead /></TableRow></TableHeader>
+            <TableHeader><TableRow><TableHead>#</TableHead><TableHead>Model</TableHead><TableHead>Key</TableHead><TableHead>Status</TableHead><TableHead>Calls today</TableHead><TableHead /></TableRow></TableHeader>
             <TableBody>
               {rows.map((r) => {
                 const keyed = hasKey(r);
                 const s = stat(r.label);
+                const h = modelHealth({ enabled: r.enabled, keyed, todayOk: s.ok, todayBad: s.bad, dailyCap: r.daily_cap, calls: callsOf(r.label) });
+                const tone = h.status === "working" ? "bg-green-600 text-white" : h.status === "failing" ? "bg-red-600 text-white" : h.status === "unstable" || h.status === "limit" ? "bg-amber-500 text-white" : "";
                 return (
                   <TableRow key={r.id} className={r.enabled ? "" : "opacity-50"}>
                     <TableCell>{r.priority}</TableCell>
-                    <TableCell><div className="font-medium">{r.label}</div><div className="text-xs text-muted-foreground">{r.provider} · {r.model}</div></TableCell>
+                    <TableCell><div className="font-medium">{r.label}</div><div className="text-xs text-muted-foreground">{r.provider} · {r.model}</div><div className="text-xs text-muted-foreground">for {r.tasks.join(", ")}</div></TableCell>
                     <TableCell>{stored.has(r.label) ? <Badge>key saved</Badge> : r.api_key_env === null ? <Badge variant="secondary">none needed</Badge> : keyed ? <Badge variant="secondary">{r.api_key_env} (env)</Badge> : <Badge variant="outline">no key yet</Badge>}</TableCell>
-                    <TableCell className="text-sm">{s.ok}{r.daily_cap ? ` / ${r.daily_cap}` : ""} ok{s.bad > 0 && <span className="text-destructive">, {s.bad} failed</span>}</TableCell>
-                    <TableCell className="text-xs">{r.tasks.join(", ")}</TableCell>
+                    <TableCell className="max-w-xs whitespace-normal">
+                      <Badge className={tone} variant={tone ? "default" : "outline"}>{h.label}</Badge>
+                      <div className="mt-1 text-xs text-muted-foreground">{h.hint}</div>
+                      {h.lastError && h.status !== "working" && <div className="mt-1 break-words text-xs text-destructive">Last error: {h.lastError.slice(0, 160)}</div>}
+                      {h.lastOkAt && h.status !== "working" && <div className="text-xs text-muted-foreground">Last worked {fmtDateTime(h.lastOkAt)}</div>}
+                    </TableCell>
+                    <TableCell className="text-sm">{s.ok} succeeded{r.daily_cap ? ` (daily allowance ${r.daily_cap})` : ""}{s.bad > 0 && <span className="text-destructive">, {s.bad} failed</span>}</TableCell>
                     <TableCell className="flex gap-2">
                       <ActionButton size="sm" variant="secondary" endpoint="/api/models/test" body={{ label: r.label }} disabled={!keyed}>Test</ActionButton>
                       <ModelDialog id={r.id} hasStoredKey={stored.has(r.label)} initial={{ ...r, notes: r.notes ?? "" }} />

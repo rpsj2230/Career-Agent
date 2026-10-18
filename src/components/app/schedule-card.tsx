@@ -97,7 +97,7 @@ export function ScheduleCard({ v, countries, integrations, zones }: { v: Schedul
               const r = await call<{ note?: string }>(`/api/schedules/${id}/run`, "POST");
               setRunning(false);
               if (r) { toast.success(r.note ?? "Started"); router.refresh(); }
-            }}>{running ? "Running..." : "Run now"}</Button>
+            }} title="Starts this schedule immediately (search, score, prepare, and apply if it is set to) instead of waiting for its time. It runs in the background on GitHub; the banner at the top of this page shows its progress.">{running ? "Starting..." : "Run this schedule now"}</Button>
             <Button size="sm" variant="outline" onClick={async () => { if (await call(`/api/schedules/${id}`, "PATCH", { paused: !paused }, paused ? "Resumed" : "Paused")) router.refresh(); }} disabled={!v.enabled}>{paused ? "Resume" : "Pause"}</Button>
             <Button size="sm" variant="outline" onClick={() => setEdit((e) => !e)}>{edit ? "Close" : "Edit"}</Button>
           </div>
@@ -112,7 +112,7 @@ export function ScheduleCard({ v, countries, integrations, zones }: { v: Schedul
         {v.mode === "scan_prepare_apply" && <p className="text-muted-foreground">Submits up to {v.max_apply} per run. {v.require_approval ? "Waits for your approval first." : "Submits automatically where the portal allows it."}</p>}
         <details className="rounded-md border p-2" open={history.length > 0 && history[0].status !== "succeeded"}>
           <summary className="cursor-pointer text-sm font-medium">Run history <span className="text-muted-foreground">({history.length} most recent)</span></summary>
-          {history.length === 0 ? <p className="mt-2 text-muted-foreground">It has not run yet. It starts at the next hourly check, or press Run now.</p> : (
+          {history.length === 0 ? <p className="mt-2 text-muted-foreground">It has not run yet. It starts at the next hourly check, or press Run this schedule now.</p> : (
             <ul className="mt-2 grid gap-1">
               {history.map((h) => (
                 <li key={h.id} className="flex flex-wrap items-center gap-2 border-b py-1 text-xs last:border-0">

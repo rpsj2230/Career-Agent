@@ -10,13 +10,17 @@ export const watcherOnline = (hb: Heartbeat | null | undefined, now = new Date()
 
 export type AssistantPanel = { online: boolean; pending: boolean; text: string };
 
+export const SETUP_GUIDE_URL = "https://github.com/rpsj2230/Career-Agent/blob/main/docs/LAPTOP_SETUP.md";
+
 export function panelText(i: { hb: Heartbeat | null; req: AssistantRequest | null; waiting: number; now?: Date }): AssistantPanel {
   const now = i.now ?? new Date();
   const online = watcherOnline(i.hb, now), pending = requestPending(i.req);
   const q = `${i.waiting} application${i.waiting === 1 ? " is" : "s are"} waiting for it`;
   const last = i.req?.handled_at ? ` Last run: ${i.req.note ?? `${i.req.done ?? 0} submitted`}.` : "";
+  const seen = i.hb?.at ? `Last seen ${Math.max(1, Math.round((now.getTime() - new Date(i.hb.at).getTime()) / 60_000))} minutes ago.` : "It has never reported in.";
   if (online && pending) return { online, pending, text: "Run requested. The assistant on your computer will start within about 30 seconds." };
   if (online) return { online, pending, text: `The assistant is running on your computer; ${q}.${last}` };
-  if (pending) return { online, pending, text: "Run requested, but the assistant is not running on your computer. It will start as soon as the computer is on and the assistant is started (see Apply assistant setup)." };
-  return { online, pending, text: `The assistant is not running (your computer is off or it was not started); ${q}.${last}` };
+  const how = " Having the computer switched on is not enough: the assistant is a small program that must be started on it once (about 10 minutes, step by step in the setup guide below). After that this card turns green.";
+  if (pending) return { online, pending, text: `Run requested, but the assistant is not running on your computer, so the request is waiting. ${seen}${how}` };
+  return { online, pending, text: `The assistant is not running on your computer; ${q}. ${seen}${last}${how}` };
 }

@@ -34,7 +34,7 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
           <h1 className="text-2xl font-semibold">Activity log</h1>
           <p className="text-sm text-muted-foreground">Everything the system did: scans, matches and rejections with reasons, documents, applications, runs, errors and configuration changes. Times are in {tz}.</p>
         </div>
-        <Button variant="outline" asChild><Link href="/logs/runs">Runs and scans</Link></Button>
+        <Button variant="outline" asChild><Link href="/logs/runs">Run history (each run and scan)</Link></Button>
       </div>
 
       {missing && (

@@ -272,6 +272,8 @@ async function batch(sb: SupabaseClient): Promise<number> {
 
   let auto: { caps: AutoCaps; state: AutoState } | null = null;
   if (AUTO) {
+    const pausedRow = await sb.from("settings").select("value").eq("key", "automation_pause").maybeSingle();
+    if ((pausedRow.data?.value as { paused?: boolean } | null)?.paused) { say("Everything is paused (Settings → Pause everything): hands-free applying waits."); return 0; }
     const caps = await loadCaps(sb);
     if (!(await autoApplyOn(sb))) { say("Auto-Apply is switched off. Turn it on in Settings > Auto-Apply, or run `npm run assist` to press Submit yourself."); return 0; }
     if (!caps.local_auto_enabled) { say("Hands-free mode is switched off. Turn it on in Settings > Application limits, or run `npm run assist` to press Submit yourself."); return 0; }

@@ -34,7 +34,9 @@ jobs:
           body=$(curl --fail-with-body -sS -m 60 -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/due")
           echo "$body"
           due=$(echo "$body" | jq -r '.due // 0')
-          if [ "$due" -gt 0 ]; then echo "run=true" >> "$GITHUB_OUTPUT"; else echo "run=false" >> "$GITHUB_OUTPUT"; fi
+          drain=$(echo "$body" | jq -r '.drain // false')
+          # run when a schedule is due, or when jobs are waiting to be scored / prepared (the backlog is cleared hour by hour)
+          if [ "$due" -gt 0 ] || [ "$drain" = "true" ]; then echo "run=true" >> "$GITHUB_OUTPUT"; else echo "run=false" >> "$GITHUB_OUTPUT"; fi
 
   pipeline:
     needs: check

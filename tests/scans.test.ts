@@ -250,3 +250,28 @@ describe("free feeds without a search API", () => {
     expect((await testIntegration("jobicy", {}, feedSettings, down)).ok).toBe(false);
   });
 });
+
+describe("a service that refuses the key", () => {
+  it("is tried once; its other searches are skipped instead of failing one by one, and the others still run", async () => {
+    let calls = 0;
+    const specs = [
+      ...Array.from({ length: 5 }, (_, i) => ({ integration: "apify" as const, country: "in", query: `q${i}`, fetch: async (): Promise<NormalizedJob[]> => { calls++; throw new Error('apify "x": Apify rejected the token. Copy it again from Apify > Settings > Integrations.'); } })),
+      { integration: "adzuna" as const, country: "in", query: "PM", fetch: async () => [job(1)] },
+    ];
+    const { deps, log } = fakeDeps();
+    const out = await runScans(specs, deps);
+    expect(calls).toBe(1);
+    expect(out.outcomes.filter((o) => o.integration === "apify")).toHaveLength(1);
+    expect(out.blocked).toEqual([{ integration: "apify", reason: expect.stringMatching(/rejected the token/), count: 4 }]);
+    expect(out.outcomes.find((o) => o.integration === "adzuna")?.ok).toBe(true);
+    expect(log.integrations.find((i) => i.id === "apify")?.r).toMatchObject({ ok: false });
+  });
+  it("does not treat a rate limit as a refusal", async () => {
+    let calls = 0;
+    const specs = Array.from({ length: 3 }, (_, i) => ({ integration: "jsearch" as const, country: "in", query: `q${i}`, fetch: async (): Promise<NormalizedJob[]> => { calls++; throw new Error("HTTP 429 quota used up"); } }));
+    const { deps } = fakeDeps();
+    const out = await runScans(specs, deps);
+    expect(calls).toBe(3);
+    expect(out.blocked).toEqual([]);
+  });
+});

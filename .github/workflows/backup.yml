@@ -1,0 +1,83 @@
+name: Backup database
+
+# Every night: export the whole database (and your master resume file), pack and ENCRYPT it, and store it in a separate PRIVATE
+# repository. Only the newest 60 daily backups are kept: when day 61 arrives, day 1 is removed (and the history is rewritten so
+# the removed backup is really gone). Needs three repository secrets, see docs/BACKUP.md:
+#   BACKUP_REPO        e.g. rpsj2230/Career-Agent-Backups  (a PRIVATE repository)
+#   BACKUP_TOKEN       a fine-grained token with "Contents: read and write" on that repository only
+#   BACKUP_PASSPHRASE  a long passphrase of your own; without it a backup cannot be opened, so also keep it in your password manager
+on:
+  schedule:
+    - cron: "30 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      BACKUP_REPO: ${{ secrets.BACKUP_REPO }}
+      BACKUP_TOKEN: ${{ secrets.BACKUP_TOKEN }}
+      BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the secrets are set
+        run: |
+          missing=""
+          for v in SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY BACKUP_REPO BACKUP_TOKEN BACKUP_PASSPHRASE; do
+            if [ -z "${!v}" ]; then missing="$missing $v"; fi
+          done
+          if [ -n "$missing" ]; then echo "::error::Missing repository secret(s):$missing. See docs/BACKUP.md."; exit 1; fi
+          case "$BACKUP_REPO" in "${GITHUB_REPOSITORY}") echo "::error::BACKUP_REPO must be a different, private repository, not this public one."; exit 1;; esac
+          if [ "${#BACKUP_PASSPHRASE}" -lt 16 ]; then echo "::error::BACKUP_PASSPHRASE is too short (use at least 16 characters)."; exit 1; fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Export the database and the master resume file
+        run: node scripts/backup.mjs backup-out
+      - name: Pack and encrypt
+        run: |
+          NAME="db-$(date -u +%F).tar.gz.enc"
+          tar -czf backup.tar.gz -C backup-out .
+          openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -in backup.tar.gz -out "$NAME" -pass env:BACKUP_PASSPHRASE
+          rm -f backup.tar.gz
+          ls -l "$NAME"
+          echo "NAME=$NAME" >> "$GITHUB_ENV"
+          size=$(stat -c %s "$NAME")
+          if [ "$size" -gt 95000000 ]; then echo "::error::The backup is $size bytes, over GitHub's 100 MB file limit."; exit 1; fi
+      - name: Store it in the private backup repository and drop backups older than 60 days
+        run: |
+          git clone --depth 1 "https://x-access-token:${BACKUP_TOKEN}@github.com/${BACKUP_REPO}.git" bk
+          cd bk
+          mkdir -p daily
+          cp "../$NAME" "daily/$NAME"
+          node -e '
+            const { readdirSync, rmSync } = require("fs");
+            import("../scripts/lib/backup-lib.mjs").then(({ backupsToDelete }) => {
+              for (const n of backupsToDelete(readdirSync("daily"), 60)) { console.log("removing", n); rmSync("daily/" + n); }
+            });
+          '
+          cat > README.md <<'EOT'
+          # Career Agent backups (encrypted)
+          One file per day in `daily/`, the newest 60 kept. Each is `tar.gz` encrypted with AES-256 (openssl, PBKDF2).
+          Open one:  openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in db-YYYY-MM-DD.tar.gz.enc -pass env:BACKUP_PASSPHRASE | tar -xz -C restore-dir
+          Restore it: see docs/BACKUP.md in the Career-Agent repository.
+          EOT
+          # rewrite the history so removed backups are really gone and the repository stays small
+          git config user.name "career-agent-backup"; git config user.email "backup@users.noreply.github.com"
+          git checkout --orphan fresh
+          git add -A
+          git commit -q -m "Backup $(date -u +%F)"
+          git push -q --force origin fresh:main
+          echo "Stored daily/$NAME and kept $(ls daily | wc -l) backup(s)."

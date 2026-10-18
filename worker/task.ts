@@ -62,6 +62,16 @@ async function main() {
     const scored = await scoreNewJobs({ limit: 80, budgetMs: 12 * MIN, trigger: "manual" });
     console.log(JSON.stringify(scored));
     await sendTelegram(`Career Agent: scoring finished. ${scored.scored} scored, ${scored.queued} matched, ${scored.remaining} still waiting.`).catch(() => undefined);
+  } else if (task === "prepare_many") {
+    const ids = (process.env.JOB_IDS ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+    if (!ids.length || ids.some((x) => !/^[0-9a-f-]{36}$/i.test(x))) throw new Error("JOB_IDS must be a comma-separated list of job ids");
+    let ok = 0, failed = 0;
+    for (const id of ids) {
+      try { await withRun({ trigger: "manual", kind: "prepare", scope: { job_id: id, bulk: true } }, (ctx) => prepareApplication(id, ctx.id)); ok++; }
+      catch (e) { failed++; console.error(`prepare ${id} failed:`, e instanceof Error ? e.message : e); if (e instanceof Error && /No model available|All models failed/.test(e.message)) break; }
+    }
+    console.log(`Prepared ${ok} of ${ids.length}${failed ? ` (${failed} failed)` : ""}.`);
+    await sendTelegram(`Career Agent: prepared ${ok} of ${ids.length} application(s). Open Applications to approve them.`).catch(() => undefined);
   } else if (task === "regenerate") {
     const id = (process.env.JOB_ID ?? "").trim();
     if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error("JOB_ID must be a job id");
@@ -75,7 +85,7 @@ async function main() {
     const r = await withRun({ trigger: "manual", kind: "prepare", scope: { job_id: id } }, (ctx) => prepareApplication(id, ctx.id));
     console.log(JSON.stringify(r));
   } else {
-    throw new Error(`Unknown task "${task}" (use discover, score, prepare, regenerate or localtest)`);
+    throw new Error(`Unknown task "${task}" (use discover, score, prepare, prepare_many, regenerate or localtest)`);
   }
 }
 

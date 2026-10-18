@@ -1,9 +1,13 @@
 import Link from "next/link";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { automationHealth } from "@/lib/automation-health";
+import { automationPaused } from "@/lib/pause";
 
 /** Shown on the dashboard only when something stops the automatic pipeline from working; links to the checklist with the fixes. */
 export async function AutomationBanner() {
+  if (await automationPaused()) return (
+    <Alert className="border-amber-500"><AlertTitle>Everything is paused</AlertTitle><AlertDescription>Nothing runs by itself until you switch the pause off. <Link className="underline" href="/settings">Open Settings</Link> and turn off <i>Pause everything</i> to continue.</AlertDescription></Alert>
+  );
   const { checks, status } = await automationHealth().catch(() => ({ checks: [], status: "ok" as const }));
   const bad = checks.filter((c) => c.status === "fail" || c.status === "warn").slice(0, 4);
   if (status === "ok" || bad.length === 0) return null;

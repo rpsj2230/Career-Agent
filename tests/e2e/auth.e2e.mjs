@@ -408,7 +408,7 @@ check("the worker told GitHub how many applications are ready to submit", /ready
 check("no GitHub dispatch was attempted for each application", !w.text.includes("dispatch failed"), w.text.slice(-300));
 
 w = await runWorker();
-check("running the worker again finds nothing due and creates no second run", w.code === 0 && /Nothing is due/.test(w.text) && mock.rowsOf("automation_runs").filter((x) => x.kind === "pipeline").length === 1 && /ready_to_submit=0/.test(w.output), `${w.code} ${w.text.slice(-300)}`);
+check("running the worker again finds no schedule due and creates no second scheduled run (it only works through the backlog)", w.code === 0 && /Nothing is due/.test(w.text) && /Backlog: \d+ to score/.test(w.text) && mock.rowsOf("automation_runs").filter((x) => x.kind === "pipeline" && x.schedule_id).length === 1, `${w.code} ${w.text.slice(-300)}`);
 
 r = await call(`/api/schedules/${autoId}`, { method: "PATCH", body: { paused: true } }); dueNow(autoId);
 w = await runWorker(); check("a paused schedule is never run, even if its time has passed", /Nothing is due/.test(w.text), w.text.slice(-300));
@@ -974,6 +974,48 @@ r = await call("/api/models/test", { method: "POST", body: { label: "e2e-model" 
   check("once confirmed, it is back to Pending approval with the old submission kept in the history", r.status === 200 && sa.status === "prepared" && !sa.submitted_at && mock.rowsOf("apply_events").some((e) => e.application_id === sentApp.id && e.kind === "regenerated" && e.detail?.previousStatus === "submitted"), `${r.status} ${r.text.slice(0, 160)} ${sentJob}`);
   r = await call(`/applications/${prepared.id}`); check("the application page offers to write a new resume", /Write a new resume/.test(r.text.replace(/<!-- -->/g, "")), r.status);
   r = await call(`/api/applications/${prepared.id}/regenerate`, { method: "POST", body: { guidance: "x".repeat(700) } }); check("over-long instructions are refused", r.status === 400, r.status);
+}
+// checkboxes and bulk actions, the backlog, model health and the clearer pages
+{
+  const strip = (t) => t.replace(/<!-- -->/g, "");
+  r = await call("/jobs?view=all&size=100"); check("the Jobs page has select-all, bulk preparing, resume links and clear apply labels", /Select all on this page/.test(strip(r.text)) && /Prepare resumes for selected/.test(strip(r.text)) && /View resume/.test(strip(r.text)) && /(Automatic · |Assistant · your computer|Manual · you submit)/.test(strip(r.text)) && !/Run full cycle now/.test(strip(r.text)), r.status);
+  check("the Jobs page explains where to run the whole schedule", /Run this schedule now/.test(strip(r.text)), "hint missing");
+  r = await call("/applications?size=100"); check("the Applications page has select-all with Approve and apply selected and Skip selected", /Approve and apply selected/.test(strip(r.text)) && /Skip selected/.test(strip(r.text)) && /View resume/.test(strip(r.text)), r.status);
+  r = await call("/schedules"); check("the Schedules page shows what is waiting and says it clears by itself", /Waiting to be processed/.test(strip(r.text)), r.status);
+  r = await call("/models"); check("the Models page says which model works and why one does not", /Fallback chain: which model works\?/.test(strip(r.text)) && /(Working|Not used yet|Unstable|Not working|No key)/.test(strip(r.text)), r.status);
+  r = await call("/settings"); check("Settings has automatic preparing", /Automatic preparing and backlog clearing/.test(strip(r.text)), r.status);
+  r = await call("/logs"); check("the logs page names its link as run history", /Run history/.test(strip(r.text)), r.status);
+
+  const due = await fetch(`${BASE}/api/cron/due`, { headers: { Authorization: `Bearer ${SECRET}` } }).then(async (x) => ({ status: x.status, json: await x.json().catch(() => null) }));
+  check("the hourly check reports the backlog and whether to work through it", due.status === 200 && typeof due.json?.backlog?.unscored === "number" && typeof due.json?.backlog?.unprepared === "number" && typeof due.json?.drain === "boolean", JSON.stringify(due.json)?.slice(0, 200));
+
+  // bulk approve: two prepared applications at once
+  const open2 = mock.rowsOf("applications").filter((x) => x.status === "prepared").slice(0, 2);
+  r = await call("/api/bulk", { method: "POST", body: { action: "approve", ids: open2.map((x) => x.id) } });
+  check("bulk approve approves every selected application under the normal rules", r.status === 200 && r.json?.approved === open2.length && open2.every((x) => mock.rowsOf("applications").find((y) => y.id === x.id).status !== "prepared"), `${r.status} ${r.text.slice(0, 300)}`);
+  // bulk prepare (no GitHub here: done inline) and bulk skip
+  const body = "We are hiring a Product Manager to own the roadmap, activation metrics and SQL analysis for a fintech product. Stakeholder management, experimentation and growth. ".repeat(4);
+  await call("/api/jobs/manual", { method: "POST", body: { url: "https://careers.bulkco.example/jobs/3", title: "Product Manager", company: "BulkCo", description: body, country: "sg" } });
+  const bj = mock.rowsOf("jobs").find((x) => x.company === "BulkCo");
+  r = await call("/api/bulk", { method: "POST", body: { action: "prepare", ids: [bj.id] } });
+  check("bulk prepare writes the resume for the selected job", r.status === 200 && mock.rowsOf("applications").some((x) => x.job_id === bj.id), `${r.status} ${r.text.slice(0, 300)}`);
+  const ba = mock.rowsOf("applications").find((x) => x.job_id === bj.id);
+  r = await call("/api/bulk", { method: "POST", body: { action: "skip", ids: [ba.id] } });
+  check("bulk skip skips the selected application", r.status === 200 && mock.rowsOf("jobs").find((x) => x.id === bj.id).status === "skipped", `${r.status} ${r.text.slice(0, 200)}`);
+  r = await call("/api/bulk", { method: "POST", body: { action: "approve", ids: [] } }); check("bulk with nothing selected is refused", r.status === 400, r.status);
+  r = await call("/api/bulk", { method: "POST", body: { action: "approve", ids: ["not-a-uuid"] } }); check("bulk with a bad id is refused", r.status === 400, r.status);
+}
+// the master pause
+{
+  const strip = (t) => t.replace(/<!-- -->/g, "");
+  r = await call("/settings"); check("Settings has the pause switch", /Pause everything/.test(strip(r.text)), r.status);
+  r = await call("/api/settings", { method: "PUT", body: { key: "automation_pause", value: { paused: true, since: new Date().toISOString(), note: "" } } }); check("pausing is saved", r.status === 200, `${r.status} ${r.text}`);
+  const pdue = await fetch(`${BASE}/api/cron/due`, { headers: { Authorization: `Bearer ${SECRET}` } }).then(async (x) => ({ status: x.status, json: await x.json().catch(() => null) }));
+  check("while paused the hourly check reports nothing due and no backlog work", pdue.json?.paused === true && pdue.json?.due === 0 && pdue.json?.drain === false, JSON.stringify(pdue.json)?.slice(0, 200));
+  const pw = await runWorker(); check("while paused the worker does nothing by itself", pw.code === 0 && /Everything is paused/.test(pw.text), `${pw.code} ${pw.text.slice(-200)}`);
+  r = await call("/"); check("the dashboard says everything is paused", /Everything is paused/.test(strip(r.text)), r.status);
+  r = await call("/api/settings", { method: "PUT", body: { key: "automation_pause", value: { paused: false, since: "", note: "" } } }); check("resuming is saved", r.status === 200, `${r.status}`);
+  r = await call("/portals"); check("the sources page shows which sources are worth it", /Which job sources are worth it/.test(strip(r.text)) || /Job portals and sources/.test(strip(r.text)), r.status);
 }
 // no model available at all: a promising job is still queued (on the free rules, marked rules-only) instead of being left unseen, and a model re-checks it later
 {

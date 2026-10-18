@@ -118,3 +118,79 @@ describe("greetings and sign-offs", () => {
     expect(bad.ok).toBe(false);
   });
 });
+
+import { explainError, modelHealth } from "@/lib/llm/health";
+import { drainDecision, hoursToClear } from "@/lib/backlog-rules";
+
+describe("is a model working?", () => {
+  const call = (ok: boolean, error?: string, at = "2026-10-18T10:00:00Z") => ({ ok, error, at });
+  const base = { enabled: true, keyed: true, todayOk: 0, todayBad: 0, dailyCap: 200 };
+  it("says working when the latest call succeeded, even after failures", () => {
+    expect(modelHealth({ ...base, calls: [call(true), call(false, "429"), call(false, "429")] })).toMatchObject({ status: "working" });
+  });
+  it("says not working, with the reason in plain words, when every recent call failed", () => {
+    const h = modelHealth({ ...base, calls: [call(false, "HTTP 429 quota exceeded"), call(false, "429")] });
+    expect(h.status).toBe("failing");
+    expect(h.hint).toMatch(/free quota/);
+    expect(modelHealth({ ...base, calls: [call(false, "401 invalid api key")] }).hint).toMatch(/rejected the key/);
+    expect(modelHealth({ ...base, calls: [call(false, "model_decommissioned: not found")] }).hint).toMatch(/model name/);
+  });
+  it("says unstable when the latest failed but some recent ones worked", () => {
+    expect(modelHealth({ ...base, calls: [call(false, "timeout"), call(true), call(true)] }).status).toBe("unstable");
+  });
+  it("handles no key, switched off, not used and a used-up daily allowance", () => {
+    expect(modelHealth({ ...base, keyed: false, calls: [] }).status).toBe("no_key");
+    expect(modelHealth({ ...base, enabled: false, calls: [] }).status).toBe("off");
+    expect(modelHealth({ ...base, calls: [] }).status).toBe("unused");
+    expect(modelHealth({ ...base, todayOk: 200, calls: [call(true)] }).status).toBe("limit");
+    expect(explainError("")).toBe("");
+  });
+});
+
+describe("working through a backlog by itself", () => {
+  const base = { unscored: 100, unprepared: 0, modelsUsable: true, autoPrepare: true, preparingSchedule: true, state: null };
+  it("runs when jobs wait and a model works, and not otherwise", () => {
+    expect(drainDecision(base).drain).toBe(true);
+    expect(drainDecision({ ...base, modelsUsable: false }).drain).toBe(false);
+    expect(drainDecision({ ...base, unscored: 0 }).drain).toBe(false);
+    expect(drainDecision({ ...base, unscored: 0, unprepared: 5 }).drain).toBe(true);
+    expect(drainDecision({ ...base, unscored: 0, unprepared: 5, preparingSchedule: false }).drain).toBe(false);
+    expect(drainDecision({ ...base, unscored: 0, unprepared: 5, autoPrepare: false }).drain).toBe(false);
+  });
+  it("pauses for hours after rounds that made no progress, then tries again", () => {
+    const now = new Date("2026-10-18T12:00:00Z");
+    expect(drainDecision({ ...base, state: { at: "2026-10-18T10:00:00Z", noProgress: 2 }, now }).drain).toBe(false);
+    expect(drainDecision({ ...base, state: { at: "2026-10-18T04:00:00Z", noProgress: 2 }, now }).drain).toBe(true);
+    expect(drainDecision({ ...base, state: { at: "2026-10-18T11:00:00Z", noProgress: 1 }, now }).drain).toBe(true);
+  });
+  it("estimates the hours to clear", () => { expect(hoursToClear(230, 20, 8)).toBe(4); expect(hoursToClear(0, 0)).toBe(0); });
+});
+
+import { sourceVerdict, summarizeScans } from "@/lib/source-performance";
+
+describe("which job sources are worth it", () => {
+  const base = { id: "x", name: "X", scans: 40, failedScans: 0, fetched: 400, inserted: 100, matched: 12, spanDays: 30 };
+  it("calls a source that yields good matches productive", () => { expect(sourceVerdict(base)).toMatchObject({ tone: "good", reliable: true }); });
+  it("flags sources that mostly fail, return nothing, find nothing new, or find many jobs that never fit", () => {
+    expect(sourceVerdict({ ...base, failedScans: 30 })).toMatchObject({ tone: "bad", headline: "Mostly failing" });
+    expect(sourceVerdict({ ...base, fetched: 0, inserted: 0, matched: 0 })).toMatchObject({ tone: "bad", headline: "Returns nothing for you" });
+    expect(sourceVerdict({ ...base, inserted: 0, matched: 0 })).toMatchObject({ tone: "bad", headline: "Nothing new" });
+    expect(sourceVerdict({ ...base, inserted: 200, matched: 2 })).toMatchObject({ tone: "bad", headline: "Many jobs, few fits" });
+  });
+  it("labels the numbers early until about a month of runs", () => {
+    const v = sourceVerdict({ ...base, spanDays: 6, scans: 6, fetched: 0, inserted: 0, matched: 0 });
+    expect(v.reliable).toBe(false);
+    expect(v.advice).toMatch(/early numbers/);
+    expect(v.tone).toBe("early");
+  });
+  it("counts scans, new jobs and matches per source from the stored records", () => {
+    const rows = summarizeScans(
+      [{ integration: "adzuna", status: "ok", fetched: 10, inserted: 4, started_at: "2026-09-01T00:00:00Z" }, { integration: "adzuna", status: "error", fetched: 0, inserted: 0, started_at: "2026-10-01T00:00:00Z" }],
+      [{ source: "adzuna:1", status: "queued" }, { source: "adzuna:2", status: "skipped" }, { source: "mailbox:x", status: "applied" }],
+      { adzuna: "Adzuna" }, new Date("2026-10-18T00:00:00Z"),
+    );
+    const a = rows.find((r) => r.id === "adzuna")!;
+    expect(a).toMatchObject({ name: "Adzuna", scans: 2, failedScans: 1, fetched: 10, inserted: 4, matched: 1, spanDays: 47 });
+    expect(rows.find((r) => r.id === "mailbox")?.matched).toBe(1);
+  });
+});
