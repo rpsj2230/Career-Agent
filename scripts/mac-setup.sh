@@ -62,8 +62,8 @@ cd "$DIR"
 ok "project is up to date"
 
 b "4/7  Installing it (a few minutes)"
-npm ci --no-audit --no-fund
-npx playwright install chromium
+npm ci --no-audit --no-fund --no-progress
+[ -n "${CAREER_AGENT_SKIP_BROWSER:-}" ] || npx playwright install chromium
 ok "installed"
 
 b "5/7  Your Supabase connection"
