@@ -29,3 +29,21 @@ describe("balanceSkills", () => {
     expect(balanceSkills(profile, names.map((_, i) => `s${i}`), job)).toHaveLength(names.length);
   });
 });
+
+import { safeSkillLabels } from "@/lib/tailor/skills";
+describe("safeSkillLabels", () => {
+  const p = MasterProfile.parse({
+    basics: { name: "A", email: "a@x.com", headline: "PM", summary: "s" }, preferences: { countries: ["in"], roles: [] }, experience: [],
+    skills: [{ id: "a", name: "GA4" }, { id: "b", name: "Stakeholder Engagement" }, { id: "c", name: "SQL" }, { id: "d", name: "Google Analytics" }],
+  });
+  const job = { title: "PM", description: "You know Google Analytics 4 and stakeholder management and Snowflake." };
+  it("accepts the job's wording for the same skill", () => {
+    const out = safeSkillLabels(p, ["a", "b", "d"], { b: "Stakeholder Management", d: "Google Analytics 4" }, job);
+    expect(out).toEqual({ b: "Stakeholder Management", d: "Google Analytics 4" });
+  });
+  it("rejects a different skill, a label not in the job, and unknown ids", () => {
+    expect(safeSkillLabels(p, ["c"], { c: "Snowflake" }, job)).toBeUndefined();
+    expect(safeSkillLabels(p, ["a"], { a: "Looker Studio" }, job)).toBeUndefined();
+    expect(safeSkillLabels(p, ["a"], { zz: "Google Analytics 4" }, job)).toBeUndefined();
+  });
+});

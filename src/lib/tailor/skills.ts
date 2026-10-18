@@ -28,4 +28,32 @@ export function balanceSkills(p: MasterProfile, chosenIds: string[], job: { titl
   return out.slice(0, keep);
 }
 
-export const withBalancedSkills = (p: MasterProfile, t: TailoredResume, job: { title: string; description: string }): TailoredResume => ({ ...t, skillIds: balanceSkills(p, t.skillIds, job) });
+const initialism = (name: string) => name.split(/[\s/&-]+/).filter(Boolean).map((w) => w[0]).join("").toLowerCase();
+
+/**
+ * Skill labels in the job's own wording. A label is kept only when it appears in the job text AND clearly names the same skill
+ * (it shares a word with the skill, or one is the initials of the other), so a rephrased skill can never become a different one.
+ */
+export function safeSkillLabels(p: MasterProfile, ids: string[], labels: Record<string, string> | undefined, job: { title: string; description: string }): Record<string, string> | undefined {
+  if (!labels) return undefined;
+  const jobText = ` ${tokenize(`${job.title} ${job.description}`).join(" ")} `;
+  const out: Record<string, string> = {};
+  for (const [id, raw] of Object.entries(labels)) {
+    const label = raw.trim().replace(/\s+/g, " ");
+    const skill = p.skills.find((s) => s.id === id);
+    if (!skill || !ids.includes(id) || !label || label.length > 60 || label.toLowerCase() === skill.name.toLowerCase()) continue;
+    const lt = tokenize(label), st = tokenize(skill.name);
+    if (lt.length === 0 || !jobText.includes(` ${lt.join(" ")} `)) continue;
+    const related = lt.some((w) => st.includes(w)) || initialism(label) === skill.name.toLowerCase().replace(/[^a-z0-9]/g, "") || initialism(skill.name) === label.toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (related) out[id] = label;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+export function withBalancedSkills(p: MasterProfile, t: TailoredResume, job: { title: string; description: string }): TailoredResume {
+  const skillIds = balanceSkills(p, t.skillIds, job);
+  const skillLabels = safeSkillLabels(p, skillIds, t.skillLabels, job);
+  const { skillLabels: _drop, ...rest } = t;
+  void _drop;
+  return { ...rest, skillIds, ...(skillLabels ? { skillLabels } : {}) };
+}

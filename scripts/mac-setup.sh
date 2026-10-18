@@ -123,6 +123,13 @@ b "6/7  Check"
 npm run --silent assist:check || true
 
 b "7/7  Job portal sign-in and autostart"
+# Which browser the assistant uses. Its sign-ins live in its own profile folder, never in your everyday browser profile.
+BRAVE_APP="/Applications/Brave Browser.app"
+if [ -d "$BRAVE_APP" ] && [ ! -f "$HOME/.career-agent/browser.conf" ]; then
+  if yes_no "   Brave is installed. Use Brave (instead of the built-in Chromium) for the assistant?"; then
+    mkdir -p "$HOME/.career-agent"; echo brave > "$HOME/.career-agent/browser.conf"; ok "the assistant will use Brave, in its own separate profile"
+  fi
+fi
 if yes_no "   Open the browser now so you can sign in to LinkedIn / Naukri / Indeed (one time)?"; then
   npm run --silent assist:login || true
 fi

@@ -20,12 +20,12 @@ export type ResumeView = {
 export type SkillGroup = { group: string; items: string[] };
 
 /** Group the chosen skills under their headings, keeping the master's heading order and the chosen (job-relevant) item order. */
-function groupSkills(skills: MasterProfile["skills"], kind: "competency" | "technical"): SkillGroup[] {
+function groupSkills(skills: MasterProfile["skills"], kind: "competency" | "technical", labels?: Record<string, string>): SkillGroup[] {
   const out: SkillGroup[] = [];
   for (const s of skills) {
     if (s.kind !== kind) continue;
     const g = s.group ?? "";
-    (out.find((x) => x.group === g) ?? out[out.push({ group: g, items: [] }) - 1]).items.push(s.name);
+    (out.find((x) => x.group === g) ?? out[out.push({ group: g, items: [] }) - 1]).items.push(labels?.[s.id] ?? s.name);
   }
   return out;
 }
@@ -42,9 +42,9 @@ export function resumeView(p: MasterProfile, t: TailoredResume, style?: ResumeSt
     summary: t.summary.text,
     highlights: (t.highlightIds ?? []).map((id) => p.highlights.find((h) => h.id === id)?.text).filter((x): x is string => !!x),
     caseStudies: t.caseStudyIds?.length ? t.caseStudyIds.flatMap((id) => p.caseStudies.find((c) => c.id === id)?.title ?? []) : p.caseStudies.map((c) => c.title),
-    competencies: groupSkills(chosen, "competency"),
-    technical: groupSkills(chosen, "technical"),
-    skills: chosen.filter((s) => !s.kind).map((s) => s.name),
+    competencies: groupSkills(chosen, "competency", t.skillLabels),
+    technical: groupSkills(chosen, "technical", t.skillLabels),
+    skills: chosen.filter((s) => !s.kind).map((s) => t.skillLabels?.[s.id] ?? s.name),
     experience: t.experience.flatMap((te) => {
       const e = p.experience.find((x) => x.id === te.experienceId);
       return e ? [{ title: e.title, company: e.company, dates: [e.start, e.end].filter(Boolean).join(" - "), location: e.location ?? null, bullets: te.bullets.slice(0, style?.maxBullets ?? 99).map((x) => x.text) }] : [];

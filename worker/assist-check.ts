@@ -6,6 +6,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createClient } from "@supabase/supabase-js";
+import { browserFromMachine } from "./browser";
 import { chromium } from "playwright";
 import { assistChecks } from "./assist-check-lib";
 
@@ -26,7 +27,7 @@ async function main() {
     } catch (e) { dbError = e instanceof Error ? e.message : String(e); }
   }
   let chromiumFound = false;
-  try { chromiumFound = existsSync(process.env.CHROMIUM_PATH || chromium.executablePath()); } catch { /* not installed */ }
+  try { const b = browserFromMachine(); chromiumFound = b.executablePath ? existsSync(b.executablePath) : b.channel ? true : existsSync(chromium.executablePath()); } catch { /* not installed or not found */ }
   const profileDir = process.env.ASSIST_PROFILE_DIR || join(homedir(), ".career-agent", "browser");
   const lines = assistChecks({
     hasUrl: !!url, hasKey: !!key, dbOk, dbError, heartbeatAgeMs: hb?.at ? Date.now() - new Date(hb.at).getTime() : null, watching: !!hb?.watching,
