@@ -35,6 +35,10 @@ export const DEFAULTS = {
   watchlist: { enabled: true, boards: { greenhouse: [], lever: [], ashby: [], workable: [], recruitee: [] } as Record<string, string[]>, added: {} as Record<string, string> },
   /** hosted scrapers (Apify) for the portals without an API */
   apify: { actors: [] as ApifyActor[], monthly_item_budget: 2500 },
+  /** last-resort model that runs for free on the GitHub runner when every hosted model fails: off, only when needed (default), or always */
+  local_model: { mode: "when_needed" as "off" | "when_needed" | "always", model: "qwen2.5:3b-instruct" },
+  /** the morning message: yesterday's report, what each run did, and the health check, by Telegram and/or email */
+  delivery: { enabled: true, hour: 8, telegram: true, email: true, to: "" },
   /** master switch for everything that submits without you pressing a button (schedules and the hands-free assistant). Off until you turn it on. */
   autoapply: { enabled: false },
   caps: { daily_total: 15, daily_linkedin: 10, weekly_linkedin: 40, linkedin_automation_enabled: false, local_auto_enabled: false, company_cooldown_days: 14 } as Caps,

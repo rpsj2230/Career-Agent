@@ -27,10 +27,21 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Start local model (Ollama)
-        if: vars.LOCAL_MODEL != ''
+      # ask the app whether the local model is needed for this run (hosted models failing, or you chose "always"); a repository variable LOCAL_MODEL forces it
+      - id: cfg
         env:
-          LOCAL_MODEL: ${{ vars.LOCAL_MODEL }}
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          FORCED: ${{ vars.LOCAL_MODEL }}
+        run: |
+          m="$FORCED"
+          if [ -z "$m" ]; then m=$(curl -fsS -m 20 -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/runner-config" | jq -r '.local_model // ""' 2>/dev/null || true); fi
+          echo "local_model=$m" >> "$GITHUB_OUTPUT"
+          echo "Local model for this run: ${m:-none}"
+      - name: Start local model (Ollama)
+        if: steps.cfg.outputs.local_model != ''
+        env:
+          LOCAL_MODEL: ${{ steps.cfg.outputs.local_model }}
         run: |
           curl -fsSL https://ollama.com/install.sh | sh
           (ollama serve > /tmp/ollama.log 2>&1 &)
@@ -38,7 +49,7 @@ jobs:
           ollama pull "$LOCAL_MODEL"
       - run: npx tsx worker/task.ts
         env:
-          LOCAL_MODEL: ${{ vars.LOCAL_MODEL }}
+          LOCAL_MODEL: ${{ steps.cfg.outputs.local_model }}
           NODE_OPTIONS: --conditions=react-server
           TASK: ${{ inputs.task }}
           JOB_ID: ${{ inputs.job_id }}

@@ -52,10 +52,21 @@ jobs:
       - run: npm ci
       # Optional last-resort local model. Set the repository variable LOCAL_MODEL (e.g. qwen2.5:7b-instruct) to turn it on;
       # it is used only after every hosted model has failed or run out of quota, and its output goes through the same verifier.
-      - name: Start local model (Ollama)
-        if: vars.LOCAL_MODEL != ''
+      # ask the app whether the local model is needed for this run (hosted models failing, or you chose "always"); a repository variable LOCAL_MODEL forces it
+      - id: cfg
         env:
-          LOCAL_MODEL: ${{ vars.LOCAL_MODEL }}
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          FORCED: ${{ vars.LOCAL_MODEL }}
+        run: |
+          m="$FORCED"
+          if [ -z "$m" ]; then m=$(curl -fsS -m 20 -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/runner-config" | jq -r '.local_model // ""' 2>/dev/null || true); fi
+          echo "local_model=$m" >> "$GITHUB_OUTPUT"
+          echo "Local model for this run: ${m:-none}"
+      - name: Start local model (Ollama)
+        if: steps.cfg.outputs.local_model != ''
+        env:
+          LOCAL_MODEL: ${{ steps.cfg.outputs.local_model }}
         run: |
           curl -fsSL https://ollama.com/install.sh | sh
           (ollama serve > /tmp/ollama.log 2>&1 &)
@@ -64,7 +75,7 @@ jobs:
       - id: p
         run: npx tsx worker/pipeline.ts
         env:
-          LOCAL_MODEL: ${{ vars.LOCAL_MODEL }}
+          LOCAL_MODEL: ${{ steps.cfg.outputs.local_model }}
           NODE_OPTIONS: --conditions=react-server
           SCHEDULE_ID: ${{ inputs.schedule_id }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

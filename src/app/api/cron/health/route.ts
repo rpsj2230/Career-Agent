@@ -4,6 +4,7 @@ import { alertOnce } from "@/lib/alerts";
 import { logActivity } from "@/lib/activity";
 import { automationHealth, lastTick } from "@/lib/automation-health";
 import { healKeys } from "@/lib/llm/keys";
+import { deliverDaily } from "@/lib/daily-delivery";
 
 export const maxDuration = 30;
 
@@ -14,6 +15,7 @@ export const maxDuration = 30;
  */
 export async function GET() {
   const healed = await healKeys().catch(() => 0);
+  const daily = await deliverDaily().catch((e) => ({ sent: false, skipped: e instanceof Error ? e.message : String(e) })); // backup for the hourly check
   const { checks, status } = await automationHealth();
   const bad = checks.filter((c) => c.status === "fail");
   let alerted = false;
@@ -26,5 +28,5 @@ export async function GET() {
     backup = err ?? "started the scheduled pipeline (the hourly check had been silent for over 3 hours)";
     await logActivity({ kind: "schedule.changed", message: `Backup check: ${backup}`, status: err ? "failed" : "dispatched", detail: { lastTick: tick } }).catch(() => undefined);
   }
-  return NextResponse.json({ status, failing: bad.map((c) => c.id), alerted, healedKeys: healed, backup });
+  return NextResponse.json({ status, failing: bad.map((c) => c.id), alerted, healedKeys: healed, daily, backup });
 }

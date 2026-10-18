@@ -1,4 +1,6 @@
 import { ActionButton } from "@/components/app/action-button";
+import { LocalModelCard } from "@/components/app/local-model-card";
+import { getSetting } from "@/lib/settings";
 import { ModelDialog, type ModelForm } from "@/components/app/model-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -23,6 +25,7 @@ export default async function ModelsPage() {
     await db().from("model_usage").select("model_label,error,created_at").eq("ok", false).order("created_at", { ascending: false }).limit(5), "load errors",
   );
   const stat = (label: string) => ({ ok: usage.filter((u) => u.model_label === label && u.ok).length, bad: usage.filter((u) => u.model_label === label && !u.ok).length });
+  const localModel = await getSetting("local_model");
   const anyUsable = rows.some((r) => r.enabled && hasKey(r));
 
   return (
@@ -31,10 +34,11 @@ export default async function ModelsPage() {
       {!anyUsable && (
         <Card className="border-destructive"><CardHeader><CardTitle className="text-destructive">No usable model</CardTitle><CardDescription>Click Edit on a model below, paste its API key, then press Test. Scoring and tailoring cannot run until at least one model has a key.</CardDescription></CardHeader></Card>
       )}
+      <LocalModelCard initial={localModel} />
       <Card>
         <CardHeader>
           <CardTitle>Fallback chain</CardTitle>
-          <CardDescription>Lowest priority number is tried first; on rate limit or bad output the next model is used. Models without a key set are skipped. Free-tier model ids and limits change often: edit them here when a provider renames or retires one.</CardDescription>
+          <CardDescription>Lowest priority number is tried first; on rate limit, error or bad output the next model is used, and the local model (above) is last. Models without a key set are skipped. Free-tier model ids and limits change often: edit them here when a provider renames or retires one.</CardDescription>
         </CardHeader>
         <CardContent>
           <Table>

@@ -36,3 +36,21 @@ The same four steps always run in the same order. The only difference is who sta
 - **Daily backup check** (Vercel cron, `/api/cron/health`): independent of GitHub. It messages you on Telegram if anything on the checklist has failed and, if the hourly check has been silent for more than 3 hours, starts the pipeline itself.
 - **System > Automation** lists every condition (clock, schedule, models, GitHub connection, last run, what to search) with the fix for anything wrong, and the Dashboard shows a banner when something needs attention.
 - **Model keys** saved in the app are stored under both `SUPABASE_SERVICE_ROLE_KEY` and `CRON_SECRET`, so the GitHub runner can read them even if its Supabase key differs from the one in Vercel. The scheduled run prints which models it can use and messages you if none.
+
+## The menu, the buttons and who does each step
+
+**Menu groups.** *1 · Set up (one time)*: Profile, Resumes, Countries, Job sources, AI models, Settings. *2 · Find & score jobs*: Schedules (automatic), Jobs found & scored. *3 · Apply*: Applications. *Monitor*: Reports, Logs & history, System health.
+
+**Buttons on "Jobs found & scored".**
+- *Search job sites now*: fetches new postings from every connected source and stores them (they appear under "Found, not scored").
+- *Score unscored jobs*: judges the stored postings against your profile; good matches move to "Matched".
+- *Run full cycle now*: search, score and prepare resumes in one background run on GitHub (the same thing a schedule does).
+The strip at the top of Dashboard, Jobs and Applications shows the five steps with counts and who performs each one. "What the last search did, source by source" explains why a source added nothing (switched off, not connected, failed, or nothing new).
+
+**A schedule run does everything**: search, score, prepare tailored resumes, apply (or queue for approval, or queue for the laptop assistant). Each run is listed under *Run history* on the Schedules page. A failed run, or one cut short by a temporary model problem, is retried after one hour, up to three times.
+
+**Models that fail.** Every model is tried in order, then the optional local model (Ollama on the GitHub runner, no laptop needed; Models page → Local model: Off / Only when needed / Always). If no model at all can be used, promising jobs are queued on the free rules alone, marked "rules only", and a model re-scores them as soon as one is available. Jobs are never dropped because a model failed.
+
+**Daily report.** Settings → Daily report: once a day after the chosen hour, the report, the previous day's runs and a health summary (what is healthy, what is not, how to fix it) are sent by Telegram and email. Email uses the connected Gmail mailbox (app password). "Send now" tests it.
+
+**Laptop assistant.** Applications on LinkedIn, Naukri and Indeed need your own browser. They wait in the queue as *assisted* until the assistant runs on your laptop, then are processed; a web page cannot start a program on your computer, so use the autostart or watcher described in ASSISTANT_AUTOSTART.md.
