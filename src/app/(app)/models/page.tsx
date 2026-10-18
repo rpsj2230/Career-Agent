@@ -10,7 +10,7 @@ import { storedKeyLabels } from "@/lib/llm/keys";
 import { ensureDefaultModels } from "@/lib/llm/registry";
 import { fmtDateTime } from "@/lib/time";
 import { modelHealth, type Call } from "@/lib/llm/health";
-import { CLASS_INFO, modelClass, type ModelClass } from "@/lib/llm/classes";
+import { groupByProvider, modelClass } from "@/lib/llm/classes";
 
 export const dynamic = "force-dynamic";
 
@@ -42,7 +42,7 @@ export default async function ModelsPage() {
                 return (
                   <TableRow key={r.id} className={r.enabled ? "" : "opacity-50"}>
                     <TableCell>{r.priority}</TableCell>
-                    <TableCell><div className="font-medium">{r.label}</div><div className="text-xs text-muted-foreground">{r.provider} · {r.model}</div><div className="text-xs text-muted-foreground">for {r.tasks.join(", ")}</div></TableCell>
+                    <TableCell><div className="font-medium">{r.label} <Badge variant="outline" className="ml-1 align-middle text-[10px] capitalize">{modelClass(r)}</Badge></div><div className="text-xs text-muted-foreground">{r.provider} · {r.model}</div><div className="text-xs text-muted-foreground">for {r.tasks.join(", ")}</div></TableCell>
                     <TableCell>{hasStored(r) ? <Badge>key saved</Badge> : r.api_key_env === null ? <Badge variant="secondary">none needed</Badge> : keyed ? <Badge variant="secondary">{r.api_key_env} (env)</Badge> : <Badge variant="outline">no key yet</Badge>}</TableCell>
                     <TableCell className="max-w-xs whitespace-normal">
                       <Badge className={tone} variant={tone ? "default" : "outline"}>{h.label}</Badge>
@@ -60,8 +60,7 @@ export default async function ModelsPage() {
               };
 
   const head = <TableHeader><TableRow><TableHead>#</TableHead><TableHead>Model</TableHead><TableHead>Key</TableHead><TableHead>Status</TableHead><TableHead>Calls today</TableHead><TableHead /></TableRow></TableHeader>;
-  const classes: ModelClass[] = ["strong", "medium", "small"];
-  const inClass = (k: ModelClass) => rows.filter((r) => modelClass(r) === k);
+  const providers = groupByProvider(rows, (r) => r.enabled && hasKey(r));
 
   return (
     <div className="grid gap-4">
@@ -72,22 +71,38 @@ export default async function ModelsPage() {
       <LocalModelCard initial={localModel} test={localTest} />
       <Card>
         <CardHeader>
-          <CardTitle>Fallback chain: which model works?</CardTitle>
-          <CardDescription>Models are grouped by size. Lowest priority number is tried first; on rate limit, error or bad output the next model is used, and the local model (above) is last. Models without a key are listed under &quot;Not set up yet&quot; and skipped. Free-tier model ids and limits change often: edit them here when a provider renames or retires one.</CardDescription>
+          <CardTitle>Models by provider</CardTitle>
+          <CardDescription>One card per provider, so a key is pasted once and its health is seen in one place. Each model shows its size (strong, medium or small): strong ones write resumes first, small ones score. Lowest priority number is tried first; on rate limit, error or bad output the next model is used, and the local model (above) is last. Models without a key are folded under &quot;Not set up yet&quot;.</CardDescription>
         </CardHeader>
+        <CardContent className="flex flex-wrap gap-2 text-xs">
+          {providers.map((g) => {
+            const ok = g.rows.filter((r) => r.enabled && hasKey(r));
+            const worked = ok.reduce((n, r) => n + stat(r.label).ok, 0);
+            return <a key={g.provider} href={`#p-${g.provider}`} className="rounded border px-2 py-1 hover:bg-muted"><b>{g.name}</b>: {ok.length}/{g.rows.length} ready{worked > 0 ? `, ${worked} calls today` : ""}</a>;
+          })}
+        </CardContent>
       </Card>
-      {classes.map((k) => {
-        const list = inClass(k);
-        const ready = list.filter((r) => hasKey(r));
-        const idle = list.filter((r) => !hasKey(r));
+      {providers.map((g) => {
+        const ready = g.rows.filter((r) => hasKey(r));
+        const idle = g.rows.filter((r) => !hasKey(r));
+        const envs = [...new Set(g.rows.map((r) => r.api_key_env).filter((e): e is string => !!e))].sort();
         return (
-          <Card key={k}>
+          <Card key={g.provider} id={`p-${g.provider}`}>
             <CardHeader>
-              <CardTitle>{CLASS_INFO[k].title} <span className="text-sm font-normal text-muted-foreground">({ready.length} ready, {idle.length} not set up)</span></CardTitle>
-              <CardDescription>{CLASS_INFO[k].blurb}</CardDescription>
+              <CardTitle>{g.name} <span className="text-sm font-normal text-muted-foreground">({ready.length} ready, {idle.length} not set up)</span></CardTitle>
+              {envs.length > 0 && (
+                <CardDescription className="flex flex-wrap items-center gap-1">
+                  Keys:
+                  {envs.map((e) => {
+                    const set = g.rows.some((r) => r.api_key_env === e && hasKey(r));
+                    return <Badge key={e} variant={set ? "default" : "outline"}>{e} {set ? "set" : "not set"}</Badge>;
+                  })}
+                  <span className="ml-1">Paste a key on any row that uses the same key name; it serves them all.</span>
+                </CardDescription>
+              )}
             </CardHeader>
             <CardContent className="grid gap-3">
-              {ready.length > 0 ? <Table>{head}<TableBody>{ready.map(renderRow)}</TableBody></Table> : <p className="text-sm text-muted-foreground">No model in this group has a key yet.</p>}
+              {ready.length > 0 ? <Table>{head}<TableBody>{ready.map(renderRow)}</TableBody></Table> : <p className="text-sm text-muted-foreground">No model of this provider has a key yet.</p>}
               {idle.length > 0 && (
                 <details>
                   <summary className="cursor-pointer text-sm text-muted-foreground">Not set up yet ({idle.length}): paste a key to switch them on</summary>
