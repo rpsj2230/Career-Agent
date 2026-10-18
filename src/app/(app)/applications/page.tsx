@@ -14,6 +14,8 @@ import { PipelineStrip } from "@/components/app/pipeline-strip";
 import { assistantPanelData } from "@/lib/apply/assistant-health";
 import { PageSizeBar, Pagination } from "@/components/app/pagination";
 import { parsePaging } from "@/lib/pagination";
+import { ActionButton } from "@/components/app/action-button";
+import { applyRoute, nextStep } from "@/lib/apply/route";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +25,7 @@ export default async function ApplicationsPage({ searchParams }: { searchParams:
   const paging = parsePaging(sp);
   const [{ rows, total, page, pages, shownFrom, shownTo, portalUnavailable }, opts, panel] = await Promise.all([listApplications(f, paging), filterOptions(), assistantPanelData().catch(() => null)]);
   const fmt = (d: string | null) => fmtDateTime(d);
+  const route = (r: (typeof rows)[number]) => applyRoute({ apply_type: r.job?.apply_type, url: r.job?.url, portal: r.job?.portal });
   const exportQuery = new URLSearchParams(Object.entries({ portal: f.portal, country: f.country }).filter(([, v]) => v) as [string, string][]).toString();
   return (
     <div className="grid gap-4">
@@ -48,18 +51,21 @@ export default async function ApplicationsPage({ searchParams }: { searchParams:
           <PageSizeBar basePath="/applications" sp={sp} size={paging.size} total={total} shownFrom={shownFrom} shownTo={shownTo} />
           {rows.length === 0 ? <p className="text-sm text-muted-foreground">Nothing here for these filters. Open a job from the review queue and prepare it.</p> : (
             <Table>
-              <TableHeader><TableRow><TableHead>Role</TableHead><TableHead>Source</TableHead><TableHead>Country</TableHead><TableHead>Status</TableHead><TableHead>Method</TableHead><TableHead>Outcome</TableHead><TableHead>Resume</TableHead><TableHead>Submitted</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow><TableHead>Role</TableHead><TableHead>Source · country</TableHead><TableHead>Status</TableHead><TableHead>How it is applied</TableHead><TableHead>Next step</TableHead><TableHead>Reply</TableHead><TableHead>Resume · submitted</TableHead></TableRow></TableHeader>
               <TableBody>
                 {rows.map((r) => (
                   <TableRow key={r.id}>
                     <TableCell className="whitespace-normal"><Link className="font-medium hover:underline" href={`/applications/${r.id}`}>{r.job?.title}</Link><div className="text-xs text-muted-foreground">{r.job?.company}</div></TableCell>
-                    <TableCell><SourceBadge portal={r.job?.portal} source={r.job?.source} /></TableCell>
-                    <TableCell className="text-sm">{countryLabel(r.job?.country)}</TableCell>
+                    <TableCell className="whitespace-normal"><SourceBadge portal={r.job?.portal} source={r.job?.source} /><div className="mt-1 text-xs text-muted-foreground">{countryLabel(r.job?.country)}</div></TableCell>
                     <TableCell><StatusBadge status={r.status} /></TableCell>
-                    <TableCell>{r.method ? <Badge variant="secondary">{r.method}</Badge> : "-"}</TableCell>
+                    <TableCell className="whitespace-normal text-xs" title={route(r).detail}>{route(r).label}</TableCell>
+                    <TableCell className="whitespace-normal">
+                      {(() => { const n = nextStep(r.status, route(r), r.id); return n.action === "assistant"
+                        ? <div className="flex flex-col gap-1"><ActionButton endpoint="/api/assistant/run" success="Assistant asked to run" size="sm" disabled={panel?.pending}>{panel?.pending ? "Requested" : n.text}</ActionButton><span className="text-xs text-muted-foreground">{panel?.online ? "Assistant is running; starts within ~30 s." : "Starts when your computer is on."}</span></div>
+                        : n.href ? <Link className="text-sm underline" href={n.href}>{n.text}</Link> : <span className="text-sm text-muted-foreground">{n.text}</span>; })()}
+                    </TableCell>
                     <TableCell>{r.lifecycle === "none" ? "-" : <Badge>{r.lifecycle}</Badge>}</TableCell>
-                    <TableCell>v{r.resume?.version ?? "?"}</TableCell>
-                    <TableCell className="text-sm">{fmt(r.submitted_at)}</TableCell>
+                    <TableCell className="whitespace-normal text-xs">v{r.resume?.version ?? "?"}<div className="text-muted-foreground">{fmt(r.submitted_at)}</div></TableCell>
                   </TableRow>
                 ))}
               </TableBody>

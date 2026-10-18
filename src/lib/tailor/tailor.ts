@@ -38,7 +38,7 @@ const feedback = (r: VerifyResult) => `\n\nYOUR PREVIOUS ATTEMPT WAS REJECTED. F
 
 export type TailorOutcome<T> = { content: T; verification: VerifyResult & { attempts: number }; model: string; quality?: Quality };
 
-const TAILOR_SYSTEM = `You are an expert resume writer and recruiter. Tailor the candidate's resume to ONE job so that it reads as written for this job, never as a generic resume with a few lines swapped.
+const TAILOR_SYSTEM = `You tailor a candidate's resume to one job, as an expert resume writer and recruiter, so that it reads as written for this job, never as a generic resume with a few lines swapped.
 ${RULES}
 Work in this order:
 1. Read the job and note its 6-10 most important requirements and keywords (role, tools, methods, domain, outcomes).

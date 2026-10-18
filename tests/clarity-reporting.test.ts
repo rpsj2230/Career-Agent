@@ -107,3 +107,39 @@ describe("what the last search did, source by source", () => {
     expect(lastBatch([]).at).toBeNull();
   });
 });
+
+import { assistChecks } from "../worker/assist-check-lib";
+import { applyRoute, nextStep } from "@/lib/apply/route";
+
+describe("how an application is sent", () => {
+  it("separates the cloud, the assistant on your computer, and manual", () => {
+    expect(applyRoute({ apply_type: "greenhouse", url: "https://boards.greenhouse.io/acme/jobs/1" }).kind).toBe("cloud");
+    expect(applyRoute({ apply_type: "unknown", url: "https://jobs.ashbyhq.com/acme/abc" }).kind).toBe("cloud");
+    expect(applyRoute({ apply_type: "linkedin", url: "https://www.linkedin.com/jobs/view/1" }).kind).toBe("assistant");
+    expect(applyRoute({ apply_type: "portal", url: "https://www.naukri.com/job-listings-1" }).kind).toBe("assistant");
+    expect(applyRoute({ apply_type: "unknown", url: "https://careers.example.com/1" }).kind).toBe("manual");
+  });
+  it("tells you what to do next in every status", () => {
+    const cloud = applyRoute({ apply_type: "greenhouse" }), asst = applyRoute({ apply_type: "linkedin" }), man = applyRoute({ apply_type: "unknown" });
+    expect(nextStep("prepared", cloud, "a")).toMatchObject({ text: "Review and approve", href: "/applications/a" });
+    expect(nextStep("assisted_pending", asst, "a")).toMatchObject({ action: "assistant" });
+    expect(nextStep("assisted_pending", man, "a").action).toBeUndefined();
+    expect(nextStep("approved", cloud, "a").text).toMatch(/cloud/);
+    expect(nextStep("needs_input", asst, "a").text).toMatch(/Answer/);
+    expect(nextStep("submitted", cloud, "a").text).toBe("Done");
+  });
+});
+
+describe("assistant check", () => {
+  const ok = { hasUrl: true, hasKey: true, dbOk: true, heartbeatAgeMs: 20_000, watching: true, autoApplyOn: true, localAutoOn: true, waiting: 2, chromiumFound: true, profileExists: true };
+  it("passes when everything is ready", () => { expect(assistChecks(ok).every((l) => l.ok)).toBe(true); });
+  it("explains each problem with a fix", () => {
+    const bad = assistChecks({ ...ok, hasKey: false, dbOk: false, chromiumFound: false, profileExists: false, localAutoOn: false, heartbeatAgeMs: null });
+    expect(bad.filter((l) => !l.ok).length).toBe(6);
+    expect(bad.filter((l) => !l.ok).every((l) => !!l.fix)).toBe(true);
+    expect(bad.find((l) => /never reported/.test(l.label))).toBeTruthy();
+  });
+  it("treats a watcher silent for minutes as not running", () => {
+    expect(assistChecks({ ...ok, heartbeatAgeMs: 10 * 60_000 }).some((l) => !l.ok && /not running now/.test(l.label))).toBe(true);
+  });
+});

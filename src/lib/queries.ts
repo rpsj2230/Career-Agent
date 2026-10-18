@@ -50,14 +50,14 @@ export const RANK_LIMIT = 5000;
 
 export type AppListRow = {
   id: string; status: string; method: string | null; lifecycle: string; submitted_at: string | null; created_at: string;
-  job: { title: string; company: string; country: string | null; apply_type: string; source: string | null; portal?: string | null } | null;
+  job: { title: string; company: string; country: string | null; apply_type: string; source: string | null; url?: string | null; portal?: string | null } | null;
   resume: { version: number } | null;
 };
 
 /** One page of applications with their job, newest first, filtered by status view, portal, country and text; tolerant of a pending migration. */
 export async function listApplications(f: AppFilters, paging: { page: number; size: number } = { page: 1, size: 25 }): Promise<{ rows: AppListRow[]; total: number; page: number; pages: number; shownFrom: number; shownTo: number; portalUnavailable: boolean }> {
   const build = (withPortal: boolean, from: number, to: number) => {
-    const jobCols = `title,company,country,apply_type,source${withPortal ? ",portal" : ""}`;
+    const jobCols = `title,company,country,apply_type,source,url${withPortal ? ",portal" : ""}`;
     let q = db().from("applications").select(`id,status,method,lifecycle,submitted_at,created_at, job:jobs!inner(${jobCols}), resume:documents!applications_resume_doc_id_fkey(version)`, { count: "exact" });
     const statuses = APP_STATUSES[f.status].statuses;
     if (statuses) q = q.in("status", statuses);

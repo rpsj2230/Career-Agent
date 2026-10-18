@@ -54,3 +54,23 @@ The strip at the top of Dashboard, Jobs and Applications shows the five steps wi
 **Daily report.** Settings → Daily report: once a day after the chosen hour, the report, the previous day's runs and a health summary (what is healthy, what is not, how to fix it) are sent by Telegram and email. Email uses the connected Gmail mailbox (app password). "Send now" tests it.
 
 **Laptop assistant.** Applications on LinkedIn, Naukri and Indeed need your own browser. They wait in the queue as *assisted* until the assistant runs on your laptop, then are processed; a web page cannot start a program on your computer, so use the autostart or watcher described in ASSISTANT_AUTOSTART.md.
+
+## Who applies, and what needs a login
+
+| Posting is on | Who sends it | Login needed? |
+|---|---|---|
+| Greenhouse, Lever, Ashby, Workable | GitHub's computer, automatically | No. These forms are public. Your laptop can be off. |
+| LinkedIn, Naukri, Indeed and similar | The **assistant on your computer** | Yes, once: you sign in inside the assistant's own browser window. The session is kept on your computer. |
+| Any other site | You (the resume and answers are ready) | n/a |
+
+The Applications list shows, for every row, **how it is applied** and the **next step** (Review and approve / Apply with assistant / Answer and finish / See why and retry / Done).
+
+**Assistant.** Approving an application that needs the assistant leaves a "run now" request, so a running assistant starts within about 30 seconds. "Apply with assistant" on a row does the same. If the assistant is not running, the request waits (the application stays queued) until your computer is on and the assistant is started. `npm run assist:check` on your computer tells you exactly what is missing (settings, browser, portal sign-ins, hands-free switch, watcher).
+
+## Resume quality
+
+Each resume is written for one job. The model is told to name the job's role in the headline, write a summary around what that job asks for, reword each chosen bullet (strong verb, the job's own terms where the facts support them, the result with its exact figure), and pick the most relevant highlights, case studies and skills. The checker still rejects anything not in your profile. After writing, the resume is **measured locally**: share of the job's key terms you can honestly claim that are used, how many bullets were reworded, whether the headline and summary were written for the job. If it scores below 75, the model gets one or two more attempts with the specific problems; the best verified version is kept. The score and the job's terms your profile does not support (never added) are shown on the application page. If no model can write the resume, your master resume is used and the page says so in a warning box.
+
+## Testing the local model
+
+Models page → *Test the local model now*. It runs on GitHub (3 to 6 minutes): installs Ollama and the chosen model, asks a real job-scoring question, and records whether it answered and how long it took. The result stays on the page and is sent to Telegram.

@@ -50,8 +50,8 @@ export function parseAppFilters(sp: SP): AppFilters {
 
 /** Human labels for the status model used on every screen. */
 export const APP_STATUS_LABEL: Record<string, string> = {
-  prepared: "Pending approval", approved: "Approved, submitting soon", submitting: "Submitting", submitted: "Submitted",
-  assisted_pending: "Requires manual action", needs_input: "Requires manual action", failed: "Failed",
+  prepared: "Pending approval", approved: "Approved, sending soon", submitting: "Sending now", submitted: "Applied",
+  assisted_pending: "Waiting for assistant / you", needs_input: "Needs your input", failed: "Failed",
 };
 
 export const COUNTRY_NAMES: Record<string, string> = {
