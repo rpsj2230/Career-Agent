@@ -6,12 +6,12 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { db, must } from "@/lib/db";
-import { storedKeyLabels } from "@/lib/llm/keys";
 import { ensureDefaultModels } from "@/lib/llm/registry";
 import { fmtDateTime } from "@/lib/time";
 import { modelHealth, type Call } from "@/lib/llm/health";
 import { groupByProvider, modelClass } from "@/lib/llm/classes";
-import { ProviderKeys, slotNumber, type KeySlot } from "@/components/app/provider-keys";
+import { ProviderKeys, type KeySlot } from "@/components/app/provider-keys";
+import { baseEnv, MAX_KEYS, slotEnv, storedKeyLabels } from "@/lib/llm/keys";
 
 export const dynamic = "force-dynamic";
 
@@ -21,8 +21,8 @@ export default async function ModelsPage() {
   await ensureDefaultModels();
   const rows = must<Row[]>(await db().from("model_configs").select("*").order("priority"), "load models");
   const stored = await storedKeyLabels();
-  const hasStored = (r: Row) => stored.has(r.label) || (!!r.api_key_env && stored.has(`env:${r.api_key_env}`));
-  const hasKey = (r: Row) => hasStored(r) || r.api_key_env === null || !!process.env[r.api_key_env];
+  const hasStored = (r: Row) => stored.has(r.label) || (!!r.api_key_env && Array.from({ length: MAX_KEYS }, (_, i) => slotEnv(baseEnv(r.api_key_env as string), i + 1)).some((e) => stored.has(`env:${e}`)));
+  const hasKey = (r: Row) => hasStored(r) || r.api_key_env === null || Array.from({ length: MAX_KEYS }, (_, i) => slotEnv(baseEnv(r.api_key_env as string), i + 1)).some((e) => !!process.env[e]);
   const since = new Date(); since.setUTCHours(0, 0, 0, 0);
   const usage = must<{ model_label: string; ok: boolean }[]>(await db().from("model_usage").select("model_label,ok").gte("created_at", since.toISOString()), "load usage");
   const history = must<{ model_label: string; ok: boolean; error: string | null; created_at: string }[]>(await db().from("model_usage").select("model_label,ok,error,created_at").order("created_at", { ascending: false }).limit(600), "load model history");
@@ -39,7 +39,7 @@ export default async function ModelsPage() {
                 const keyed = hasKey(r);
                 const s = stat(r.label);
                 const h = modelHealth({ enabled: r.enabled, keyed, todayOk: s.ok, todayBad: s.bad, dailyCap: r.daily_cap, calls: callsOf(r.label) });
-                const tone = h.status === "working" ? "bg-green-600 text-white" : h.status === "failing" ? "bg-red-600 text-white" : h.status === "unstable" || h.status === "limit" ? "bg-amber-500 text-white" : "";
+                const tone = h.status === "working" ? "bg-green-600 text-white" : h.status === "failing" || h.status === "unstable" || h.status === "limit" ? "bg-amber-500 text-white" : "";
                 return (
                   <TableRow key={r.id} className={r.enabled ? "" : "opacity-50"}>
                     <TableCell>{r.priority}</TableCell>
@@ -47,11 +47,12 @@ export default async function ModelsPage() {
                     <TableCell>{hasStored(r) ? <Badge>key saved</Badge> : r.api_key_env === null ? <Badge variant="secondary">none needed</Badge> : keyed ? <Badge variant="secondary">{r.api_key_env} (env)</Badge> : <Badge variant="outline">no key yet</Badge>}</TableCell>
                     <TableCell className="max-w-xs whitespace-normal">
                       <Badge className={tone} variant={tone ? "default" : "outline"}>{h.label}</Badge>
-                      <div className="mt-1 text-xs text-muted-foreground">{h.hint}</div>
-                      {h.lastError && h.status !== "working" && <div className="mt-1 break-words text-xs text-destructive">Last error: {h.lastError.slice(0, 160)}</div>}
-                      {h.lastOkAt && h.status !== "working" && <div className="text-xs text-muted-foreground">Last worked {fmtDateTime(h.lastOkAt)}</div>}
+                      {h.status !== "working" && <div className="mt-1 text-xs text-muted-foreground">{h.hint}</div>}
                     </TableCell>
-                    <TableCell className="text-sm">{s.ok} succeeded{r.daily_cap ? ` (daily allowance ${r.daily_cap})` : ""}{s.bad > 0 && <span className="text-destructive">, {s.bad} failed</span>}</TableCell>
+                    <TableCell className="text-sm">{s.ok} succeeded{r.daily_cap ? ` (daily allowance ${r.daily_cap})` : ""}{s.bad > 0 && <span className="text-muted-foreground">, {s.bad} failed</span>}</TableCell>
+                    <TableCell className="max-w-xs whitespace-normal text-xs text-muted-foreground">
+                      {h.lastError && h.status !== "working" ? <details><summary className="cursor-pointer">Last error</summary><div className="mt-1 break-words">{h.lastError.slice(0, 300)}{h.lastOkAt ? ` · last worked ${fmtDateTime(h.lastOkAt)}` : ""}</div></details> : s.bad > 0 ? "some earlier errors" : "none"}
+                    </TableCell>
                     <TableCell className="flex gap-2">
                       <ActionButton size="sm" variant="secondary" endpoint="/api/models/test" body={{ label: r.label }} disabled={!keyed}>Test</ActionButton>
                       <ModelDialog id={r.id} hasStoredKey={hasStored(r)} initial={{ ...r, notes: r.notes ?? "" }} />
@@ -60,7 +61,7 @@ export default async function ModelsPage() {
                 );
               };
 
-  const head = <TableHeader><TableRow><TableHead>#</TableHead><TableHead>Model</TableHead><TableHead>Key</TableHead><TableHead>Status</TableHead><TableHead>Calls today</TableHead><TableHead /></TableRow></TableHeader>;
+  const head = <TableHeader><TableRow><TableHead>#</TableHead><TableHead>Model</TableHead><TableHead>Key</TableHead><TableHead>Status</TableHead><TableHead>Calls today</TableHead><TableHead>Errors (see Logs)</TableHead><TableHead /></TableRow></TableHeader>;
   const providers = groupByProvider(rows, (r) => r.enabled && hasKey(r));
 
   return (
@@ -86,8 +87,8 @@ export default async function ModelsPage() {
       {providers.map((g) => {
         const ready = g.rows.filter((r) => hasKey(r));
         const idle = g.rows.filter((r) => !hasKey(r));
-        const envs = [...new Set(g.rows.map((r) => r.api_key_env).filter((e): e is string => !!e))].sort((a, b) => slotNumber(a) - slotNumber(b));
-        const slots: KeySlot[] = envs.map((e) => ({ env: e, label: g.rows.find((r) => r.api_key_env === e)!.label, set: g.rows.some((r) => r.api_key_env === e && hasStored(r)) || !!process.env[e] }));
+        const bases = [...new Set(g.rows.map((r) => r.api_key_env).filter((e): e is string => !!e).map(baseEnv))].sort();
+        const slots: KeySlot[] = bases.flatMap((base) => Array.from({ length: MAX_KEYS }, (_, i) => slotEnv(base, i + 1)).map((e) => ({ env: e, set: stored.has(`env:${e}`) || !!process.env[e] || (e === base && g.rows.some((r) => r.api_key_env === base && stored.has(r.label))) })));
         return (
           <Card key={g.provider} id={`p-${g.provider}`}>
             <CardHeader>

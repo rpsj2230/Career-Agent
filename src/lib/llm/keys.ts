@@ -30,6 +30,11 @@ async function save(key: "model_keys" | "model_keys_shared", value: Store) {
  * A key is saved once per provider variable name (for example GEMINI_API_KEY) and used by every model row that names it,
  * so pasting one Gemini key enables all Gemini rows. It is stored under the pseudo label "env:GEMINI_API_KEY".
  */
+/** "GEMINI_API_KEY_3" and "GEMINI_API_KEY" belong to the same provider key pool; the pool has up to MAX_KEYS keys. */
+export const MAX_KEYS = 5;
+export const baseEnv = (env: string): string => env.replace(/_\d+$/, "");
+export const slotEnv = (base: string, slot: number): string => (slot <= 1 ? base : `${base}_${slot}`);
+
 export const envLabel = (env: string | null | undefined): string | null => (env ? `env:${env}` : null);
 
 export async function storedKeyLabels(): Promise<Set<string>> {
@@ -44,16 +49,35 @@ function open(label: string, enc: Store, sh: Store): string | null {
   return s && sh[label] ? decryptSecret(sh[label], s) : null;
 }
 
-/** Resolve plaintext keys for the given models: a key saved in the app wins, then the named env var. */
-export async function resolveKeys(rows: ModelRow[]): Promise<Map<string, string>> {
+/**
+ * Every key a model may use: its own saved key (if any), then the provider's key pool (GEMINI_API_KEY, GEMINI_API_KEY_2 ... _5), each from the
+ * app's encrypted store or an environment variable. A model is tried with each key in turn, so five keys give five times the allowance.
+ */
+export async function resolveKeyPool(rows: ModelRow[]): Promise<Map<string, string[]>> {
   const [enc, sh] = await Promise.all([load("model_keys"), load("model_keys_shared")]);
-  const out = new Map<string, string>();
+  const out = new Map<string, string[]>();
   for (const m of rows) {
-    const shareLabel = envLabel(m.api_key_env);
-    const key = open(m.label, enc, sh) ?? (shareLabel ? open(shareLabel, enc, sh) : null) ?? (m.api_key_env ? process.env[m.api_key_env] : undefined);
-    if (key) out.set(m.label, key);
+    const found: string[] = [];
+    const own = open(m.label, enc, sh);
+    if (own) found.push(own);
+    if (m.api_key_env) {
+      const base = baseEnv(m.api_key_env);
+      for (let slot = 1; slot <= MAX_KEYS; slot++) {
+        const e = slotEnv(base, slot);
+        const k = open(`env:${e}`, enc, sh) ?? process.env[e]?.trim();
+        if (k) found.push(k);
+      }
+    }
+    const unique = [...new Set(found)];
+    if (unique.length) out.set(m.label, unique);
   }
   return out;
+}
+
+/** The first usable key of each model (used where one key is enough, such as the Test button). */
+export async function resolveKeys(rows: ModelRow[]): Promise<Map<string, string>> {
+  const pool = await resolveKeyPool(rows);
+  return new Map([...pool.entries()].map(([label, keys]) => [label, keys[0]]));
 }
 
 export async function saveKey(label: string, apiKey: string, env?: string | null) {
@@ -63,6 +87,16 @@ export async function saveKey(label: string, apiKey: string, env?: string | null
   await save("model_keys", enc);
   const s = shared();
   if (s) { for (const l of labels) sh[l] = encryptSecret(apiKey, s); await save("model_keys_shared", sh); }
+}
+
+/** Save key N of a provider (stored as env:NAME, the same place the model rows look). */
+export async function saveEnvKey(env: string, apiKey: string) {
+  const [enc, sh] = await Promise.all([load("model_keys"), load("model_keys_shared")]);
+  const l = envLabel(env) as string;
+  enc[l] = encryptSecret(apiKey, primary());
+  await save("model_keys", enc);
+  const s = shared();
+  if (s) { sh[l] = encryptSecret(apiKey, s); await save("model_keys_shared", sh); }
 }
 
 /** Removes the key of one row and, with it, the copy shared by every row that uses the same variable name. */

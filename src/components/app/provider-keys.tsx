@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { call } from "./api";
 
-export type KeySlot = { env: string; label: string; set: boolean };
+export type KeySlot = { env: string; set: boolean };
 
 /** "GEMINI_API_KEY" is key 1, "GEMINI_API_KEY_2" is key 2, and so on. */
 export const slotNumber = (env: string): number => Number(/_(\d+)$/.exec(env)?.[1] ?? 1);
@@ -21,14 +21,14 @@ export function ProviderKeys({ provider, slots }: { provider: string; slots: Key
     const apiKey = (values[s.env] ?? "").trim();
     if (!apiKey) return;
     setBusy(s.env);
-    const ok = await call("/api/models/key", "PUT", { label: s.label, apiKey }, `${provider} key ${slotNumber(s.env)} saved (encrypted)`);
+    const ok = await call("/api/models/key", "PUT", { env: s.env, apiKey }, `${provider} key ${slotNumber(s.env)} saved (encrypted)`);
     setBusy(null);
     if (ok) { setValues((v) => ({ ...v, [s.env]: "" })); router.refresh(); }
   }
   return (
     <div className="grid gap-2 rounded-md border p-3">
       <div className="text-sm font-medium">{provider} keys</div>
-      <div className="text-xs text-muted-foreground">Paste each key into its own box and press Save. A key serves every {provider} model that uses it, and the work is spread across all keys that are set. Use keys from your own accounts only.</div>
+      <div className="text-xs text-muted-foreground">Paste each key into its own box and press Save. Every {provider} model uses all the keys you set here, and the work is spread across them. Use keys from your own accounts only.</div>
       {slots.map((s) => (
         <div key={s.env} className="flex flex-wrap items-center gap-2">
           <span className="w-14 text-sm">Key {slotNumber(s.env)}</span>

@@ -38,27 +38,4 @@ export const DEFAULT_MODELS: Omit<ModelRow, "id">[] = [
   { label: "mistral-large", provider: "mistral", base_url: "https://api.mistral.ai/v1", model: "mistral-large-latest", api_key_env: "MISTRAL_API_KEY", tasks: ["score", "tailor", "extract"], priority: 48, daily_cap: 150, enabled: true },
   { label: "mistral-nemo", provider: "mistral", base_url: "https://api.mistral.ai/v1", model: "open-mistral-nemo", api_key_env: "MISTRAL_API_KEY", tasks: ["score", "extract"], priority: 52, daily_cap: 300, enabled: true },
   { label: "mistral-small", provider: "mistral", base_url: "https://api.mistral.ai/v1", model: "mistral-small-latest", api_key_env: "MISTRAL_API_KEY", tasks: ["score", "tailor", "extract"], priority: 50, daily_cap: 200, enabled: true },
-
-  // Extra key slots: paste a second to fifth key for a provider into any row of its slot and every row of that slot becomes usable
-  // (the key is shared by variable name: GEMINI_API_KEY_2 ... GEMINI_API_KEY_5, and likewise for Groq and Mistral).
-  // Use only keys from accounts of your own and read the provider's terms first; a provider may suspend extra accounts.
-  ...slotRows(),
 ];
-
-function slotRows(): Omit<ModelRow, "id">[] {
-  const base = [
-    { prefix: "gemini", env: "GEMINI_API_KEY", provider: "google", base_url: "https://generativelanguage.googleapis.com/v1beta/openai", models: [{ id: "gemini-flash-latest", tasks: ["score", "tailor", "extract"], priority: 10, cap: 200 }, { id: "gemini-flash-lite-latest", tasks: ["score", "tailor", "extract"], priority: 12, cap: 300 }] },
-    { prefix: "groq", env: "GROQ_API_KEY", provider: "groq", base_url: "https://api.groq.com/openai/v1", models: [{ id: "llama-3.3-70b-versatile", tasks: ["score", "tailor", "extract"], priority: 20, cap: 500 }, { id: "openai/gpt-oss-120b", tasks: ["score", "tailor", "extract"], priority: 18, cap: 400 }] },
-    { prefix: "mistral", env: "MISTRAL_API_KEY", provider: "mistral", base_url: "https://api.mistral.ai/v1", models: [{ id: "open-mistral-nemo", tasks: ["score", "extract"], priority: 52, cap: 300 }, { id: "mistral-small-latest", tasks: ["score", "tailor", "extract"], priority: 50, cap: 200 }] },
-  ];
-  const rows: Omit<ModelRow, "id">[] = [];
-  for (const p of base) {
-    for (let slot = 2; slot <= 5; slot++) {
-      for (const m of p.models) {
-        const name = m.id.replace(/[^a-z0-9]+/gi, "-").replace(/-latest$/, "");
-        rows.push({ label: `${name.startsWith(p.prefix) ? name : `${p.prefix}-${name}`}-k${slot}`, provider: p.provider, base_url: p.base_url, model: m.id, api_key_env: `${p.env}_${slot}`, tasks: m.tasks, priority: m.priority + slot, daily_cap: m.cap, enabled: true });
-      }
-    }
-  }
-  return rows;
-}

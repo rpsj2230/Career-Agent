@@ -40,7 +40,7 @@ export default async function Dashboard({ searchParams }: { searchParams: SP }) 
 
   const steps = [
     { done: profile.experience.length > 0, label: "Import and confirm your profile", href: "/profile" },
-    { done: models.some((m) => m.enabled && (m.api_key_env === null || stored.has(m.label) || stored.has(`env:${m.api_key_env}`) || !!process.env[m.api_key_env])), label: "Add at least one model API key (free tiers work)", href: "/models" },
+    { done: models.some((m) => m.enabled && (m.api_key_env === null || stored.has(m.label) || [1, 2, 3, 4, 5].some((n) => { const e = n === 1 ? m.api_key_env as string : `${(m.api_key_env as string).replace(/_\d+$/, "")}_${n}`; return stored.has(`env:${e}`) || !!process.env[e]; }))), label: "Add at least one model API key (free tiers work)", href: "/models" },
     { done: (discovery.roles.length || profile.preferences.roles.length) > 0, label: "Set the roles and countries to search", href: "/countries" },
   ];
   const ready = steps.every((x) => x.done);

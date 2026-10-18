@@ -33,3 +33,15 @@ describe("parking", () => {
     expect(p.isParked("a")).toBe(false);
   });
 });
+
+import { expandByKeys } from "@/lib/llm/spread";
+describe("expandByKeys", () => {
+  const models = [{ label: "gemini-flash" }, { label: "mistral-nemo" }, { label: "local" }];
+  const keys: Record<string, string[]> = { "gemini-flash": ["k1", "k2", "k3"], "mistral-nemo": ["m1"] };
+  it("makes one entry per model and key, keeping the real label for logging", () => {
+    const out = expandByKeys(models, (l) => keys[l]);
+    expect(out.map((x) => x.label)).toEqual(["gemini-flash#1", "gemini-flash#2", "gemini-flash#3", "mistral-nemo", "local"]);
+    expect(out.map((x) => x.realLabel)).toEqual(["gemini-flash", "gemini-flash", "gemini-flash", "mistral-nemo", "local"]);
+    expect(out.map((x) => x.key)).toEqual(["k1", "k2", "k3", "m1", undefined]);
+  });
+});
