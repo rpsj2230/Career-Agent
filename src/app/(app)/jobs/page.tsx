@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { AddJob } from "@/components/app/add-job";
+import { currentRole } from "@/lib/role-server";
 import { ActionButton } from "@/components/app/action-button";
 import { ScoreBadge, SourceBadge, StatusBadge } from "@/components/app/badges";
 import { BackgroundBanner } from "@/components/app/background-banner";
@@ -21,6 +22,7 @@ export const dynamic = "force-dynamic";
 
 export default async function JobsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const sp = await searchParams;
+  const isAdmin = (await currentRole()) === "admin";
   const f = parseJobFilters(sp);
   const paging = parsePaging(sp);
   const [{ rows: jobs, total, page, pages, shownFrom, shownTo, portalUnavailable }, opts, c] = await Promise.all([listJobs(f, paging), filterOptions(), counts().catch(() => ({ fresh: 0 }))]);
@@ -39,9 +41,9 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
           <ActionButton variant="outline" method="POST" endpoint="/api/run/score" success="Started" title="Rates every job that is still 'Found, not scored' from 0 to 100 against your profile. Jobs at or above your threshold move to the matched list.">Score unscored jobs</ActionButton>
       </div>
       </div>
-      <BackgroundBanner />
-      <BacklogCard />
-      <PipelineStrip />
+      {isAdmin && <BackgroundBanner />}
+      {isAdmin && <BacklogCard />}
+      {isAdmin && <PipelineStrip />}
       <SearchSummary />
       {f.view !== "new" && c.fresh > 0 && (
         <Alert><AlertDescription>

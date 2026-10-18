@@ -9,6 +9,7 @@ import { APP_STATUSES, countryLabel, parseAppFilters } from "@/lib/filters";
 import { filterOptions, listApplications } from "@/lib/queries";
 import { fmtDateTime } from "@/lib/time";
 import { AssistantPanel } from "@/components/app/assistant-panel";
+import { currentRole } from "@/lib/role-server";
 import { PipelineStrip } from "@/components/app/pipeline-strip";
 import { assistantPanelData } from "@/lib/apply/assistant-health";
 import { PageSizeBar, Pagination } from "@/components/app/pagination";
@@ -22,6 +23,7 @@ export const dynamic = "force-dynamic";
 
 export default async function ApplicationsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const sp = await searchParams;
+  const isAdmin = (await currentRole()) === "admin";
   const f = parseAppFilters(sp);
   const paging = parsePaging(sp);
   const [{ rows, total, page, pages, shownFrom, shownTo, portalUnavailable }, opts, panel] = await Promise.all([listApplications(f, paging), filterOptions(), assistantPanelData().catch(() => null)]);
@@ -39,7 +41,7 @@ export default async function ApplicationsPage({ searchParams }: { searchParams:
         Every application waits here for your OK (<b>prepared</b>). After you approve it: Greenhouse, Lever, Ashby and Workable are sent automatically from the cloud;
         LinkedIn, Naukri and Indeed need the <b>assistant on your computer</b> (they queue below until your computer is on); anything else is yours to submit.
       </p>
-      <PipelineStrip />
+      {isAdmin && <PipelineStrip />}
       {panel && <AssistantPanel {...panel} />}
       <FilterBar
         action="/applications" statusName="status" status={f.status}

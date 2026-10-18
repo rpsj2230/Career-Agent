@@ -10,6 +10,8 @@ import { SettingsForm } from "@/components/app/settings-form";
 import { getProfile } from "@/lib/profile/store";
 import { dedupeList } from "@/lib/country-prefs";
 import { getSetting } from "@/lib/settings";
+import { TeamCard } from "@/components/app/team-card";
+import { getOwnerEmail, getTeam } from "@/lib/owner";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +29,7 @@ export default async function SettingsPage() {
     <div className="grid gap-4">
       <h1 className="text-2xl font-semibold">Settings</h1>
       <PauseCard initial={pause} />
+      <TeamCard owner={await getOwnerEmail()} members={await getTeam(true)} />
       <AutoApplyCard enabled={autoapply.enabled} caps={caps} />
       <AutoPrepareCard initial={autoPrepare} />
       <EmailApplyCard initial={emailApply} mailbox={mailbox ?? ""} />

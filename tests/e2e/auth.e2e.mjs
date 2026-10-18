@@ -51,7 +51,7 @@ const apiRoutes = [];
     }
   }
 })("src/app/api");
-const PUBLIC_API = new Set(["/api/auth/login", "/api/auth/signup", "/api/auth/logout", "/api/telegram/webhook"]);
+const PUBLIC_API = new Set(["/api/auth/login", "/api/auth/signup", "/api/auth/logout", "/api/auth/google", "/api/auth/callback", "/api/telegram/webhook"]);
 const PW = "correct horse battery";
 let r;
 r = await call("/", { auth: false });             check("signed-out page redirects to /login", r.status === 307 && r.location?.endsWith("/login"), `${r.status} ${r.location}`);
@@ -101,6 +101,43 @@ r = await call("/api/files?path=bad"); check("...and gets no access afterwards",
 
 jar.clear(); for (const [k, v] of saved) jar.set(k, v);
 r = await call("/api/files?path=bad"); check("owner session still works", r.status === 400, r.status);
+
+// ---- team access: Google sign-in start/return, the limited roles, the logo and favicon
+{
+  const strip = (t) => t.replace(/<!-- -->/g, "");
+  r = await call("/login", { auth: false }); check("the login page has Continue with Google and the RP logo with the product name", /Continue with Google/.test(strip(r.text)) && /rp-logo/.test(r.text) && /Career Agent/.test(strip(r.text)), r.status);
+  r = await call("/api/auth/google?next=/jobs", { auth: false }); check("starting Google sign-in sends the browser to Supabase's Google address", r.status === 307 && /\/auth\/v1\/authorize\?/.test(r.location ?? "") && /provider=google/.test(r.location ?? "") && /redirect_to=/.test(r.location ?? ""), `${r.status} ${r.location}`);
+  r = await call("/api/auth/callback", { auth: false }); check("coming back from Google without a code goes back to the login page with a message", r.status === 307 && /\/login\?error=google/.test(r.location ?? ""), `${r.status} ${r.location}`);
+  r = await call("/icon.png", { auth: false }); check("the favicon image is reachable before signing in", r.status === 200 && /image\/png/.test(r.contentType ?? ""), `${r.status} ${r.contentType}`);
+  r = await call("/brand/rp-logo.png", { auth: false }); check("the logo is reachable before signing in", r.status === 200 && /image\/png/.test(r.contentType ?? ""), `${r.status} ${r.contentType}`);
+  r = await call("/api/team", { auth: false }); check("team access is closed to signed-out visitors", r.status === 401, r.status);
+  r = await call("/settings"); check("the super admin sees Team access in Settings", /Team access/.test(strip(r.text)) && /Add \/ change/.test(strip(r.text)), r.status);
+  r = await call("/"); check("the super admin sees the whole menu", /AI models/.test(strip(r.text)) && /Logs &amp; history|Logs & history/.test(strip(r.text)) && /rp-logo/.test(r.text), r.status);
+  r = await call("/api/team", { method: "PUT", body: { email: "me@x.com", role: "jobs" } }); check("the owner cannot be added as a team member", r.status === 409, `${r.status} ${r.text}`);
+  r = await call("/api/team", { method: "PUT", body: { email: "stranger@x.com", role: "viewer" } }); check("a view-only person is added", r.status === 200, `${r.status} ${r.text}`);
+  const adminJar = new Map(jar); jar.clear();
+  r = await call("/api/auth/login", { method: "POST", body: { email: "stranger@x.com", password: PW } }); check("the added person can now sign in", r.status === 200, `${r.status} ${r.text}`);
+  r = await call("/jobs"); check("a view-only person can open Jobs found & scored", r.status === 200 && /View only/.test(strip(r.text)), r.status);
+  check("...and the menu shows only the two sections", !/AI models/.test(strip(r.text)) && !/Settings/.test(strip(r.text)) && /Applications/.test(strip(r.text)), "menu shows other sections");
+  r = await call("/applications"); check("...and Applications", r.status === 200, r.status);
+  for (const page of ["/settings", "/models", "/", "/profile", "/logs", "/system", "/schedules"]) { r = await call(page); check(`...but ${page} sends them back to Jobs`, r.status === 307 && /\/jobs$/.test(r.location ?? ""), `${r.status} ${r.location}`); }
+  r = await call("/api/models"); check("...and the models API is closed to them", r.status === 403, r.status);
+  r = await call("/api/settings", { method: "PUT", body: { key: "autoapply", value: { enabled: true } } }); check("...they cannot change settings", r.status === 403, r.status);
+  r = await call("/api/team"); check("...or see the team list", r.status === 403, r.status);
+  r = await call("/api/bulk", { method: "POST", body: { action: "skip", ids: [] } }); check("a view-only person cannot take actions", r.status === 403, `${r.status} ${r.text}`);
+  jar.clear(); for (const [k, v] of adminJar) jar.set(k, v);
+  r = await call("/api/team", { method: "PUT", body: { email: "stranger@x.com", role: "jobs" } }); check("the super admin changes them to Jobs & Apply", r.status === 200, r.status);
+  jar.clear();
+  r = await call("/api/auth/login", { method: "POST", body: { email: "stranger@x.com", password: PW } });
+  r = await call("/api/bulk", { method: "POST", body: { action: "skip", ids: [] } }); check("a Jobs & Apply person can use the bulk actions on their two sections (the route's own validation answers)", r.status !== 403 && r.status !== 401, `${r.status} ${r.text.slice(0, 120)}`);
+  r = await call("/settings"); check("...but still cannot open Settings", r.status === 307, r.status);
+  r = await call("/api/run/score", { method: "POST", body: {} }); check("...or run the pipeline", r.status === 403, r.status);
+  jar.clear(); for (const [k, v] of adminJar) jar.set(k, v);
+  r = await call("/api/team?email=stranger%40x.com", { method: "DELETE" }); check("the super admin removes them", r.status === 200, r.status);
+  jar.clear();
+  r = await call("/api/auth/login", { method: "POST", body: { email: "stranger@x.com", password: PW } }); check("a removed person can no longer sign in", r.status === 403, `${r.status} ${r.text}`);
+  jar.clear(); for (const [k, v] of saved) jar.set(k, v);
+}
 
 // ---- database behind the code: banner and System page tell you exactly what to do, then clear once applied
 r = await call("/system?fresh=1");
@@ -887,6 +924,7 @@ const stored = JSON.stringify(mock.settings.get("model_keys") ?? {});
 check("the key is stored encrypted, not as plaintext", stored.includes("e2e-model") && !stored.includes(KEY) && /v1\./.test(stored), stored);
 check("no endpoint echoes the key back", !r.text.includes(KEY));
 r = await call("/api/models/test", { method: "POST", body: { label: "e2e-model" } }); check("model test succeeds using the saved key", r.status === 200 && /works/.test(r.text), `${r.status} ${r.text}`);
+check("the test result is recorded, so the Status column shows it at once", mock.rowsOf("model_usage").some((u) => u.model_label === "e2e-model" && u.task === "test" && u.ok === true), "no usage row for the test");
 check("the provider received the decrypted key as a bearer token", mock.seen.lastChatAuth === `Bearer ${KEY}`, String(mock.seen.lastChatAuth));
 r = await call("/api/models/key?label=e2e-model", { method: "DELETE" }); check("removing the saved key works", r.status === 200, r.status);
 r = await call("/api/models/test", { method: "POST", body: { label: "e2e-model" } }); check("after removal the test is refused again", r.status === 422, r.status);
