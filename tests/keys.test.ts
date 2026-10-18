@@ -94,3 +94,18 @@ describe("saved model keys are readable by both the site and the GitHub runner",
     delete process.env.GEMINI_API_KEY;
   });
 });
+
+describe("one key serves every model row that uses the same variable name", () => {
+  beforeEach(() => { for (const k of Object.keys(store)) delete store[k]; });
+  it("a key pasted on one Gemini row enables the other Gemini rows", async () => {
+    env("service-A", "cron-secret-shared-1");
+    await saveKey("gemini-flash", "AIza-one", "GEMINI_API_KEY");
+    const many = [{ label: "gemini-flash", api_key_env: "GEMINI_API_KEY" }, { label: "gemini-flash-lite", api_key_env: "GEMINI_API_KEY" }, { label: "gemini-flash-k2", api_key_env: "GEMINI_API_KEY_2" }] as never;
+    const keys = await resolveKeys(many);
+    expect(keys.get("gemini-flash")).toBe("AIza-one");
+    expect(keys.get("gemini-flash-lite")).toBe("AIza-one");
+    expect(keys.has("gemini-flash-k2")).toBe(false); // a different slot has its own key
+    await saveKey("gemini-flash-k2", "AIza-two", "GEMINI_API_KEY_2");
+    expect((await resolveKeys(many)).get("gemini-flash-k2")).toBe("AIza-two");
+  });
+});

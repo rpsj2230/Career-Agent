@@ -7,7 +7,7 @@ import type { Task } from "@/lib/types";
 import { DEFAULT_MODELS } from "./defaults";
 import { callStructured } from "./call";
 import { runWithFallback, selectCandidates, timeoutFor, withLocalFallback, type ModelRow } from "./fallback";
-import { resolveKeys } from "./keys";
+import { envLabel, resolveKeys } from "./keys";
 import { defaultPrefer, orderForTier, tierOf, type Tier } from "./tiers";
 import { nextTick, parking, spreadOrder } from "./spread";
 
@@ -102,8 +102,9 @@ export async function modelReadiness(): Promise<{ usable: string[]; unreadable: 
   const k = await keyReadiness();
   const usable = rows.filter((m) => (m as ModelRow & { enabled?: boolean }).enabled !== false && (keys.has(m.label) || m.api_key_env === null)).map((m) => m.label);
   // keys that only an environment variable provides (for example in Vercel) are not seen by the GitHub runner
-  const stored = usable.filter((l) => k.readable.includes(l));
-  const envOnly = usable.filter((l) => !k.readable.includes(l) && rows.find((m) => m.label === l)?.api_key_env !== null);
+  const inStore = (l: string) => { const m = rows.find((r) => r.label === l); const share = envLabel(m?.api_key_env); return k.readable.includes(l) || (!!share && k.readable.includes(share)); };
+  const stored = usable.filter(inStore);
+  const envOnly = usable.filter((l) => !inStore(l) && rows.find((m) => m.label === l)?.api_key_env !== null);
   let message: string | null = null;
   if (usable.length === 0) {
     message = k.unreadable.length
