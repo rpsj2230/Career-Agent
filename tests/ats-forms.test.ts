@@ -64,6 +64,8 @@ describe("which ATS are applied for automatically", () => {
     for (const ats of ["greenhouse", "lever", "ashby", "workable"]) expect(decideApply("portal", caps, none, ats).mode, ats).toBe("automated");
     expect(decideApply("portal", caps, none, "recruitee").mode).toBe("assisted");
     expect(decideApply("unknown", caps, none, null).mode).toBe("assisted");
+    // LinkedIn never goes to the cloud worker, whatever the LinkedIn switch says
+    for (const on of [false, true]) expect(decideApply("linkedin", { ...caps, linkedin_automation_enabled: on }, { ...none, automatedToday: 99 }, null)).toEqual({ allowed: true, mode: "assisted" });
     expect(decideApply("greenhouse", caps, none).mode).toBe("automated"); // the existing behaviour is unchanged
   });
   it("the daily total still applies to them", () => {
