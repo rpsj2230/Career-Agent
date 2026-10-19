@@ -10,6 +10,7 @@ import { listSchedules } from "@/lib/schedule-store";
 import { db } from "@/lib/db";
 import { BackgroundBanner } from "@/components/app/background-banner";
 import { BacklogCard } from "@/components/app/backlog-card";
+import { LimitsCard } from "@/components/app/limits-card";
 import { appTimezone, fmtDateTime, fmtDuration } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
@@ -33,6 +34,7 @@ export default async function SchedulesPage() {
         <p className="text-sm text-muted-foreground">Run searches, matching and application preparation automatically. Times are in each schedule&apos;s own time zone; the app shows times in {tz}. A run that was missed (for example while paused) is not replayed. Schedules never submit by themselves unless Auto-Apply is switched on in Settings.</p>
       </div>
       <BackgroundBanner />
+      <LimitsCard />
       <BacklogCard />
       {missing && <Alert variant="destructive"><AlertTitle>Database update needed</AlertTitle><AlertDescription>Schedules cannot be saved until the update is applied. <Link className="underline" href="/system">Open System</Link>.</AlertDescription></Alert>}
       {rows.length === 0 && !missing && <Alert><AlertTitle>No schedules yet</AlertTitle><AlertDescription>Nothing runs on its own until you create one. The recommended schedule runs every day at 09:00 ({tz}), finds and scores jobs in your countries, prepares up to 20 applications and waits for your approval before anything is sent. You can change everything afterwards.</AlertDescription><div className="mt-3"><CreateRecommendedSchedule timezone={tz} /></div></Alert>}

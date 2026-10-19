@@ -53,9 +53,11 @@ export async function counts(country?: string) {
     return ((await apply(q)).count as number | null) ?? 0;
   };
   const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString();
-  const [fresh, queued, prepared, applied, saved] = await Promise.all([c("new"), c("queued"), c("prepared"), c("applied"), c("saved")]);
-  const sent7 = await appCount((q) => q.eq("status", "submitted").gte("submitted_at", weekAgo));
-  const failed = await appCount((q) => q.in("status", ["failed", "needs_input"]));
+  const [fresh, queued, prepared, applied, saved, sent7, failed] = await Promise.all([
+    c("new"), c("queued"), c("prepared"), c("applied"), c("saved"),
+    appCount((q) => q.eq("status", "submitted").gte("submitted_at", weekAgo)),
+    appCount((q) => q.in("status", ["failed", "needs_input"])),
+  ]);
   return { fresh, queued, prepared, applied, saved, sent7, failed };
 }
 

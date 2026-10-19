@@ -10,15 +10,12 @@ describe("decideApply", () => {
     expect(decideApply("greenhouse", caps, zero)).toEqual({ allowed: true, mode: "automated" });
     expect(decideApply("lever", caps, { ...zero, automatedToday: 3 }).allowed).toBe(false);
   });
-  it("keeps LinkedIn assisted unless automation is enabled", () => {
-    expect(decideApply("linkedin", caps, zero)).toEqual({ allowed: true, mode: "assisted" });
-  });
-  it("enforces LinkedIn daily and weekly caps by downgrading to assisted", () => {
-    const on = { ...caps, linkedin_automation_enabled: true };
-    expect(decideApply("linkedin", on, zero).mode).toBe("automated");
-    expect(decideApply("linkedin", on, { ...zero, linkedinAutomatedToday: 2 })).toMatchObject({ allowed: true, mode: "assisted" });
-    expect(decideApply("linkedin", on, { ...zero, linkedinAutomatedThisWeek: 5 }).reason).toMatch(/weekly/);
-    expect(decideApply("linkedin", on, { ...zero, automatedToday: 3 }).allowed).toBe(false);
+  it("always sends LinkedIn to the assistant on your computer, never to the cloud worker", () => {
+    for (const on of [false, true]) {
+      const c = { ...caps, linkedin_automation_enabled: on };
+      expect(decideApply("linkedin", c, zero)).toEqual({ allowed: true, mode: "assisted" });
+      expect(decideApply("linkedin", c, { ...zero, automatedToday: 99, linkedinAutomatedToday: 99, linkedinAutomatedThisWeek: 99 })).toEqual({ allowed: true, mode: "assisted" });
+    }
   });
   it("always assists login-gated portals and unknown sites", () => {
     expect(decideApply("portal", caps, zero).mode).toBe("assisted");

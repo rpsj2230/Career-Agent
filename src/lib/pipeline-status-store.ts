@@ -4,7 +4,6 @@ import { workerConfigured } from "@/lib/apply/dispatch";
 import { loadCapState } from "@/lib/apply/state";
 import { lastTick } from "@/lib/automation-health";
 import { db } from "@/lib/db";
-import { fetchAll } from "@/lib/fetch-all";
 import { modelHealth, type Call } from "@/lib/llm/health";
 import { modelReadiness } from "@/lib/llm/registry";
 import { explainPipeline, type PipelineInput } from "@/lib/pipeline-status";
@@ -43,16 +42,19 @@ export async function loadPipelineStatus(now = new Date()) {
   let allFailing = false, allAtLimit = false, lastError: string | null = null;
   if (usableLabels.length > 0) {
     const midnight = new Date(now); midnight.setUTCHours(0, 0, 0, 0);
-    const [cfg, today, recent] = await Promise.all([
+    // today's calls are counted by the database, not read row by row (a busy day has thousands of rows)
+    const count = (label: string, ok: boolean) => safe(async () => (await db().from("model_usage").select("id", { count: "exact", head: true }).eq("model_label", label).eq("ok", ok).gte("created_at", midnight.toISOString())).count ?? 0, 0);
+    const [cfg, recent, todayCounts] = await Promise.all([
       safe(async () => (await db().from("model_configs").select("label,daily_cap").in("label", usableLabels)).data ?? [], [] as { label: string; daily_cap: number | null }[]),
-      safe(async () => (await fetchAll<{ model_label: string; ok: boolean }>((a, b) => db().from("model_usage").select("model_label,ok").gte("created_at", midnight.toISOString()).order("id").range(a, b), 50_000)).data, [] as { model_label: string; ok: boolean }[]),
       safe(async () => (await db().from("model_usage").select("model_label,ok,error,created_at").in("model_label", usableLabels).order("created_at", { ascending: false }).limit(400)).data ?? [], [] as { model_label: string; ok: boolean; error: string | null; created_at: string }[]),
+      Promise.all(usableLabels.map(async (label) => ({ label, ok: await count(label, true), bad: await count(label, false) }))),
     ]);
     const health = usableLabels.map((label) => {
       const c = cfg.find((x) => x.label === label);
       const calls: Call[] = recent.filter((r) => r.model_label === label).slice(0, 20).map((r) => ({ ok: r.ok, error: r.error, at: r.created_at }));
-      const todayOk = today.filter((t) => t.model_label === label && t.ok).length;
-      return { label, cap: c?.daily_cap ?? null, todayOk, h: modelHealth({ enabled: true, keyed: true, todayOk, todayBad: today.filter((t) => t.model_label === label && !t.ok).length, dailyCap: c?.daily_cap ?? null, calls }) };
+      const t = todayCounts.find((x) => x.label === label);
+      const todayOk = t?.ok ?? 0;
+      return { label, cap: c?.daily_cap ?? null, todayOk, h: modelHealth({ enabled: true, keyed: true, todayOk, todayBad: t?.bad ?? 0, dailyCap: c?.daily_cap ?? null, calls }) };
     });
     allAtLimit = health.every((x) => x.cap !== null && x.todayOk >= x.cap);
     allFailing = !allAtLimit && health.every((x) => x.h.status === "failing");
