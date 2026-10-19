@@ -5,7 +5,7 @@
  */
 import { mkdirSync } from "node:fs";
 import { asAssistantProfile, browserDirFor, type Who } from "./assist-profile";
-import { browserFromMachine } from "./browser";
+import { browserFromMachine, PLAIN_HTTP } from "./browser";
 import { chromium } from "playwright";
 
 const SITES = [
@@ -21,7 +21,7 @@ async function main(who: Who | null) {
   const choice = browserFromMachine();
   console.log(`Browser: ${choice.name}. It uses its own profile folder (${profileDir}), not your everyday browser profile.`);
   const context = await chromium.launchPersistentContext(profileDir, {
-    headless: false, viewport: null, executablePath: choice.executablePath, channel: choice.channel,
+    headless: false, viewport: null, executablePath: choice.executablePath, channel: choice.channel, ...PLAIN_HTTP,
   });
   console.log("A browser window is open with one tab per portal. Sign in to each one you use (solve any security check yourself).");
   console.log("When you are finished, CLOSE THE BROWSER WINDOW. Your sessions are kept for the assistant.");

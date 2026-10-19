@@ -38,3 +38,9 @@ export function browserFromMachine(): BrowserChoice {
   try { conf = readFileSync(join(homedir(), ".career-agent", "browser.conf"), "utf8").split("\n")[0]; } catch { /* not set */ }
   return chooseBrowser({ env: process.env, platform: process.platform, exists: existsSync, conf });
 }
+
+/**
+ * Naukri's servers sometimes drop the newer HTTP/2 connection from the assistant's browser ("ERR_HTTP2_PROTOCOL_ERROR", "This site can't be reached").
+ * Asking for plain HTTP/1.1 makes those pages load. It changes only the network protocol, nothing about how the window presents itself.
+ */
+export const PLAIN_HTTP: { args: string[] } = { args: ["--disable-http2"] };
