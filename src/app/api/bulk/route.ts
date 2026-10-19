@@ -31,7 +31,7 @@ export async function POST(request: Request) {
       if (err) return NextResponse.json({ error: `GitHub did not start it: ${err}` }, { status: 502 });
       await noteBackgroundStart("prepare");
       await logActivity({ kind: "schedule.changed", message: `Preparing ${ids.length} application(s) started in the background (from the site)`, status: "dispatched", detail: { where: "github-actions", jobs: ids.length } }).catch(() => undefined);
-      return NextResponse.json({ ok: true, where: "github", note: `Preparing ${ids.length} application${ids.length === 1 ? "" : "s"} in the background (about 1 to 3 minutes each). They appear under Applications as Pending approval.` });
+      return NextResponse.json({ ok: true, where: "github", count: ids.length, extra: "They are written in the background (about 1 to 3 minutes each) and appear under Applications as Pending approval.", note: `Preparing ${ids.length} application${ids.length === 1 ? "" : "s"} in the background (about 1 to 3 minutes each). They appear under Applications as Pending approval.` });
     }
     // without GitHub: as many as fit inside the web request, the rest are left for the next press
     const deadline = Date.now() + 45_000;
@@ -40,7 +40,7 @@ export async function POST(request: Request) {
       if (Date.now() > deadline - 15_000) break;
       try { await prepareApplication(id); done++; } catch (e) { failed.push(e instanceof Error ? e.message : String(e)); }
     }
-    return NextResponse.json({ ok: true, where: "inline", note: `Prepared ${done} of ${ids.length} here${failed.length ? ` (${failed.length} failed: ${failed[0].slice(0, 120)})` : ""}.${done < ids.length ? " Connect GitHub (System health) to prepare many at once in the background." : ""}` });
+    return NextResponse.json({ ok: true, where: "inline", count: done, unreached: ids.slice(done + failed.length), note: `Prepared ${done} of ${ids.length} here${failed.length ? ` (${failed.length} failed: ${failed[0].slice(0, 120)})` : ""}.${done < ids.length ? " Connect GitHub (System health) to prepare many at once in the background." : ""}` });
   }
 
   if (action === "regenerate" || action === "reapply") {
@@ -55,9 +55,9 @@ export async function POST(request: Request) {
         await db().from("applications").update({ status: "prepared", error: null, approved_at: null }).eq("id", r.id);
         await db().from("jobs").update({ status: "prepared" }).eq("id", r.job_id);
       }
-      return NextResponse.json({ ok: true, note: `${again.length} set back to Pending approval with the same resume; press Approve for them.${left ? ` Left alone: ${left}.` : ""}` });
+      return NextResponse.json({ ok: true, count: again.length, extra: left ? `Left alone: ${left}.` : "", note: `${again.length} set back to Pending approval with the same resume; press Approve for them.${left ? ` Left alone: ${left}.` : ""}` });
     }
-    if (todo.length === 0) return NextResponse.json({ ok: true, note: `Nothing to regenerate.${left ? ` Left alone: ${left}.` : ""}` });
+    if (todo.length === 0) return NextResponse.json({ ok: true, count: 0, extra: left ? `Left alone: ${left}.` : "", note: `Nothing to regenerate.${left ? ` Left alone: ${left}.` : ""}` });
     if (!workerConfigured()) return NextResponse.json({ error: "Connect GitHub (System health) to write many resumes in the background, or open one application and use Write a new resume." }, { status: 409 });
     const batch = todo.slice(0, 20);
     let started = 0, firstError = "";
@@ -67,7 +67,7 @@ export async function POST(request: Request) {
       started++;
     }
     if (started > 0) await noteBackgroundStart("prepare");
-    return NextResponse.json({ ok: started > 0, ...(started === 0 ? { error: `GitHub did not start it: ${firstError}` } : {}), note: `Writing new resumes for ${started} application${started === 1 ? "" : "s"} in the background (1 to 3 minutes each); they return to Pending approval.${todo.length > batch.length ? ` ${todo.length - batch.length} more were not started (20 at a time).` : ""}${left ? ` Left alone: ${left}.` : ""}` }, { status: started > 0 ? 200 : 502 });
+    return NextResponse.json({ ok: started > 0, count: started, extra: left ? `Left alone: ${left}.` : "", ...(started === 0 ? { error: `GitHub did not start it: ${firstError}` } : {}), note: `Writing new resumes for ${started} application${started === 1 ? "" : "s"} in the background (1 to 3 minutes each); they return to Pending approval.${todo.length > batch.length ? ` ${todo.length - batch.length} more were not started (20 at a time).` : ""}${left ? ` Left alone: ${left}.` : ""}` }, { status: started > 0 ? 200 : 502 });
   }
 
   if (action === "skip") {
@@ -75,7 +75,7 @@ export async function POST(request: Request) {
     const live = must<{ id: string; status: string }[]>(await db().from("applications").select("id,status").in("id", ids), "load applications").filter((r) => !["submitted", "approved", "submitting"].includes(r.status));
     let done = 0;
     for (const r of live) if (await skipApplication(r.id).catch(() => false)) done++;
-    return NextResponse.json({ ok: true, note: `Skipped ${done} application${done === 1 ? "" : "s"}.${live.length < ids.length ? ` ${ids.length - live.length} already sent or being sent were left alone.` : ""}` });
+    return NextResponse.json({ ok: true, count: done, extra: live.length < ids.length ? `${ids.length - live.length} already sent or being sent were left alone.` : "", note: `Skipped ${done} application${done === 1 ? "" : "s"}.${live.length < ids.length ? ` ${ids.length - live.length} already sent or being sent were left alone.` : ""}` });
   }
 
   // approve
@@ -101,5 +101,5 @@ export async function POST(request: Request) {
   if (emailed) parts.push(`${emailed} also emailed to the employer.`);
   if (problems.length) parts.push(`${problems.length} not approved: ${problems[0].error.slice(0, 140)}${problems.length > 1 ? " (and others)" : ""}.`);
   if (reached < ids.length) parts.push(`${ids.length - reached} not reached in time: press again for the rest.`);
-  return NextResponse.json({ ok: true, note: parts.join(" "), approved, automated, problems });
+  return NextResponse.json({ ok: true, note: parts.join(" "), count: approved, approved, automated, emailed, problems, unreached: ids.slice(reached) });
 }
