@@ -66,7 +66,7 @@ export default async function ApplicationsPage({ searchParams }: { searchParams:
         showing={`${total.toLocaleString("en-US")} application${total === 1 ? "" : "s"}${pages > 1 ? ` · page ${page} of ${pages}` : ""}`}
       />
       {portalUnavailable && <Alert><AlertDescription>Portal filters are not available until the database update is applied (see System).</AlertDescription></Alert>}
-      <Card>
+      <Card id="application-list" className="scroll-mt-4">
         <CardHeader><CardTitle>{total.toLocaleString("en-US")} application{total === 1 ? "" : "s"}{q.stages.length === 1 ? ` · ${STAGES[q.stages[0]].label}` : q.stages.length > 1 ? ` · ${q.stages.length} stages` : " · all statuses"}{pages > 1 ? ` · page ${page} of ${pages}` : ""}</CardTitle></CardHeader>
         <CardContent>
           <PageSizeBar basePath="/applications" sp={sp} size={paging.size} total={total} shownFrom={shownFrom} shownTo={shownTo} />
