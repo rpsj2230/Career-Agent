@@ -12,6 +12,7 @@ import { db } from "@/lib/db";
 import { getProfile } from "@/lib/profile/store";
 import { getSetting } from "@/lib/settings";
 import { buildLibrary, matchesQuery, tagsFor } from "@/lib/tailor/library";
+import { MasterUpload } from "@/components/app/master-upload";
 import { getMasterInfo } from "@/lib/tailor/master-store";
 import { masterAsTailored, resumeView } from "@/lib/tailor/sections";
 import { STYLES, styleById } from "@/lib/tailor/template";
@@ -49,7 +50,8 @@ export default async function ResumesPage({ searchParams }: { searchParams: Prom
               <span className="font-medium">{master.name}</span><span className="text-muted-foreground">{Math.round(master.size / 1024)} KB, {fmtDate(master.uploaded_at, tz)}</span>
               <Button asChild size="sm" variant="outline"><a href="/api/resumes/master?file=original">Download</a></Button>
             </div>
-          ) : <p className="text-sm"><Badge variant="secondary">None yet</Badge> Upload your master resume on the <Link className="underline" href="/profile">Profile</Link> page.</p>}
+          ) : <p className="text-sm"><Badge variant="secondary">None yet</Badge> Upload your master resume below, or on the <Link className="underline" href="/profile">Profile</Link> page.</p>}
+          <MasterUpload hasFile={!!master} />
           <p className="text-xs text-muted-foreground">The master resume is uploaded once, on the <Link className="underline" href="/profile">Profile</Link> page. That one upload fills your profile, builds the template below and is kept here as the fallback. To change it, import a new file there.</p>
         </CardContent>
       </Card>

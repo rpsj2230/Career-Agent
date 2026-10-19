@@ -34,9 +34,19 @@ export async function POST(request: Request) {
     const draft = await importProfile({ master, supporting, pastedText: pasted }, existing.preferences);
     await saveDraft(draft);
     // the master resume is also kept exactly as uploaded: it is the fallback when a tailored resume cannot be made
-    if (master) await saveMasterResume(master.name, master.bytes).catch((e) => console.error(`[resume] could not keep the uploaded file: ${e instanceof Error ? e.message : e}`));
-    await logConfig("Profile imported as a draft", { master: masterFile?.name ?? null, files: files.map((f) => f.name), pastedText: pasted.trim().length > 0, model: draft.model, conflicts: draft.conflicts.length });
-    return NextResponse.json({ ok: true, conflicts: draft.conflicts, model: draft.model });
+    // say what happened to the file instead of keeping quiet: a silent failure left the old resume on the Resumes page
+    let masterKept: { name: string; size: number } | { error: string } | null = null;
+    if (master) {
+      try {
+        const kept = await saveMasterResume(master.name, master.bytes);
+        masterKept = kept ? { name: kept.name, size: kept.size } : { error: "the file was empty, too large (over 10 MB) or not a PDF/DOCX" };
+      } catch (e) {
+        masterKept = { error: e instanceof Error ? e.message : String(e) };
+        console.error(`[resume] could not keep the uploaded file: ${masterKept.error}`);
+      }
+    }
+    await logConfig("Profile imported as a draft", { master: masterFile?.name ?? null, files: files.map((f) => f.name), pastedText: pasted.trim().length > 0, model: draft.model, conflicts: draft.conflicts.length, master_kept: masterKept });
+    return NextResponse.json({ ok: true, conflicts: draft.conflicts, model: draft.model, masterKept, masterGiven: !!masterFile });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Import failed" }, { status: 422 });
   }

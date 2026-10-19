@@ -24,10 +24,17 @@ export function ImportBox() {
     try {
       const res = await fetch("/api/profile/import", { method: "POST", body: form });
       const raw = await res.text();
-      let data: { error?: string; model?: string } = {};
+      let data: { error?: string; model?: string; masterKept?: { name?: string; error?: string } | null; masterGiven?: boolean } = {};
       try { data = JSON.parse(raw); } catch { /* the host answered with a plain page, not JSON */ }
       if (!res.ok) toast.error(data.error ?? (res.status === 413 ? "The files are too large to upload here (the limit is about 4 MB in total). Upload your master resume alone first." : res.status === 504 || res.status === 408 ? "The import took too long and was cut off. Try again, or paste less text." : `Import failed (HTTP ${res.status}): ${raw.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 200) || "no details"}`));
-      else { toast.success(`Draft ready (model ${data.model}). Review it below before confirming.`); router.refresh(); }
+      else {
+        toast.success(`Draft ready (model ${data.model}). Review it below before confirming.`);
+        // the file shown on the Resumes page changes only when it was uploaded in box 1; say what happened to it
+        if (data.masterKept?.name) toast.success(`Master resume file replaced: ${data.masterKept.name}. It now shows on the Resumes page.`);
+        else if (data.masterKept?.error) toast.error(`Your profile draft is ready, but the master resume file was NOT replaced: ${data.masterKept.error}. Upload it on the Resumes page instead.`);
+        else if (!data.masterGiven) toast.message("The master resume file on the Resumes page was not changed, because no file was chosen in box 1. Upload it on the Resumes page if you want it replaced.");
+        router.refresh();
+      }
     } catch (err) {
       toast.error(`Import failed: the server could not be reached (${err instanceof Error ? err.message : "network error"}). Check your connection and try again.`);
     } finally { setBusy(false); }
