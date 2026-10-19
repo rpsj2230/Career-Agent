@@ -14,6 +14,17 @@ export async function GET(request: Request) {
     options: { redirectTo: `${publicOrigin(request)}/api/auth/callback`, skipBrowserRedirect: true },
   });
   if (error || !data?.url) return NextResponse.redirect(new URL("/login?error=google", publicOrigin(request)));
+  // /api/auth/google?debug=1 shows exactly what is being sent to Supabase, so the allowed-list entry can be compared character by character
+  if (new URL(request.url).searchParams.get("debug") === "1") {
+    const sent = new URL(data.url);
+    return NextResponse.json({
+      redirectToSentToSupabase: sent.searchParams.get("redirect_to"),
+      mustBeOnSupabaseRedirectUrlsList: `${publicOrigin(request)}/api/auth/callback`,
+      alsoSetSupabaseSiteUrlTo: publicOrigin(request),
+      supabaseHost: sent.host,
+      note: "If redirectToSentToSupabase is not on Supabase > Authentication > URL Configuration > Redirect URLs (exactly, or matched by a /** wildcard), Supabase sends you to its Site URL instead (localhost:3000 by default).",
+    });
+  }
   const res = NextResponse.redirect(data.url);
   res.cookies.set(NEXT_COOKIE, next, { httpOnly: true, sameSite: "lax", secure: isHttps(request), path: "/", maxAge: 600 });
   return res;
