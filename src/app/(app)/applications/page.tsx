@@ -56,10 +56,10 @@ export default async function ApplicationsPage({ searchParams }: { searchParams:
           {rows.length === 0 ? <p className="text-sm text-muted-foreground">Nothing here for these filters. Open a job from the review queue and prepare it.</p> : (
             <SelectableTable
               hint="Approving sends automatic ones from the cloud, emails the employer where an address is listed, and queues the rest for your assistant."
-              actions={[{ label: "Approve and apply selected", action: "approve", confirm: "Approve and apply {n} application(s)? Anything that can be sent automatically will be sent." }, { label: "Skip selected", action: "skip", variant: "outline", confirm: "Skip {n} application(s)?" }]}
+              actions={[{ label: "Approve and apply selected", action: "approve", confirm: "Approve and apply {n} application(s)? Anything that can be sent automatically will be sent." }, { label: "Write new resumes for selected", action: "regenerate", variant: "outline", confirm: "Write a new resume and cover letter for {n} application(s)? They go back to Pending approval and you approve them again (up to 20 at a time)." }, { label: "Apply again (same resume)", action: "reapply", variant: "outline", confirm: "Put {n} application(s) back to Pending approval with the same resume so you can approve them again?" }, { label: "Skip selected", action: "skip", variant: "outline", confirm: "Skip {n} application(s)?" }]}
               head={["Role", "Source · country", "Status", "How it is applied", "Next step", "Reply", "Resume · submitted"]}
               rows={rows.map((r) => ({
-                id: r.id, selectId: ["prepared", "needs_input", "failed"].includes(r.status) ? r.id : null,
+                id: r.id, selectId: ["prepared", "needs_input", "failed", "assisted_pending", "submitted"].includes(r.status) ? r.id : null,
                 cells: [
                   <div key="r"><Link className="font-medium hover:underline" href={`/applications/${r.id}`}>{r.job?.title}</Link><div className="text-xs text-muted-foreground">{r.job?.company}</div></div>,
                   <div key="s"><SourceBadge portal={r.job?.portal} source={r.job?.source} /><div className="mt-1 text-xs text-muted-foreground">{countryLabel(r.job?.country)}</div></div>,
@@ -69,7 +69,7 @@ export default async function ApplicationsPage({ searchParams }: { searchParams:
                     ? <div key="n" className="flex flex-col gap-1"><ActionButton endpoint="/api/assistant/run" success="Assistant asked to run" size="sm" disabled={panel?.pending}>{panel?.pending ? (panel.online ? "Requested: starting" : "Requested: assistant not running") : n.text}</ActionButton><span className="text-xs text-muted-foreground">{panel?.online ? "Assistant is running; starts within ~30 s." : "The assistant is not running on your computer yet (see the card above for setup)."}</span></div>
                     : n.href ? <Link key="n" className="text-sm underline" href={n.href}>{n.text}</Link> : <span key="n" className="text-sm text-muted-foreground">{n.text}</span>; })(),
                   r.lifecycle === "none" ? "-" : <Badge key="l">{r.lifecycle}</Badge>,
-                  <div key="v" className="text-xs"><Link className="underline" href={`/applications/${r.id}#documents`} target="_blank" rel="noreferrer">View resume v{r.resume?.version ?? "?"}</Link><div className="text-muted-foreground">{fmt(r.submitted_at)}</div></div>,
+                  <div key="v" className="text-xs"><Link className="underline" href={`/applications/${r.id}#documents`} target="_blank" rel="noreferrer">View resume v{r.resume?.version ?? "?"}</Link><div><Link className="underline" href={`/applications/${r.id}#regenerate`}>New resume / apply again</Link></div><div className="text-muted-foreground">{fmt(r.submitted_at)}</div></div>,
                 ],
               }))}
             />

@@ -1,4 +1,5 @@
 import "server-only";
+import { fetchAll } from "@/lib/fetch-all";
 import { db } from "@/lib/db";
 import { finishScan, startScan, withRun, type RunCtx } from "@/lib/activity";
 import { integrationById, type IntegrationId } from "@/lib/integrations/catalog";
@@ -38,7 +39,7 @@ const scanKey = (integration: string, country?: string | null, query?: string | 
 
 /** For each search (integration + country + query): its recent successful runs, newest first. Tolerates a missing table. */
 async function recentScans(): Promise<Map<string, { at: Date; inserted: number; fetched: number }[]>> {
-  const res = await db().from("portal_scans").select("integration,country,query,started_at,inserted,fetched").eq("status", "ok").order("started_at", { ascending: false }).limit(4000);
+  const res = await fetchAll((a, b) => db().from("portal_scans").select("integration,country,query,started_at,inserted,fetched").eq("status", "ok").order("started_at", { ascending: false }).order("id").range(a, b), 4000);
   const out = new Map<string, { at: Date; inserted: number; fetched: number }[]>();
   if (res.error) return out;
   for (const r of res.data as { integration: string; country: string | null; query: string | null; started_at: string; inserted: number | null; fetched: number | null }[]) {

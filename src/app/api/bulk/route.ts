@@ -5,17 +5,20 @@ import { approveApplication } from "@/lib/apply/approve";
 import { dispatchWorkflow, workerConfigured } from "@/lib/apply/dispatch";
 import { prepareApplication } from "@/lib/apply/prepare";
 import { skipApplication } from "@/lib/apply/skip";
+import { db, must } from "@/lib/db";
 import { noteBackgroundStart } from "@/lib/background-status";
 
 export const maxDuration = 60;
 
-const Body = z.object({ action: z.enum(["prepare", "approve", "skip"]), ids: z.array(z.string().uuid()).min(1).max(50) });
+const Body = z.object({ action: z.enum(["prepare", "approve", "skip", "regenerate", "reapply"]), ids: z.array(z.string().uuid()).min(1).max(50) });
 
 /**
  * Do one thing to many rows at once (the checkboxes on Jobs and Applications):
  *  - prepare: write the resume, cover letter (and email) for the selected matched jobs, in the background on GitHub
  *  - approve: approve the selected applications under the normal rules; automatic ones are sent from the cloud in one batch
  *  - skip: skip the selected applications
+ *  - regenerate: write a new resume and cover letter for the selected applications (in the background on GitHub; sent ones are left alone)
+ *  - reapply: put the selected failed or waiting applications back to Pending approval with the same resume (sent ones are left alone)
  */
 export async function POST(request: Request) {
   const parsed = Body.safeParse(await request.json().catch(() => null));
@@ -40,10 +43,39 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, where: "inline", note: `Prepared ${done} of ${ids.length} here${failed.length ? ` (${failed.length} failed: ${failed[0].slice(0, 120)})` : ""}.${done < ids.length ? " Connect GitHub (System health) to prepare many at once in the background." : ""}` });
   }
 
+  if (action === "regenerate" || action === "reapply") {
+    const rows = must<{ id: string; job_id: string; status: string }[]>(await db().from("applications").select("id,job_id,status").in("id", ids), "load applications");
+    const busy = rows.filter((r) => ["approved", "submitting"].includes(r.status)).length;
+    const sent = rows.filter((r) => r.status === "submitted").length;
+    const todo = rows.filter((r) => !["approved", "submitting", "submitted"].includes(r.status));
+    const left = [busy ? `${busy} being sent right now` : "", sent ? `${sent} already submitted (open one to apply again on purpose)` : ""].filter(Boolean).join(", ");
+    if (action === "reapply") {
+      const again = todo.filter((r) => r.status !== "prepared");
+      for (const r of again) {
+        await db().from("applications").update({ status: "prepared", error: null, approved_at: null }).eq("id", r.id);
+        await db().from("jobs").update({ status: "prepared" }).eq("id", r.job_id);
+      }
+      return NextResponse.json({ ok: true, note: `${again.length} set back to Pending approval with the same resume; press Approve for them.${left ? ` Left alone: ${left}.` : ""}` });
+    }
+    if (todo.length === 0) return NextResponse.json({ ok: true, note: `Nothing to regenerate.${left ? ` Left alone: ${left}.` : ""}` });
+    if (!workerConfigured()) return NextResponse.json({ error: "Connect GitHub (System health) to write many resumes in the background, or open one application and use Write a new resume." }, { status: 409 });
+    const batch = todo.slice(0, 20);
+    let started = 0, firstError = "";
+    for (const r of batch) {
+      const err = await dispatchWorkflow("task.yml", { task: "regenerate", job_id: r.job_id, guidance: "", confirm: "" });
+      if (err) { firstError ||= err; continue; }
+      started++;
+    }
+    if (started > 0) await noteBackgroundStart("prepare");
+    return NextResponse.json({ ok: started > 0, ...(started === 0 ? { error: `GitHub did not start it: ${firstError}` } : {}), note: `Writing new resumes for ${started} application${started === 1 ? "" : "s"} in the background (1 to 3 minutes each); they return to Pending approval.${todo.length > batch.length ? ` ${todo.length - batch.length} more were not started (20 at a time).` : ""}${left ? ` Left alone: ${left}.` : ""}` }, { status: started > 0 ? 200 : 502 });
+  }
+
   if (action === "skip") {
+    // an application that was already sent, or is being sent, is never skipped from here
+    const live = must<{ id: string; status: string }[]>(await db().from("applications").select("id,status").in("id", ids), "load applications").filter((r) => !["submitted", "approved", "submitting"].includes(r.status));
     let done = 0;
-    for (const id of ids) if (await skipApplication(id).catch(() => false)) done++;
-    return NextResponse.json({ ok: true, note: `Skipped ${done} application${done === 1 ? "" : "s"}.` });
+    for (const r of live) if (await skipApplication(r.id).catch(() => false)) done++;
+    return NextResponse.json({ ok: true, note: `Skipped ${done} application${done === 1 ? "" : "s"}.${live.length < ids.length ? ` ${ids.length - live.length} already sent or being sent were left alone.` : ""}` });
   }
 
   // approve

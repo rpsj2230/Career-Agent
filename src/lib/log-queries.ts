@@ -1,4 +1,5 @@
 import "server-only";
+import { fetchAll } from "@/lib/fetch-all";
 import { db } from "@/lib/db";
 import { isMissingSchemaError } from "@/lib/schema";
 import { localDayBounds } from "@/lib/time";
@@ -82,11 +83,13 @@ export async function recentScans(o: { from?: string; to?: string; tz?: string; 
 
 /** Application log lines in a period (or one run), for the "how applying went" report. */
 export async function applyLogs(o: { from?: string; to?: string; tz?: string; run?: string }) {
-  let q = db().from("activity_log").select("kind,portal,country,status,detail").in("kind", ["application.submitted", "application.approved", "application.needs_input", "application.manual", "application.failed"]);
   const from = o.from ? localDayBounds(o.from, o.tz) : null, to = o.to ? localDayBounds(o.to, o.tz) : null;
-  if (o.run) q = q.eq("run_id", o.run);
-  if (from) q = q.gte("created_at", from.from);
-  if (to) q = q.lte("created_at", to.to);
-  const res = await q.order("created_at", { ascending: false }).limit(5000);
+  const res = await fetchAll((a, b) => {
+    let q = db().from("activity_log").select("kind,portal,country,status,detail").in("kind", ["application.submitted", "application.approved", "application.needs_input", "application.manual", "application.failed"]);
+    if (o.run) q = q.eq("run_id", o.run);
+    if (from) q = q.gte("created_at", from.from);
+    if (to) q = q.lte("created_at", to.to);
+    return q.order("created_at", { ascending: false }).order("id").range(a, b);
+  }, 20_000);
   return res.error ? [] : (res.data as { kind: string; portal: string | null; country: string | null; status: string | null; detail: Record<string, unknown> | null }[]);
 }

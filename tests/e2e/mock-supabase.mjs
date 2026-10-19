@@ -216,8 +216,11 @@ function rest(req, res, url, table, body) {
     const totalBeforePaging = list.length;
     const range = (req.headers.range ?? "").match(/^(\d+)-(\d+)$/);
     if (range) list = list.slice(+range[1], +range[2] + 1);
+    const off = url.searchParams.get("offset");
+    if (off !== null) list = list.slice(+off);
     const lim = url.searchParams.get("limit");
     if (lim !== null) list = list.slice(0, +lim);
+    if (req.method !== "HEAD" && !prefer.includes("count=exact") && list.length > 1000) list = list.slice(0, 1000); // PostgREST never returns more than 1000 rows per request
     if (req.method === "HEAD") return send(res, 200, undefined, { "Content-Range": `0-${Math.max(list.length - 1, 0)}/${list.length}` });
     if (prefer.includes("count=exact")) res.setHeader("Content-Range", `${range ? range[1] : 0}-${Math.max(list.length - 1 + (range ? +range[1] : 0), 0)}/${totalBeforePaging}`);
     return respondRows(list);

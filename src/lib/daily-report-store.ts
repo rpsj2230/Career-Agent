@@ -1,6 +1,7 @@
 import "server-only";
 import { logActivity } from "@/lib/activity";
 import { db } from "@/lib/db";
+import { fetchAll } from "@/lib/fetch-all";
 import { sendTelegram } from "@/lib/notify";
 import { isMissingSchemaError } from "@/lib/schema";
 import { buildDailyReport, type DailyReport, type DailyReportInput, type RApp, type RJob } from "./daily-report";
@@ -27,11 +28,11 @@ export async function loadReportInput(date: string, timezone = appTimezone()): P
   const jobCols = "id,title,company,country,portal,skip_reason";
   const appCols = "id,method,error, job:jobs(title,company,country,portal)";
   const [found, decided, created, sent, open, scans, runs] = await Promise.all([
-    rows(db().from("jobs").select(jobCols).gte("found_at", b.from).lte("found_at", b.to).limit(2000)),
-    rows(db().from("jobs").select(`${jobCols},status`).gte("decided_at", b.from).lte("decided_at", b.to).limit(2000)),
-    rows(db().from("applications").select(appCols).gte("created_at", b.from).lte("created_at", b.to).limit(1000)),
-    rows(db().from("applications").select(appCols).gte("submitted_at", b.from).lte("submitted_at", b.to).limit(1000)),
-    rows(db().from("applications").select(`${appCols},status`).in("status", OPEN).limit(1000)),
+    rows(fetchAll((a, z) => db().from("jobs").select(jobCols).gte("found_at", b.from).lte("found_at", b.to).order("id").range(a, z))),
+    rows(fetchAll((a, z) => db().from("jobs").select(`${jobCols},status`).gte("decided_at", b.from).lte("decided_at", b.to).order("id").range(a, z))),
+    rows(fetchAll((a, z) => db().from("applications").select(appCols).gte("created_at", b.from).lte("created_at", b.to).order("id").range(a, z))),
+    rows(fetchAll((a, z) => db().from("applications").select(appCols).gte("submitted_at", b.from).lte("submitted_at", b.to).order("id").range(a, z))),
+    rows(fetchAll((a, z) => db().from("applications").select(`${appCols},status`).in("status", OPEN).order("id").range(a, z))),
     rows(db().from("portal_scans").select("integration,error").eq("status", "error").gte("started_at", b.from).lte("started_at", b.to).limit(200)),
     rows(db().from("automation_runs").select("id,kind,error").eq("status", "failed").gte("started_at", b.from).lte("started_at", b.to).limit(100)),
   ]);
