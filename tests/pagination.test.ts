@@ -25,6 +25,7 @@ describe("pagination helpers", () => {
   it("keeps every filter in the link and drops default values", () => {
     expect(pageHref("/jobs", { view: "queue", country: "sg", page: "4" }, 2, 10)).toBe("/jobs?view=queue&country=sg&page=2");
     expect(pageHref("/jobs", { view: "queue" }, 1, 10)).toBe("/jobs?view=queue");
+    expect(pageHref("/jobs", { stage: ["matched", "failed"], portal: "adzuna" }, 3, 10)).toBe("/jobs?stage=matched&stage=failed&portal=adzuna&page=3"); // multi-value filters survive paging
     expect(pageHref("/jobs", { view: "queue" }, 1, 25)).toBe("/jobs?view=queue&size=25");
     expect(pageHref("/logs", {}, 2, 25, 25)).toBe("/logs?page=2"); // a page with its own default
     expect(pageHref("/jobs", { view: "queue", size: "50" }, 3, 50)).toBe("/jobs?view=queue&size=50&page=3");

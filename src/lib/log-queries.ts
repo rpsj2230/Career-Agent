@@ -36,7 +36,7 @@ export function applyLogFilters<Q extends { eq: any; gte: any; lte: any; like: a
 export async function queryLogs(f: LogFilters, tz?: string): Promise<{ rows: LogRow[]; total: number; missing: boolean }> {
   const start = (f.page - 1) * f.size;
   const base = db().from("activity_log").select("*", { count: "exact" });
-  const res = await applyLogFilters(base, f, tz).order("at", { ascending: false }).order("id", { ascending: false }).range(start, start + f.size - 1);
+  const res = await applyLogFilters(base, f, tz).order("at", { ascending: f.order === "oldest" }).order("id", { ascending: f.order === "oldest" }).range(start, start + f.size - 1);
   if (res.error) {
     if (isMissingSchemaError(res.error.message)) return { rows: [], total: 0, missing: true };
     throw new Error(`load logs: ${res.error.message}`);

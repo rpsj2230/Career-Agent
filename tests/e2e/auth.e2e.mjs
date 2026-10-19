@@ -228,13 +228,13 @@ check("the job is Singapore, labelled MyCareersFuture, with a monthly SGD salary
 // ---- Jobs list: origin portal shown, filters in the URL, hostile input ignored
 r = await call("/jobs?view=all"); check("Jobs list shows every stored job with its source", r.status === 200 && r.text.includes("Principal Product Manager") && r.text.includes("Gamma Pte Ltd") && r.text.includes("Delta"), `${r.status}`);
 check("the Source column names the origin portals", r.text.includes("LinkedIn") && r.text.includes("Adzuna"), "portal labels missing");
-check("the filter lists portals that actually exist, with counts", /<option value="linkedin">LinkedIn \(3\)/.test(r.text.replace(/<!-- -->/g, "")), JSON.stringify(r.text.replace(/<!-- -->/g, "").match(/<option value="[a-z]+">[^<]*<\/option>/g)));
+check("the filter lists portals that actually exist, with counts", /name="portal" value="linkedin"[^>]*\/>\s*LinkedIn<span[^>]*>\(3\)/.test(r.text.replace(/<!-- -->/g, "")), JSON.stringify(r.text.replace(/<!-- -->/g, "").match(/<input[^>]*name="portal"[^>]*>[^<]*(<span[^>]*>[^<]*<\/span>)?/g)));
 r = await call("/jobs?view=all&portal=linkedin"); check("portal filter shows only that portal's jobs", r.text.includes("Delta") && !r.text.includes("Gamma Pte Ltd"), "wrong rows");
 r = await call("/jobs?view=all&country=in"); check("country filter with no matches says so", r.text.includes("Nothing here for these filters"), "empty state missing");
 r = await call("/jobs?view=all&country=sg"); check("country filter keeps matching jobs", r.text.includes("Gamma Pte Ltd") && r.text.includes("Singapore"), "rows missing");
 r = await call("/jobs?view=all&portal=x%27%3B%20delete&view2=1"); check("a hostile portal value is ignored, not executed", r.status === 200 && r.text.includes("Gamma Pte Ltd"), `${r.status}`);
 r = await call("/jobs"); check("the default view is the review queue (nothing matched yet)", r.status === 200 && r.text.includes("Nothing here for these filters"), `${r.status}`);
-r = await call("/applications"); check("Applications list renders with its filter bar", r.status === 200 && r.text.includes("Pending approval") && r.text.includes("All portals"), `${r.status}`);
+r = await call("/applications"); check("Applications list renders with its stage chips and filter panel", r.status === 200 && r.text.replace(/<!-- -->/g, "").includes("Waiting for your approval") && r.text.includes("More filters") && r.text.includes("Sort by"), `${r.status}`);
 r = await call("/?country=sg"); check("dashboard can be narrowed to one country", r.status === 200 && r.text.replace(/<!-- -->/g, "").includes("Singapore only") && r.text.includes("All countries"), `${r.status}`);
 r = await call("/reports?country=sg"); check("reports can be narrowed to one country", r.status === 200 && r.text.replace(/<!-- -->/g, "").includes("Singapore only"), `${r.status}`);
 r = await call("/reports?country=%27%3Bdrop"); check("a hostile country value on reports is ignored", r.status === 200 && !r.text.includes("Showing"), `${r.status}`);
@@ -372,6 +372,7 @@ r = await call(`/logs?job=${zeta.id}`); check("job filter follows one job throug
 r = await call(`/logs?from=${istToday}&to=${istToday}`); check("a date range in the display time zone includes today's events", r.text.includes("job.matched"), "missing");
 r = await call("/logs?from=2020-01-01&to=2020-01-02"); check("a date range with no activity says so", r.text.includes("No activity matches these filters"), "empty state missing");
 r = await call("/logs?level=bogus&portal=x%27%3B&company=%29%2Cid.neq.0&page=-5"); check("hostile filter values are ignored safely", r.status === 200 && r.text.includes("job.matched"), `${r.status}`);
+r = await call("/logs?order=oldest"); check("Logs can be shown oldest first, with a chip saying so", r.status === 200 && /oldest first/.test(r.text.replace(/<!-- -->/g, "").replace(/<[^>]+>/g, " ")), r.status);
 r = await call("/logs?page=2"); check("pagination works and offers a way back", r.status === 200 && /Page 2 of/.test(r.text.replace(/<!--.*?-->/g, "")) && r.text.includes("Previous"), `${r.status}`);
 
 r = await call("/logs/runs"); check("Runs page lists runs with outcomes and totals per source", r.status === 200 && r.text.includes("Jobs found per source") && r.text.includes("succeeded") && r.text.includes("partial") && r.text.includes("Adzuna"), `${r.status}`);
@@ -742,7 +743,29 @@ if (process.env.PLAYWRIGHT_BROWSERS_PATH || process.env.CHROMIUM_PATH) {
   r = await call("/applications?portal=naukri&size=100"); check("applications: portal filter keeps Naukri applications", r.text.includes("Zeta Pte") && !r.text.includes("FormCo"), "wrong rows");
   r = await call("/applications?portal=greenhouse&country=sg&size=100"); check("applications: portal and country combine", r.text.includes("FormCo") && !r.text.includes("Zeta Pte"), "wrong rows");
   r = await call("/applications?status=submitted"); check("applications: 'Submitted' shows submitted ones only", r.text.includes("FormCo") && !r.text.includes("StuckCo"), "wrong rows");
-  r = await call("/applications?status=manual"); check("applications: 'Requires manual action' includes hand-backs", r.text.includes("StuckCo") || r.text.includes("Requires manual action"), "missing");
+  r = await call("/applications?status=manual&size=100"); check("applications: 'Requires manual action' includes hand-backs", r.text.includes("AskCo") && /Needs your input/.test(r.text), "missing");
+
+  // enterprise-style filters and sorting on the lists
+  {
+    const t = (x) => x.text.replace(/<!-- -->/g, "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+    r = await call("/jobs?stage=all"); check("Jobs: stage chips with counts, presets, search, sort and the filter panel are there", /Not scored yet/.test(t(r)) && /Waiting for your approval/.test(t(r)) && /Needs my action/.test(t(r)) && /Matched, resume not ready/.test(t(r)) && /More filters/.test(t(r)) && /Sort by/.test(t(r)) && /Fit score/.test(t(r)) && /Date posted/.test(t(r)), r.status);
+    r = await call("/jobs?stage=all&size=100&sort=company&dir=asc"); const asc = [r.text.indexOf("Delta"), r.text.indexOf("Gamma Pte Ltd")];
+    r = await call("/jobs?stage=all&size=100&sort=company&dir=desc"); const desc = [r.text.indexOf("Delta"), r.text.indexOf("Gamma Pte Ltd")];
+    check("Jobs: sorting by company A to Z and Z to A reverses the order", asc[0] > -1 && asc[1] > -1 && asc[0] < asc[1] && desc[0] > desc[1], JSON.stringify({ asc, desc }));
+    r = await call("/jobs?stage=all&size=100&country=sg&country=in"); check("Jobs: several countries can be chosen at once", r.text.includes("Gamma Pte Ltd") && /Country: Singapore/.test(t(r)) && /Country: India/.test(t(r)), r.status);
+    r = await call("/jobs?stage=all&score_min=101"); r = await call("/jobs?stage=all&score_min=100&score_max=100"); check("Jobs: a score range narrows the list", r.status === 200 && (/Nothing here for these filters/.test(t(r)) || !r.text.includes("Gamma Pte Ltd")), r.status);
+    r = await call("/jobs?stage=all&size=100&country=sg"); check("Jobs: an applied filter shows as a pill that can be removed, with the filtered-from count", /Filtered by:/.test(t(r)) && /Country: Singapore/.test(t(r)) && /filtered from/.test(t(r)), r.status);
+    r = await call("/jobs?stage=unscored"); check("Jobs: the Not scored yet stage lists only unscored jobs", r.status === 200 && !/Why rejected/.test(t(r)), r.status);
+    r = await call("/jobs?stage=bogus&sort=drop&dir=up&score_min=abc&from=nope"); check("Jobs: hostile stage, sort, direction, score and date values fall back safely", r.status === 200, r.status);
+    r = await call("/applications?stage=applied"); check("Applications: the Applied stage shows submitted ones only", r.text.includes("FormCo") && !r.text.includes("StuckCo"), "wrong rows");
+    r = await call("/applications?stage=awaiting_approval&stage=needs_input&stage=failed&stage=waiting_assistant"); check("Applications: several stages combine", r.status === 200 && /Filtered by:/.test(t(r)), r.status);
+    r = await call("/applications?sort=company&dir=asc&size=100"); const aa = [r.text.indexOf("FormCo"), r.text.indexOf("Zeta Pte")];
+    r = await call("/applications?sort=company&dir=desc&size=100"); const ad = [r.text.indexOf("FormCo"), r.text.indexOf("Zeta Pte")];
+    check("Applications: sort by company both ways", aa[0] > -1 && aa[1] > -1 && aa[0] < aa[1] && ad[0] > ad[1], JSON.stringify({ aa, ad }));
+    r = await call("/applications?lifecycle=interview"); check("Applications: filter by outcome", r.status === 200 && !r.text.includes("StuckCo"), r.status);
+    r = await call("/api/export/applications?stage=applied"); check("the CSV export follows the stage filter", r.status === 200 && r.text.includes("FormCo") && !r.text.includes("StuckCo"), r.text.slice(0, 200));
+    r = await call("/api/export/applications?sort=company&dir=asc"); check("the CSV export follows the sort order", r.status === 200 && r.text.indexOf("FormCo") > -1 && r.text.indexOf("FormCo") < r.text.indexOf("Zeta Pte"), r.text.slice(0, 200));
+  }
   r = await call("/applications"); { const tx = r.text.replace(/<!-- -->/g, ""); check("applications list says how each is applied and what to do next", /How it is applied/.test(tx) && /Next step/.test(tx) && /(Automatic · |Assistant · your computer|Manual · you submit)/.test(tx), r.status); }
   r = await call("/api/run/localtest", { method: "POST" }); check("the local model test refuses politely when GitHub is not connected", r.status === 409 && /GitHub/.test(r.text), `${r.status} ${r.text.slice(0, 120)}`);
   r = await call("/models"); check("the Models page shows the local model test button", /Test the local model now/.test(r.text.replace(/<!-- -->/g, "")), r.status);

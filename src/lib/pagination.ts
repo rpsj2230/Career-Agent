@@ -37,8 +37,8 @@ export function pageHref(basePath: string, sp: SP, page: number, size?: number, 
   const q = new URLSearchParams();
   for (const [k, v] of Object.entries(sp)) {
     if (k === "page" || (k === "size" && size !== undefined)) continue;
-    const val = first(v);
-    if (val) q.set(k, val);
+    // a filter can have several values (stage=a&stage=b): keep all of them
+    for (const val of Array.isArray(v) ? v : [v]) if (val) q.append(k, val);
   }
   if (size !== undefined && size !== defaultSize) q.set("size", String(size));
   if (page > 1) q.set("page", String(page));
