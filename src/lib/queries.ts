@@ -1,7 +1,6 @@
 import "server-only";
 import { fetchAll } from "@/lib/fetch-all";
 import { db, must } from "@/lib/db";
-import { APP_STATUSES, JOB_VIEWS, type AppFilters, type JobFilters } from "@/lib/filters";
 import { pageRange } from "@/lib/pagination";
 import {
   appStage, appStageCounts, filterApps, filterAppsExceptStage, filterJobs, filterJobsExceptStage, jobStage, sortApps, sortJobs, stageCounts,
@@ -20,36 +19,6 @@ export const scoreOf = (r: JobListRow) => (Array.isArray(r.job_scores) ? r.job_s
 
 const JOB_COLS = "id,title,company,country,location,url,apply_type,status,found_at,skip_reason,source,salary_text,job_scores(score,detail)";
 
-/**
- * One page of jobs for the list screens, filtered by view, portal, country and text and ordered best fit first across ALL pages.
- * It first reads only each match's id and score (a light query), orders them, takes the page, and then loads full rows for that page.
- * If the database update has not been applied yet (no portal column), the list still works without portal data and says so.
- */
-export async function listJobs(f: JobFilters, paging: { page: number; size: number } = { page: 1, size: 25 }): Promise<{ rows: JobListRow[]; total: number; page: number; pages: number; shownFrom: number; shownTo: number; portalUnavailable: boolean }> {
-  const filtered = <Q extends { in: Function; eq: Function; or: Function }>(q: Q, withPortal: boolean): Q => { // eslint-disable-line @typescript-eslint/no-unsafe-function-type
-    let x = q;
-    const statuses = JOB_VIEWS[f.view].statuses;
-    if (statuses) x = x.in("status", statuses) as Q;
-    if (withPortal && f.portal) x = x.eq("portal", f.portal) as Q;
-    if (f.country) x = x.eq("country", f.country) as Q;
-    if (f.q) x = x.or(`title.ilike.%${f.q}%,company.ilike.%${f.q}%`) as Q;
-    return x;
-  };
-  const rank = async (withPortal: boolean) => filtered(db().from("jobs").select("id,found_at,job_scores(score)"), withPortal).order("found_at", { ascending: false }).limit(RANK_LIMIT);
-  let portalUnavailable = false;
-  let ranked = await rank(true);
-  if (ranked.error && isMissingSchemaError(ranked.error.message)) { ranked = await rank(false); portalUnavailable = true; }
-  const all = must<{ id: string; found_at: string; job_scores: { score: number } | { score: number }[] | null }[]>(ranked, "list jobs");
-  const sc = (r: (typeof all)[number]) => (Array.isArray(r.job_scores) ? r.job_scores[0]?.score : r.job_scores?.score) ?? -1;
-  all.sort((a, b) => sc(b) - sc(a) || b.found_at.localeCompare(a.found_at));
-  const r = pageRange(all.length, paging.page, paging.size);
-  const ids = all.slice(r.from, r.to + 1).map((x) => x.id);
-  if (ids.length === 0) return { rows: [], total: all.length, page: r.page, pages: r.pages, shownFrom: r.shownFrom, shownTo: r.shownTo, portalUnavailable };
-  const full = must<JobListRow[]>(await db().from("jobs").select(portalUnavailable ? JOB_COLS : `${JOB_COLS},portal`).in("id", ids), "list jobs");
-  const order = new Map(ids.map((id, i) => [id, i]));
-  return { rows: full.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0)), total: all.length, page: r.page, pages: r.pages, shownFrom: r.shownFrom, shownTo: r.shownTo, portalUnavailable };
-}
-
 /** The most jobs read for one list (every page of 1000 is fetched until then). */
 export const RANK_LIMIT = 50_000;
 
@@ -58,29 +27,6 @@ export type AppListRow = {
   job: { title: string; company: string; country: string | null; apply_type: string; source: string | null; url?: string | null; portal?: string | null } | null;
   resume: { version: number } | null;
 };
-
-/** One page of applications with their job, newest first, filtered by status view, portal, country and text; tolerant of a pending migration. */
-export async function listApplications(f: AppFilters, paging: { page: number; size: number } = { page: 1, size: 25 }): Promise<{ rows: AppListRow[]; total: number; page: number; pages: number; shownFrom: number; shownTo: number; portalUnavailable: boolean }> {
-  const build = (withPortal: boolean, from: number, to: number) => {
-    const jobCols = `title,company,country,apply_type,source,url${withPortal ? ",portal" : ""}`;
-    let q = db().from("applications").select(`id,status,method,lifecycle,submitted_at,created_at, job:jobs!inner(${jobCols}), resume:documents!applications_resume_doc_id_fkey(version)`, { count: "exact" });
-    const statuses = APP_STATUSES[f.status].statuses;
-    if (statuses) q = q.in("status", statuses);
-    if (withPortal && f.portal) q = q.eq("job.portal", f.portal);
-    if (f.country) q = q.eq("job.country", f.country);
-    if (f.q) q = q.or(`title.ilike.%${f.q}%,company.ilike.%${f.q}%`, { referencedTable: "job" });
-    return q.order("created_at", { ascending: false }).range(from, to);
-  };
-  const from = (Math.max(1, paging.page) - 1) * paging.size;
-  let res = await build(true, from, from + paging.size - 1);
-  let portalUnavailable = false;
-  if (res.error && isMissingSchemaError(res.error.message)) { res = await build(false, from, from + paging.size - 1); portalUnavailable = true; }
-  // a page number past the end (rows were removed since the link was made) shows the last page instead of nothing
-  const total = res.count ?? 0;
-  const r = pageRange(total, paging.page, paging.size);
-  if (r.page !== paging.page && total > 0) { res = await build(!portalUnavailable, r.from, r.to); }
-  return { rows: must<AppListRow[]>(res, "list applications"), total, page: r.page, pages: r.pages, shownFrom: r.shownFrom, shownTo: r.shownTo, portalUnavailable };
-}
 
 /** Distinct portals and countries that exist in the data, for the filter drop-downs. */
 export async function filterOptions(): Promise<{ portals: { key: string; n: number }[]; countries: { key: string; n: number }[] }> {
@@ -198,7 +144,7 @@ type RawApp = {
 };
 export type AppsPage = { rows: AppListRow[]; total: number; totalAll: number; page: number; pages: number; shownFrom: number; shownTo: number; portalUnavailable: boolean; stageCounts: Record<StageKey, number> };
 
-export async function listApplicationsFiltered(q: AppQuery, paging: { page: number; size: number } = { page: 1, size: 25 }): Promise<AppsPage> {
+async function loadAppsLight(q: AppQuery): Promise<{ light: AppLight[]; portalUnavailable: boolean }> {
   const load = async (withPortal: boolean) => fetchAll<RawApp>((a, b) => {
     let x = db().from("applications").select(`id,status,method,lifecycle,submitted_at,created_at, job:jobs!inner(title,company,country,apply_type,url${withPortal ? ",portal" : ""})`);
     if (q.lifecycles.length) x = x.in("lifecycle", q.lifecycles);
@@ -216,6 +162,17 @@ export async function listApplicationsFiltered(q: AppQuery, paging: { page: numb
     const j = one(r.job);
     return j ? [{ id: r.id, status: r.status, method: r.method, lifecycle: r.lifecycle, submitted_at: r.submitted_at, created_at: r.created_at, title: j.title, company: j.company, country: j.country, portal: j.portal ?? null, apply_type: j.apply_type, url: j.url }] : [];
   });
+  return { light, portalUnavailable };
+}
+
+/** Every application that matches, in the chosen order (ids only), for the CSV export. */
+export async function matchingApplicationIds(q: AppQuery): Promise<string[]> {
+  const { light } = await loadAppsLight(q);
+  return sortApps(filterApps(light, q), q.sort, q.dir).map((r) => r.id);
+}
+
+export async function listApplicationsFiltered(q: AppQuery, paging: { page: number; size: number } = { page: 1, size: 25 }): Promise<AppsPage> {
+  const { light, portalUnavailable } = await loadAppsLight(q);
   const counts = appStageCounts(filterAppsExceptStage(light, q));
   const matching = sortApps(filterApps(light, q), q.sort, q.dir);
   const r = pageRange(matching.length, paging.page, paging.size);

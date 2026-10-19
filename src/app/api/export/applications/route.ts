@@ -1,6 +1,8 @@
 import { db, must } from "@/lib/db";
 import { toCsv } from "@/lib/csv";
-import { parseAppFilters, APP_STATUS_LABEL, APP_STATUSES } from "@/lib/filters";
+import { APP_STATUS_LABEL } from "@/lib/filters";
+import { parseAppQuery } from "@/lib/list-query";
+import { matchingApplicationIds } from "@/lib/queries";
 import { portalLabel } from "@/lib/jobs/portal";
 import { isMissingSchemaError } from "@/lib/schema";
 
@@ -10,23 +12,19 @@ type Row = {
   resume: { version: number; model: string | null; storage_path: string | null } | null;
 };
 
-/** CSV of applications, honouring the same status, portal, country and search filters as the Applications screen. */
+/** CSV of applications, honouring every filter and the sort order of the Applications screen (all matching rows, not just one page). */
 export async function GET(request: Request) {
-  const f = parseAppFilters(Object.fromEntries(new URL(request.url).searchParams));
-  const build = (withPortal: boolean) => {
-    let q = db().from("applications").select(
-      `status,method,lifecycle,submitted_at,approved_at,created_at,error,notes, job:jobs!inner(title,company,country,url,source,apply_type,found_at${withPortal ? ",portal" : ""},job_scores(score)), resume:documents!applications_resume_doc_id_fkey(version,model,storage_path)`,
-    );
-    const statuses = APP_STATUSES[f.status].statuses;
-    if (statuses) q = q.in("status", statuses);
-    if (withPortal && f.portal) q = q.eq("job.portal", f.portal);
-    if (f.country) q = q.eq("job.country", f.country);
-    if (f.q) q = q.or(`title.ilike.%${f.q}%,company.ilike.%${f.q}%`, { referencedTable: "job" });
-    return q.order("created_at", { ascending: false });
+  const q = parseAppQuery(Object.fromEntries([...new URL(request.url).searchParams.keys()].map((k) => [k, new URL(request.url).searchParams.getAll(k)])));
+  const ids = await matchingApplicationIds(q);
+  const select = (withPortal: boolean) => `id,status,method,lifecycle,submitted_at,approved_at,created_at,error,notes, job:jobs!inner(title,company,country,url,source,apply_type,found_at${withPortal ? ",portal" : ""},job_scores(score)), resume:documents!applications_resume_doc_id_fkey(version,model,storage_path)`;
+  const fetchChunk = async (chunk: string[]) => {
+    let res = await db().from("applications").select(select(true)).in("id", chunk);
+    if (res.error && isMissingSchemaError(res.error.message)) res = await db().from("applications").select(select(false)).in("id", chunk);
+    return must<(Row & { id: string })[]>(res, "export applications");
   };
-  let res = await build(true);
-  if (res.error && isMissingSchemaError(res.error.message)) res = await build(false);
-  const rows = must<Row[]>(res, "export applications");
+  const byId = new Map<string, Row & { id: string }>();
+  for (let i = 0; i < ids.length; i += 150) for (const r of await fetchChunk(ids.slice(i, i + 150))) byId.set(r.id, r);
+  const rows = ids.flatMap((id) => byId.get(id) ?? []);
   const flat = rows.map((r) => {
     const sc = Array.isArray(r.job?.job_scores) ? r.job?.job_scores[0] : r.job?.job_scores;
     return {

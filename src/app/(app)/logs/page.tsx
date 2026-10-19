@@ -66,6 +66,8 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
         <label className="grid gap-1 text-xs text-muted-foreground">Status
           <select name="status" defaultValue={f.status ?? ""} className={sel}><option value="">Any</option>{LOG_STATUSES.map((s) => <option key={s} value={s}>{s.replace("_", " ")}</option>)}</select></label>
         <label className="grid gap-1 text-xs text-muted-foreground">Text<Input name="q" defaultValue={f.q ?? ""} placeholder="in the message" className="h-9 w-40" /></label>
+        <label className="grid gap-1 text-xs text-muted-foreground">Order
+          <select name="order" defaultValue={f.order ?? ""} className={sel}><option value="">Newest first</option><option value="oldest">Oldest first</option></select></label>
         {f.run && <input type="hidden" name="run" value={f.run} />}
         {f.app && <input type="hidden" name="app" value={f.app} />}
         {f.job && <input type="hidden" name="job" value={f.job} />}

@@ -111,3 +111,20 @@ describe("links", () => {
     expect(queryString(appQueryParams(parseAppQuery({ stage: "failed" }), { page: 2 }))).toBe("?stage=failed&page=2");
   });
 });
+
+import { parseLogFilters } from "@/lib/log-filters";
+import { activePills, ROUTE_LABEL } from "@/lib/list-query";
+describe("log order and filter pills", () => {
+  it("accepts oldest first and ignores anything else", () => {
+    expect(parseLogFilters({ order: "oldest" }).order).toBe("oldest");
+    expect(parseLogFilters({ order: "sideways" }).order).toBeUndefined();
+  });
+  it("makes one removable pill per applied filter, none for the default view", () => {
+    const names = { portal: (k: string) => k, country: (k: string) => k.toUpperCase(), stage: (k: string) => k };
+    expect(activePills("jobs", parseJobQuery({}), names as never, [])).toHaveLength(parseJobQuery({}).stages.length);
+    const q = parseJobQuery({ stage: "all", country: "sg,ae", method: "cloud", score_min: "70", q: "pm" });
+    const pills = activePills("jobs", q, names as never);
+    expect(pills.map((p) => p.label)).toEqual(["Country: SG", "Country: AE", `Applied via: ${ROUTE_LABEL.cloud}`, "Search: “pm”", "Score ≥ 70"]);
+    expect(pills[0].over).toMatchObject({ country: ["ae"] });
+  });
+});

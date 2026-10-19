@@ -17,6 +17,8 @@ export type LogFilters = {
   category?: string; kind?: string;
   portal?: string; country?: string; company?: string; status?: string;
   run?: string; app?: string; job?: string; q?: string;
+  /** which end of the history to start from (default: newest first) */
+  order?: "oldest";
   page: number;
   size: number;
 };
@@ -44,6 +46,7 @@ export function parseLogFilters(sp: SP): LogFilters {
     status: status && /^[a-z_]{1,30}$/.test(status) ? status : undefined,
     run: id(sp.run), app: id(sp.app), job: id(sp.job),
     q: safeSearch(one(sp.q)) || undefined,
+    order: one(sp.order) === "oldest" ? "oldest" : undefined,
     page: Number.isFinite(page) && page >= 1 && page <= 10_000 ? page : 1,
     size: (PAGE_SIZES as readonly number[]).includes(Number(one(sp.size))) ? Number(one(sp.size)) : PAGE_SIZE,
   };
@@ -78,6 +81,7 @@ export function activeFilterLabels(f: LogFilters): { key: keyof LogFilters; labe
   if (f.run) out.push({ key: "run", label: `run ${f.run.slice(0, 8)}` });
   if (f.app) out.push({ key: "app", label: `application ${f.app.slice(0, 8)}` });
   if (f.job) out.push({ key: "job", label: `job ${f.job.slice(0, 8)}` });
+  if (f.order) out.push({ key: "order", label: "oldest first" });
   if (f.q) out.push({ key: "q", label: `text: ${f.q}` });
   return out;
 }
