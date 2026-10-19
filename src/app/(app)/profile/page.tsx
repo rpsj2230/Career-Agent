@@ -1,4 +1,5 @@
 import { searchingCountries } from "@/lib/country-summary";
+import { SkillGroups } from "@/components/app/skill-groups";
 import { ProfileEditor } from "@/components/app/profile-editor";
 import { AnswerBankEditor, DraftReview, ImportBox, PreferencesForm } from "@/components/app/profile-forms";
 import { Badge } from "@/components/ui/badge";
@@ -49,7 +50,7 @@ export default async function ProfilePage() {
           <CardHeader><CardTitle>{profile.basics.name || "Your profile"}</CardTitle><CardDescription>{profile.basics.headline} · {profile.basics.location}</CardDescription></CardHeader>
           <CardContent className="grid gap-3 text-sm">
             <p>{profile.basics.summary}</p>
-            <div className="flex flex-wrap gap-1">{profile.skills.map((s) => <Badge key={s.id} variant={s.extra ? "outline" : "secondary"}>{s.name}</Badge>)}</div>
+            <SkillGroups skills={profile.skills} />
             <p className="text-xs text-muted-foreground">Each responsibility or achievement below is one &quot;fact&quot;. Every fact is used: for matching jobs to you, and as the only material the agent may draw on when it builds a resume or cover letter for a job. Open a role to read its facts.</p>
             <div className="grid gap-2">
               {profile.experience.map((e) => (
