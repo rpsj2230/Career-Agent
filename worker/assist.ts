@@ -22,7 +22,7 @@ import { createInterface } from "node:readline";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { asAssistantProfile, browserDirFor, type Who } from "./assist-profile";
 import { scopedDb } from "../src/lib/scoped-db";
-import { browserFromMachine } from "./browser";
+import { browserFromMachine, PLAIN_HTTP } from "./browser";
 import { chromium, type BrowserContext, type Page } from "playwright";
 import { confirmationSnippet, type FieldEntry, type SubmissionRecord } from "../src/lib/apply/submission";
 import { MasterProfile } from "../src/lib/types";
@@ -288,7 +288,7 @@ async function batch(sb: SupabaseClient, who: Who | null): Promise<number> {
   mkdirSync(profileDir, { recursive: true });
   const choice = browserFromMachine(); // the assistant's own Chromium unless you chose Brave, Chrome or Edge (worker/browser.ts)
   const context = await chromium.launchPersistentContext(profileDir, {
-    headless: process.env.ASSIST_HEADLESS === "1", viewport: null, executablePath: choice.executablePath, channel: choice.channel,
+    headless: process.env.ASSIST_HEADLESS === "1", viewport: null, executablePath: choice.executablePath, channel: choice.channel, ...PLAIN_HTTP,
   });
   await context.addInitScript({ content: "window.__name = window.__name || function (t) { return t; };" });
   let done = 0;
