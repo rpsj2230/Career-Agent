@@ -2,22 +2,35 @@ import "server-only";
 import { db, must } from "@/lib/db";
 import { decryptSecret, encryptSecret } from "@/lib/secrets";
 import type { IntegrationCreds } from "@/lib/jobs/sources";
+import { mainProfileInUse } from "@/lib/scoped-db";
 import { INTEGRATIONS, integrationById, type IntegrationId } from "./catalog";
 
+/** Job-source keys are shared by every profile; the mailbox (the address this person applies from) belongs to one profile. */
 const STORE_KEY = "integration_keys";
+const MAILBOX_KEY = "mailbox_keys";
+const isMailboxEntry = (k: string) => k.startsWith("mailbox.");
 const master = () => {
   const m = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!m) throw new Error("SUPABASE_SERVICE_ROLE_KEY must be set");
   return m;
 };
 
-async function loadEncrypted(): Promise<Record<string, string>> {
-  const row = must<{ value: Record<string, string> } | null>(await db().from("settings").select("value").eq("key", STORE_KEY).maybeSingle(), "load integration keys");
+async function loadStore(key: string): Promise<Record<string, string>> {
+  const row = must<{ value: Record<string, string> } | null>(await db().from("settings").select("value").eq("key", key).maybeSingle(), `load ${key}`);
   return row?.value ?? {};
 }
 
+async function loadEncrypted(): Promise<Record<string, string>> {
+  const [shared, mine] = await Promise.all([loadStore(STORE_KEY), loadStore(MAILBOX_KEY)]);
+  return { ...shared, ...mine };
+}
+
 async function saveEncrypted(enc: Record<string, string>) {
-  must(await db().from("settings").upsert({ key: STORE_KEY, value: enc, updated_at: new Date().toISOString() }).select("key"), "save integration keys");
+  const mailbox = Object.fromEntries(Object.entries(enc).filter(([k]) => isMailboxEntry(k)));
+  const shared = Object.fromEntries(Object.entries(enc).filter(([k]) => !isMailboxEntry(k)));
+  const at = new Date().toISOString();
+  must(await db().from("settings").upsert({ key: STORE_KEY, value: shared, updated_at: at }).select("key"), "save integration keys");
+  must(await db().from("settings").upsert({ key: MAILBOX_KEY, value: mailbox, updated_at: at }).select("key"), "save mailbox keys");
 }
 
 export type CredentialSource = "app" | "env" | null;
@@ -32,6 +45,7 @@ export type CredentialReport = {
 /** A value saved in the app wins; otherwise the named environment variable. */
 export async function resolveCredentials(): Promise<CredentialReport> {
   const enc = await loadEncrypted();
+  const main = await mainProfileInUse(); // the mailbox named in the environment is the main profile's; everyone else connects their own
   const creds: IntegrationCreds = {};
   const sources: CredentialReport["sources"] = {};
   for (const def of INTEGRATIONS) {
@@ -39,7 +53,7 @@ export async function resolveCredentials(): Promise<CredentialReport> {
     sources[def.id] = {};
     for (const c of def.credentials) {
       const stored = enc[`${def.id}.${c.key}`] ? decryptSecret(enc[`${def.id}.${c.key}`], master()) : null;
-      const envVal = c.env ? process.env[c.env] : undefined;
+      const envVal = c.env && (def.id !== "mailbox" || main) ? process.env[c.env] : undefined;
       const v = stored ?? envVal;
       sources[def.id][c.key] = stored ? "app" : envVal ? "env" : null;
       if (v) values[c.key] = v;

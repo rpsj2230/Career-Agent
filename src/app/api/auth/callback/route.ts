@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { safeNext } from "@/lib/access";
-import { authClient, isHttps, publicOrigin } from "@/lib/auth-server";
+import { authClient, isHttps, NEXT_COOKIE, publicOrigin } from "@/lib/auth-server";
 import { logActivity } from "@/lib/activity";
 import { getRole } from "@/lib/owner";
 import { homeFor, roleAllows } from "@/lib/roles";
@@ -30,6 +30,9 @@ export async function GET(request: Request) {
     return fail("not-allowed");
   }
   await logActivity({ kind: "auth.login", message: `Signed in with Google: ${email}`, detail: { email, ip, role } });
-  const next = safeNext(url.searchParams.get("next"));
-  return NextResponse.redirect(new URL(roleAllows(role, next.split("?")[0], "GET") ? next : homeFor(role), origin));
+  const jar = await cookies();
+  const next = safeNext(jar.get(NEXT_COOKIE)?.value ?? url.searchParams.get("next"));
+  const res = NextResponse.redirect(new URL(roleAllows(role, next.split("?")[0], "GET") ? next : homeFor(role), origin));
+  res.cookies.delete(NEXT_COOKIE);
+  return res;
 }

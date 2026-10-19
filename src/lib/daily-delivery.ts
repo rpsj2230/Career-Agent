@@ -4,9 +4,7 @@ import { automationHealth } from "@/lib/automation-health";
 import { evaluateDelivery, healthText, runsText, type Delivery } from "@/lib/delivery-text";
 import { db } from "@/lib/db";
 import { generateDailyReport } from "@/lib/daily-report-store";
-import { sendEmail, smtpFromMailbox } from "@/lib/email";
-import { resolveCredentials } from "@/lib/integrations/credentials";
-import { sendTelegram } from "@/lib/notify";
+import { emailProfile, notifyProfile } from "@/lib/notify-profile";
 import { getSetting, putSetting } from "@/lib/settings";
 import { appTimezone, localDate, localDayBounds } from "@/lib/time";
 import { DateTime } from "luxon";
@@ -45,11 +43,11 @@ export async function deliverDaily(o: { force?: boolean; now?: Date } = {}): Pro
   const subject = `Career Agent daily report ${yesterday}: ${health.status === "ok" ? "all healthy" : health.status === "warn" ? "needs a look" : "ATTENTION needed"}`;
 
   const result: Awaited<ReturnType<typeof deliverDaily>> = { sent: false, status: health.status };
-  if (cfg.telegram) result.telegram = await sendTelegram(`${subject}\n\n${body}`.slice(0, 4000)).catch(() => false);
+  if (cfg.telegram) result.telegram = (await notifyProfile(`${subject}\n\n${body}`.slice(0, 4000), { email: false })).telegram;
   if (cfg.email) {
-    const { creds } = await resolveCredentials();
-    const to = cfg.to.trim() || creds.mailbox?.user || "";
-    result.email = await sendEmail(smtpFromMailbox(creds.mailbox), { to, subject, text: body });
+    // to you, to the profile's own address, and to the address you chose here (if any)
+    const e = await emailProfile(body, subject, [cfg.to]);
+    result.email = e.emailed.length ? null : (e.error ?? "No address to send to.");
   }
   result.sent = !!result.telegram || (cfg.email && result.email === null);
   if (!o.force && result.sent) await putSetting("daily_delivery_last", { date: today, at: now.toISOString() });

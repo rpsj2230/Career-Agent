@@ -2,7 +2,7 @@ import "server-only";
 import { logActivity } from "@/lib/activity";
 import { db } from "@/lib/db";
 import { fetchAll } from "@/lib/fetch-all";
-import { sendTelegram } from "@/lib/notify";
+import { notifyProfile } from "@/lib/notify-profile";
 import { isMissingSchemaError } from "@/lib/schema";
 import { buildDailyReport, type DailyReport, type DailyReportInput, type RApp, type RJob } from "./daily-report";
 import { appTimezone, localDate, localDayBounds } from "./time";
@@ -59,7 +59,8 @@ export async function generateDailyReport(o: { date?: string; timezone?: string;
   try {
     const input = await loadReportInput(date, timezone);
     const report = buildDailyReport(input, process.env.APP_URL);
-    const delivered = o.send ? await sendTelegram(report.body) : false;
+    const sent = o.send ? await notifyProfile(report.body, { subject: `Career Agent daily report ${date}` }) : null;
+    const delivered = !!sent && (sent.telegram || sent.emailed.length > 0);
     const row = { report_date: date, timezone, status: "ok", generated_at: new Date().toISOString(), summary: report.summary, items: report.items, body: report.body, delivered, error: null };
     const res = await db().from("daily_reports").upsert(row, { onConflict: "report_date,timezone" }).select("*").single();
     if (res.error) throw new Error(res.error.message);

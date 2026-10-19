@@ -14,6 +14,7 @@ const run = async (args: string[], env: NodeJS.ProcessEnv) => (await promisify(e
 describe("backup helpers", () => {
   it("lists the tables in migration order", () => {
     expect(tablesFromMigrations(["create table if not exists a (id int);\ncreate table if not exists public.b (id int);", "create table if not exists a (x int); create table if not exists c (id int);"])).toEqual(["a", "b", "c"]);
+    expect(tablesFromMigrations(["create table if not exists jobs (id int);", "create table if not exists profiles (id int); create table if not exists shared_settings (key text);"])).toEqual(["profiles", "jobs", "shared_settings"]);
   });
   it("leaves out per-application documents but keeps the master resume", () => {
     expect(isApplicationDocument("0c1d2e3f-aaaa-4bbb-8ccc-1234567890ab/resume-v1.docx")).toBe(true);

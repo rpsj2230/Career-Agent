@@ -116,6 +116,7 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npx tsx worker/apply.ts
         env:
+          NODE_OPTIONS: --conditions=react-server
           MAX_APPLY: "25"
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

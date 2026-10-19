@@ -4,7 +4,8 @@
 export function tablesFromMigrations(sqlFiles) {
   const out = [];
   for (const sql of sqlFiles) for (const m of sql.matchAll(/create\s+table\s+if\s+not\s+exists\s+(?:public\.)?([a-z_][a-z0-9_]*)/gi)) if (!out.includes(m[1])) out.push(m[1]);
-  return out;
+  // every per-person table points at a profile, so the profiles come back first even though their table is created after the others
+  return out.includes("profiles") ? ["profiles", ...out.filter((t) => t !== "profiles")] : out;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

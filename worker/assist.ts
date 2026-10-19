@@ -16,10 +16,12 @@
  */
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { basename, extname, join } from "node:path";
 import { createInterface } from "node:readline";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { asAssistantProfile, browserDirFor, type Who } from "./assist-profile";
+import { scopedDb } from "../src/lib/scoped-db";
 import { browserFromMachine } from "./browser";
 import { chromium, type BrowserContext, type Page } from "playwright";
 import { confirmationSnippet, type FieldEntry, type SubmissionRecord } from "../src/lib/apply/submission";
@@ -260,7 +262,7 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
 }
 
 /** One pass over everything waiting. Returns how many were recorded as submitted. */
-async function batch(sb: SupabaseClient): Promise<number> {
+async function batch(sb: SupabaseClient, who: Who | null): Promise<number> {
   await heartbeat(sb);
   const limit = Math.max(1, Math.min(50, Number(process.env.ASSIST_LIMIT ?? 10) || 10));
   const only = process.env.APPLICATION_ID?.trim();
@@ -282,7 +284,7 @@ async function batch(sb: SupabaseClient): Promise<number> {
   }
   say(`${apps.length} application(s) are waiting.${auto ? " Hands-free mode is on." : " A browser window will open; sign in to each portal there the first time (your session is kept in a local profile)."}`);
 
-  const profileDir = process.env.ASSIST_PROFILE_DIR || join(homedir(), ".career-agent", "browser");
+  const profileDir = browserDirFor(who);
   mkdirSync(profileDir, { recursive: true });
   const choice = browserFromMachine(); // the assistant's own Chromium unless you chose Brave, Chrome or Edge (worker/browser.ts)
   const context = await chromium.launchPersistentContext(profileDir, {
@@ -309,8 +311,10 @@ async function batch(sb: SupabaseClient): Promise<number> {
   return done;
 }
 
-async function main() {
-  const sb = createClient(need("SUPABASE_URL"), need("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false } });
+async function main(who: Who | null) {
+  need("SUPABASE_URL"); need("SUPABASE_SERVICE_ROLE_KEY");
+  const sb = scopedDb();
+  if (who) say(`Working for: ${who.name}${who.is_default ? " (main profile)" : ""}. Their own sign-ins are kept in ${browserDirFor(who)}.`);
   if (WATCH) {
     if (!AUTO) throw new Error("Watch mode needs hands-free mode: use `npm run assist:watch` (and switch hands-free on in Settings).");
     const pollMs = Math.max(1, Number(process.env.ASSIST_POLL_MINUTES ?? 20)) * 60_000;
@@ -324,7 +328,7 @@ async function main() {
       const requested = requestPending(req);
       if (requested || (Date.now() >= nextRound && withinHours(new Date(), process.env.ASSIST_HOURS))) {
         let n = 0, note = "";
-        try { n = await batch(sb); if (n) say(`${new Date().toLocaleTimeString()}  ${n} application(s) submitted this round.`); note = `${n} submitted`; }
+        try { n = await batch(sb, who); if (n) say(`${new Date().toLocaleTimeString()}  ${n} application(s) submitted this round.`); note = `${n} submitted`; }
         catch (e) { note = `failed: ${e instanceof Error ? e.message : e}`; console.error(`round failed (will try again): ${note}`); }
         if (requested) await sb.from("settings").upsert({ key: "assistant_request", value: { at: req!.at, handled_at: new Date().toISOString(), done: n, note }, updated_at: new Date().toISOString() });
         nextRound = Date.now() + pollMs;
@@ -332,9 +336,9 @@ async function main() {
       await sleep(30_000);
     }
   }
-  const done = await batch(sb);
+  const done = await batch(sb, who);
   rl.close();
   say(`\nFinished. ${done} application(s) recorded as submitted.`);
 }
 
-main().catch((e) => { console.error(e instanceof Error ? e.message : e); process.exit(1); });
+asAssistantProfile((who) => main(who)).catch((e) => { console.error(e instanceof Error ? e.message : e); process.exit(1); });

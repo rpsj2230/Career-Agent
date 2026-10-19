@@ -1,7 +1,7 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { isMissingSchemaError } from "@/lib/schema";
-import { sendTelegram } from "@/lib/notify";
+import { notifyProfile } from "@/lib/notify-profile";
 import { integrationById, type IntegrationId, type IntegrationState } from "./catalog";
 import { transitionAlert } from "./health";
 
@@ -37,7 +37,7 @@ export async function recordIntegrationScan(id: IntegrationId, r: { ok: boolean;
     });
     // tell you once when a source breaks or recovers (repeat failures stay in the logs and on the dashboard)
     const alert = transitionAlert(cur?.status, r.ok, integrationById(id)?.name ?? id, r.error);
-    if (alert) await sendTelegram(alert);
+    if (alert) await notifyProfile(alert);
   } catch (e) { console.error(`[integrations] could not record scan for ${id}: ${e instanceof Error ? e.message : e}`); }
 }
 

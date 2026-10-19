@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { approveApplication } from "@/lib/apply/approve";
 import { skipApplication } from "@/lib/apply/skip";
 import { answerCallback, finishPrompt } from "@/lib/notify";
+import { withProfile } from "@/lib/profile-context";
+import { profileOfApplication, profilesReady } from "@/lib/profiles-store";
 import { parseUpdate, verifyWebhook, type TelegramUpdate } from "@/lib/telegram";
 
 export const maxDuration = 30;
@@ -17,11 +19,16 @@ export async function POST(request: Request) {
   };
   try {
     if (!u.action) { await done("That button is no longer valid"); return NextResponse.json({ ok: true }); }
+    // the button belongs to one person's application: act inside that profile, and only if it exists
+    const appId = u.action.id;
+    const pid = await profileOfApplication(appId);
+    if (!pid && (await profilesReady())) { await done("Not found"); return NextResponse.json({ ok: true }); }
+    const inProfile = <T,>(fn: () => Promise<T>) => (pid ? withProfile(pid, fn) : fn());
     if (u.action.action === "skip") {
-      const ok = await skipApplication(u.action.id);
+      const ok = await inProfile(() => skipApplication(appId));
       await done(ok ? "Skipped" : "Not found", ok ? "Skipped." : undefined);
     } else {
-      const r = await approveApplication(u.action.id, { actor: "user", dispatch: true });
+      const r = await inProfile(() => approveApplication(appId, { actor: "user", dispatch: true }));
       if (r.ok) await done(r.mode === "automated" ? "Approved: submitting now" : "Approved: ready for your assistant", r.mode === "automated" ? "Approved. The application is being submitted." : "Approved. It is waiting for the apply assistant on your computer.");
       else await done(r.error.slice(0, 150));
     }

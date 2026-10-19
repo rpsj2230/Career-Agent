@@ -1,6 +1,6 @@
 import "server-only";
 import { db, must } from "@/lib/db";
-import { sendTelegram } from "@/lib/notify";
+import { notifyProfile } from "@/lib/notify-profile";
 
 const KEY = "alerts_sent";
 
@@ -12,7 +12,7 @@ export async function alertOnce(key: string, hours: number, message: string, now
     if (sent[key] && now.getTime() - new Date(sent[key]).getTime() < hours * 3_600_000) return false;
     const next = Object.fromEntries(Object.entries({ ...sent, [key]: now.toISOString() }).filter(([, at]) => now.getTime() - new Date(at).getTime() < 14 * 86_400_000));
     must(await db().from("settings").upsert({ key: KEY, value: next, updated_at: now.toISOString() }).select("key"), "save alerts");
-    await sendTelegram(message);
+    await notifyProfile(message);
     return true;
   } catch (e) {
     console.error(`[alerts] could not send "${key}": ${e instanceof Error ? e.message : e}`);

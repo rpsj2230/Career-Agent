@@ -172,3 +172,6 @@ Other known limits: Vercel Hobby cron runs once a day; your **Schedules** page (
 above your plan's default (`maxDuration` is set to 120s; check your plan); `npm audit` reports a moderate
 `sprintf-js` issue reached through mammoth's CLI parser, which is not fed by your documents, and its suggested
 fix is a downgrade to a very old mammoth, so it is accepted for now.
+
+## Several people
+Run the same agent for family members or a second profile of your own: see [docs/PROFILES.md](docs/PROFILES.md).

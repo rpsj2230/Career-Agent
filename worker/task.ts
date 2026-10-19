@@ -13,6 +13,10 @@ import { buildModel, modelReadiness } from "../src/lib/llm/registry";
 import { putSetting } from "../src/lib/settings";
 import { JobScore } from "../src/lib/types";
 import { sendTelegram } from "../src/lib/notify";
+import { notifyProfile } from "../src/lib/notify-profile";
+import { forEachProfile } from "../src/lib/profiles-store";
+import { profilesEnabled } from "../src/lib/scope";
+import { rawClient } from "../src/lib/raw-client";
 import { scoreNewJobs } from "../src/lib/score/run";
 
 const MIN = 60_000;
@@ -44,8 +48,7 @@ async function testLocalModel() {
   if (!result.ok) process.exitCode = 1;
 }
 
-async function main() {
-  const task = (process.env.TASK ?? "").trim();
+async function runTask(task: string) {
   await failStaleRuns(30).catch(() => 0);
   const ready = await modelReadiness().catch(() => null);
   if (ready) console.log(ready.usable.length ? `Models ready: ${ready.usable.join(", ")}` : `NO MODEL AVAILABLE: ${ready.message}`);
@@ -57,11 +60,11 @@ async function main() {
     console.log(`Search: ${found.outcomes.length} scan(s), ${found.outcomes.reduce((n, s) => n + s.counts.inserted, 0)} new job(s).`);
     const scored = await scoreNewJobs({ limit: 80, budgetMs: 12 * MIN, trigger: "manual" });
     console.log(JSON.stringify(scored));
-    await sendTelegram(`Career Agent: search finished. ${found.outcomes.reduce((n, s) => n + s.counts.inserted, 0)} new job(s); ${scored.scored} scored, ${scored.queued} matched.`).catch(() => undefined);
+    await notifyProfile(`Career Agent: search finished. ${found.outcomes.reduce((n, s) => n + s.counts.inserted, 0)} new job(s); ${scored.scored} scored, ${scored.queued} matched.`).catch(() => undefined);
   } else if (task === "score") {
     const scored = await scoreNewJobs({ limit: 80, budgetMs: 12 * MIN, trigger: "manual" });
     console.log(JSON.stringify(scored));
-    await sendTelegram(`Career Agent: scoring finished. ${scored.scored} scored, ${scored.queued} matched, ${scored.remaining} still waiting.`).catch(() => undefined);
+    await notifyProfile(`Career Agent: scoring finished. ${scored.scored} scored, ${scored.queued} matched, ${scored.remaining} still waiting.`).catch(() => undefined);
   } else if (task === "prepare_many") {
     const ids = (process.env.JOB_IDS ?? "").split(",").map((x) => x.trim()).filter(Boolean);
     if (!ids.length || ids.some((x) => !/^[0-9a-f-]{36}$/i.test(x))) throw new Error("JOB_IDS must be a comma-separated list of job ids");
@@ -71,14 +74,14 @@ async function main() {
       catch (e) { failed++; console.error(`prepare ${id} failed:`, e instanceof Error ? e.message : e); if (e instanceof Error && /No model available|All models failed/.test(e.message)) break; }
     }
     console.log(`Prepared ${ok} of ${ids.length}${failed ? ` (${failed} failed)` : ""}.`);
-    await sendTelegram(`Career Agent: prepared ${ok} of ${ids.length} application(s). Open Applications to approve them.`).catch(() => undefined);
+    await notifyProfile(`Career Agent: prepared ${ok} of ${ids.length} application(s). Open Applications to approve them.`).catch(() => undefined);
   } else if (task === "regenerate") {
     const id = (process.env.JOB_ID ?? "").trim();
     if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error("JOB_ID must be a job id");
     const r = await withRun({ trigger: "manual", kind: "prepare", scope: { job_id: id, regenerate: true } }, (ctx) =>
       prepareApplication(id, ctx.id, { regenerate: true, guidance: process.env.GUIDANCE ?? "", confirmSubmitted: process.env.CONFIRM === "1" }));
     console.log(JSON.stringify(r));
-    await sendTelegram(`Career Agent: a new resume was written for an application${r.verified ? " (verified)" : " (needs your review)"}. Open Applications to approve it.`).catch(() => undefined);
+    await notifyProfile(`Career Agent: a new resume was written for an application${r.verified ? " (verified)" : " (needs your review)"}. Open Applications to approve it.`).catch(() => undefined);
   } else if (task === "prepare") {
     const id = (process.env.JOB_ID ?? "").trim();
     if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error("JOB_ID must be a job id");
@@ -87,6 +90,24 @@ async function main() {
   } else {
     throw new Error(`Unknown task "${task}" (use discover, score, prepare, prepare_many, regenerate or localtest)`);
   }
+}
+
+/** The profile a job belongs to, when the task names a job (a button on that job's page). */
+async function profileOfJob(): Promise<string | null> {
+  const id = (process.env.JOB_ID ?? process.env.JOB_IDS ?? "").split(",")[0]?.trim();
+  if (!id || !/^[0-9a-f-]{36}$/i.test(id)) return null;
+  const { data } = await rawClient().from("jobs").select("profile_id").eq("id", id).maybeSingle();
+  return (data?.profile_id as string | undefined) ?? null;
+}
+
+async function main() {
+  const task = (process.env.TASK ?? "").trim();
+  // the local model test is about the runner, not a person: it runs without a profile
+  if (task === "localtest" || !(await profilesEnabled(rawClient()))) return runTask(task);
+  // a button on the site names the profile it was pressed in; a job's own profile is the fallback; otherwise every profile that is switched on
+  const only = process.env.PROFILE_ID?.trim() || (await profileOfJob());
+  const runs = await forEachProfile(() => runTask(task), { only, onError: (p, e) => { console.error(`${p ? `[${p.name}] ` : ""}${task} failed:`, e); process.exitCode = 1; } });
+  if (only && runs.length === 0) throw new Error("That profile does not exist");
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

@@ -16,12 +16,21 @@ let n = 0;
 const V1_TABLES = ["profile", "settings", "answer_bank", "jobs", "job_scores", "documents", "applications", "apply_events", "model_configs", "model_usage"];
 const V2_TABLES = ["integrations", "schedules", "automation_runs", "portal_scans", "activity_log", "country_prefs", "daily_reports"];
 const V2_COLUMNS = { jobs: ["portal", "scan_id", "run_id", "salary_min", "salary_max", "salary_currency", "salary_estimated", "decided_at", "seen_on"], applications: ["job_snapshot", "profile_snapshot", "submission", "portal", "country", "run_id"] };
-const schema = { v2: false };
+// 0003: several profiles. Before it is applied the profiles tables and every profile_id column are unknown, exactly like a database that has not been upgraded.
+const V3_TABLES = ["profiles", "shared_settings"];
+const PROFILE_TABLES = ["profile", "answer_bank", "settings", "jobs", "job_scores", "documents", "applications", "apply_events", "integrations", "schedules", "automation_runs", "portal_scans", "activity_log", "country_prefs", "daily_reports"];
+const SHARED_KEYS = ["owner", "team", "model_keys", "model_keys_shared", "integration_keys", "telegram_buttons", "apify_usage", "automation_tick", "local_model", "local_model_test"];
+const schema = { v2: false, v3: false };
+let DEFAULT_PROFILE = null; // the id of the profile that existed before profiles did
 
 // ------------------------------------------------------------------ table store
-const PK = { settings: ["key"], profile: ["id"], model_configs: ["label"], integrations: ["id"], country_prefs: ["country"], jobs: ["id"] };
+const PK = { settings: ["key"], profile: ["id"], model_configs: ["label"], integrations: ["id"], country_prefs: ["country"], jobs: ["id"], shared_settings: ["key"], profiles: ["id"] };
 const UNIQUE = { jobs: [["source", "external_id"]], applications: [["job_id"]], job_scores: [["job_id"]], documents: [["job_id", "kind", "version"]], answer_bank: [["key"]], daily_reports: [["report_date", "timezone"]] };
+// what 0003 changes: keys that were unique across the app become unique per profile
+const PK_V3 = { settings: ["profile_id", "key"], profile: ["profile_id"], integrations: ["profile_id", "id"], country_prefs: ["profile_id", "country"] };
+const UNIQUE_V3 = { jobs: [["profile_id", "source", "external_id"]], answer_bank: [["profile_id", "key"]], daily_reports: [["profile_id", "report_date", "timezone"]] };
 const DEFAULTS = {
+  profiles: () => ({ id: randomUUID(), enabled: true, is_default: false, created_at: new Date().toISOString() }),
   jobs: () => ({ id: randomUUID(), found_at: new Date().toISOString(), status: "new" }),
   automation_runs: () => ({ id: randomUUID(), started_at: new Date().toISOString(), heartbeat_at: new Date().toISOString(), status: "running", stats: {}, scope: {} }),
   portal_scans: () => ({ id: randomUUID(), started_at: new Date().toISOString(), status: "running", fetched: 0, inserted: 0, duplicates: 0, stale: 0, invalid: 0, detail: {} }),
@@ -36,8 +45,10 @@ const DEFAULTS = {
 };
 const tables = new Map();
 const rowsOf = (t) => tables.get(t) ?? tables.set(t, []).get(t);
-const pkOf = (t) => PK[t] ?? ["id"];
-const uniquesOf = (t) => [pkOf(t), ...(UNIQUE[t] ?? [])];
+const pkOf = (t) => (schema.v3 && PK_V3[t]) || PK[t] || ["id"];
+const uniquesOf = (t) => [pkOf(t), ...((schema.v3 && UNIQUE_V3[t]) || UNIQUE[t] || [])];
+/** What the database does by itself in version 3: a row written without a profile belongs to the default profile. */
+const stampDefault = (t, row) => { if (schema.v3 && PROFILE_TABLES.includes(t) && row.profile_id === undefined) row.profile_id = DEFAULT_PROFILE; return row; };
 const sameKey = (a, b, cols) => cols.every((c) => a[c] !== undefined && String(a[c]) === String(b[c]));
 
 function parseFilters(params) {
@@ -122,12 +133,13 @@ function projectRow(table, row, select) {
 }
 
 const schemaError = (table, cols) => {
-  const known = V1_TABLES.includes(table) || (schema.v2 && V2_TABLES.includes(table));
+  const known = V1_TABLES.includes(table) || (schema.v2 && V2_TABLES.includes(table)) || (schema.v3 && V3_TABLES.includes(table));
   if (!known) return { status: 404, body: { code: "PGRST205", message: `Could not find the table 'public.${table}' in the schema cache` } };
   if (!schema.v2) {
     const bad = cols.find((c) => (V2_COLUMNS[table] ?? []).includes(c));
     if (bad) return { status: 400, body: { code: "PGRST204", message: `Could not find the '${bad}' column of '${table}' in the schema cache` } };
   }
+  if (!schema.v3 && PROFILE_TABLES.includes(table) && cols.includes("profile_id")) return { status: 400, body: { code: "PGRST204", message: `Could not find the 'profile_id' column of '${table}' in the schema cache` } };
   return null;
 };
 
@@ -139,7 +151,16 @@ const mapView = (table, keyCol, valCol) => ({
   delete: (k) => { tables.set(table, rowsOf(table).filter((r) => r[keyCol] !== k)); },
   get size() { return rowsOf(table).length; },
 });
-const settings = mapView("settings", "key", "value");
+const plainSettings = mapView("settings", "key", "value");
+const sharedSettings = mapView("shared_settings", "key", "value");
+// tests read and write settings by key; once profiles exist the app-wide keys live in their own table
+const settings = {
+  get: (k) => (schema.v3 && SHARED_KEYS.includes(k) ? sharedSettings : plainSettings).get(k),
+  has: (k) => (schema.v3 && SHARED_KEYS.includes(k) ? sharedSettings : plainSettings).has(k),
+  set: (k, v) => (schema.v3 && SHARED_KEYS.includes(k) ? sharedSettings.set(k, v) : (plainSettings.set(k, v), stampDefault("settings", rowsOf("settings").find((r) => r.key === k)))),
+  delete: (k) => (schema.v3 && SHARED_KEYS.includes(k) ? sharedSettings : plainSettings).delete(k),
+  get size() { return plainSettings.size + (schema.v3 ? sharedSettings.size : 0); },
+};
 const modelConfigs = { set: (label, row) => { const rows = rowsOf("model_configs"); const i = rows.findIndex((r) => r.label === label); if (i >= 0) rows[i] = row; else rows.push(row); }, get: (l) => rowsOf("model_configs").find((r) => r.label === l) };
 const files = new Map(); // storage objects tests put there for the worker to download
 const seen = { lastChatAuth: null, lastChatBody: null, external: [], uploads: [], telegram: [] };
@@ -192,6 +213,7 @@ function rest(req, res, url, table, body) {
   const err = schemaError(table, [...cols, ...bodyCols]);
   if (err) return send(res, err.status, err.body);
   const rows = rowsOf(table);
+  if (schema.v3 && PROFILE_TABLES.includes(table)) for (const r of rows) stampDefault(table, r); // rows a test put there directly
   const respondRows = (list, status = 200) => {
     const out = list.map((r) => projectRow(table, r, select));
     if (wantsObject) return out.length === 1 ? send(res, status, out[0]) : send(res, 406, { code: "PGRST116", message: "JSON object requested, multiple (or no) rows returned" });
@@ -231,7 +253,7 @@ function rest(req, res, url, table, body) {
     const onConflict = (url.searchParams.get("on_conflict") ?? "").split(",").filter(Boolean);
     const created = [];
     for (const raw of incoming) {
-      const row = { ...(DEFAULTS[table]?.() ?? {}), ...raw };
+      const row = stampDefault(table, { ...(DEFAULTS[table]?.() ?? {}), ...raw });
       const uniq = onConflict.length ? [onConflict, ...uniquesOf(table)] : uniquesOf(table);
       const clash = rows.find((r) => uniq.some((cols) => cols.every((c) => row[c] !== undefined) && sameKey(row, r, cols)));
       if (clash) {
@@ -364,5 +386,18 @@ export function startMock(port) {
   return new Promise((resolve) => server.listen(port, "127.0.0.1", () => resolve({
     server, users, tokens, settings, modelConfigs, seen, tables, rowsOf, files, fixtures: externalFixtures,
     applyMigration2: () => { schema.v2 = true; },
+    /** What running 0003_profiles.sql does: a default profile owns everything that exists, and the app-wide settings move to shared_settings. */
+    applyMigration3: () => {
+      if (schema.v3) return;
+      schema.v3 = true;
+      DEFAULT_PROFILE = randomUUID();
+      const ownerEmail = rowsOf("settings").find((r) => r.key === "owner")?.value?.email ?? null;
+      rowsOf("profiles").push({ id: DEFAULT_PROFILE, name: "Main profile", email: ownerEmail, is_default: true, enabled: true, created_at: new Date().toISOString() });
+      const keep = [];
+      for (const r of rowsOf("settings")) { if (SHARED_KEYS.includes(r.key)) rowsOf("shared_settings").push({ key: r.key, value: r.value, updated_at: r.updated_at }); else keep.push(r); }
+      tables.set("settings", keep);
+      for (const t of PROFILE_TABLES) for (const r of rowsOf(t)) stampDefault(t, r);
+    },
+    get defaultProfileId() { return DEFAULT_PROFILE; },
   })));
 }

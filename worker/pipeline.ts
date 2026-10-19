@@ -7,7 +7,11 @@
  */
 import { appendFileSync } from "node:fs";
 import { failStaleRuns } from "../src/lib/activity";
-import { sendTelegram as notifyTelegram } from "../src/lib/notify";
+import { notifyProfile as notifyTelegram } from "../src/lib/notify-profile";
+import { sendTelegram } from "../src/lib/notify";
+import { forEachProfile, type Profile } from "../src/lib/profiles-store";
+import { profilesEnabled } from "../src/lib/scope";
+import { rawClient } from "../src/lib/raw-client";
 import { reapStuckApplications } from "../src/lib/apply/reaper";
 import { promptPrepared } from "../src/lib/telegram-prompts";
 import { trackReplies } from "../src/lib/mail/track";
@@ -61,24 +65,20 @@ async function drainBacklog(): Promise<number> {
   return sum.readyToSubmit;
 }
 
-async function main() {
-  // the master pause: nothing runs by itself (a schedule you start by hand with "Run this schedule now" still runs)
-  if (!process.env.SCHEDULE_ID?.trim() && (await getSetting("automation_pause").catch(() => null))?.paused) {
-    console.log("Everything is paused (Settings → Pause everything). Nothing was run.");
-    if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, "ready_to_submit=0\n");
-    return;
+/** Everything the pipeline does for one person. Runs inside that profile's context, so nothing it reads or writes can belong to anyone else. */
+async function runProfile(p: Profile | null, id: string | undefined): Promise<number> {
+  const label = p ? `[${p.name}] ` : "";
+  // the pause switch: nothing runs by itself (a schedule you start by hand with "Run this schedule now" still runs)
+  if (!id && (await getSetting("automation_pause").catch(() => null))?.paused) {
+    console.log(`${label}Everything is paused (Settings → Pause everything). Nothing was run.`);
+    return 0;
   }
   const swept = await failStaleRuns(30);
-  if (swept) console.log(`Marked ${swept} stalled run(s) as failed.`);
+  if (swept) console.log(`${label}Marked ${swept} stalled run(s) as failed.`);
   const reaped = await reapStuckApplications().catch((e) => { console.error("could not check for stuck applications (not fatal):", e instanceof Error ? e.message : e); return 0; });
-  if (reaped) console.log(`Handed back ${reaped} application(s) whose worker stopped before finishing.`);
+  if (reaped) console.log(`${label}Handed back ${reaped} application(s) whose worker stopped before finishing.`);
   const replies = await trackReplies();
-  if (replies.updated.length) console.log(`Replies: ${replies.updated.map((u) => `${u.company} (${u.reply})`).join(", ")}`);
-  // say up front whether any model can be used here, so "nothing was scored" always has its reason in the log and in Telegram
-  const models = await modelReadiness().catch((e) => ({ usable: [] as string[], unreadable: [] as string[], message: `Could not check the models: ${e instanceof Error ? e.message : e}` }));
-  if (models.usable.length) console.log(`Models ready: ${models.usable.join(", ")}`);
-  else { console.error(`NO MODEL AVAILABLE: ${models.message}`); await notifyTelegram(`Career Agent: ${models.message}`).catch(() => undefined); }
-  const id = process.env.SCHEDULE_ID?.trim();
+  if (replies.updated.length) console.log(`${label}Replies: ${replies.updated.map((u) => `${u.company} (${u.reply})`).join(", ")}`);
   let list: ScheduleRow[];
   if (id) {
     const s = await getSchedule(id);
@@ -87,13 +87,31 @@ async function main() {
   } else {
     list = await claimDueSchedules();
   }
-  console.log(list.length ? `${list.length} schedule(s) to run.` : "Nothing is due.");
+  console.log(list.length ? `${label}${list.length} schedule(s) to run.` : `${label}Nothing is due.`);
   let ready = 0;
   for (const s of list) ready += (await runOne(s, id ? "manual" : "schedule"))?.readyToSubmit ?? 0;
   if (!list.length && !id) ready += await drainBacklog().catch((e) => { console.error("backlog round failed:", e instanceof Error ? e.message : e); return 0; });
   const prompted = await promptPrepared();
-  if (prompted) console.log(`Sent ${prompted} application(s) to Telegram for one-tap approval.`);
-  await applyRetention().then((r) => { if (r.trimmed || r.logsDeleted) console.log(`Housekeeping: cleared ${r.trimmed} old skipped description(s), deleted ${r.logsDeleted} old rejection log line(s).`); }).catch((e) => console.error("housekeeping failed (not fatal):", e instanceof Error ? e.message : e));
+  if (prompted) console.log(`${label}Sent ${prompted} application(s) to Telegram for one-tap approval.`);
+  await applyRetention().then((r) => { if (r.trimmed || r.logsDeleted) console.log(`${label}Housekeeping: cleared ${r.trimmed} old skipped description(s), deleted ${r.logsDeleted} old rejection log line(s).`); }).catch((e) => console.error("housekeeping failed (not fatal):", e instanceof Error ? e.message : e));
+  return ready;
+}
+
+async function main() {
+  const id = process.env.SCHEDULE_ID?.trim();
+  // say up front whether any model can be used here, so "nothing was scored" always has its reason in the log and in Telegram (models are shared by every profile)
+  const models = await modelReadiness().catch((e) => ({ usable: [] as string[], unreadable: [] as string[], message: `Could not check the models: ${e instanceof Error ? e.message : e}` }));
+  if (models.usable.length) console.log(`Models ready: ${models.usable.join(", ")}`);
+  else { console.error(`NO MODEL AVAILABLE: ${models.message}`); await sendTelegram(`Career Agent: ${models.message}`).catch(() => undefined); }
+  // "Run now" names a schedule, which belongs to one profile; otherwise every profile that is switched on gets its turn
+  let only: string | null = null;
+  if (id && (await profilesEnabled(rawClient()))) {
+    const { data } = await rawClient().from("schedules").select("profile_id").eq("id", id).maybeSingle();
+    if (!data?.profile_id) throw new Error(`Schedule ${id} not found`);
+    only = data.profile_id as string;
+  }
+  const runs = await forEachProfile((p) => runProfile(p, id), { only, onError: (p, e) => { console.error(`${p ? `[${p.name}] ` : ""}pipeline failed:`, e); process.exitCode = 1; } });
+  const ready = runs.reduce((n, r) => n + (r.result ?? 0), 0);
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `ready_to_submit=${ready}\n`);
 }
 

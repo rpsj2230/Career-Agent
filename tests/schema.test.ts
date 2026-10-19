@@ -5,7 +5,7 @@ import { buildStatus, classifySchemaError, isMissingSchemaError, REQUIRED_SCHEMA
 
 describe("embedded migrations", () => {
   it("match the SQL files exactly (run `npm run gen:migrations` if this fails)", () => {
-    expect(MIGRATIONS.map((m) => m.id)).toEqual(["0001_init", "0002_portals_runs_logs_schedules"]);
+    expect(MIGRATIONS.map((m) => m.id)).toEqual(["0001_init", "0002_portals_runs_logs_schedules", "0003_profiles"]);
     for (const m of MIGRATIONS) expect(m.sql, m.id).toBe(readFileSync(`supabase/migrations/${m.id}.sql`, "utf8"));
   });
   it("every migration named in REQUIRED_SCHEMA exists", () => {

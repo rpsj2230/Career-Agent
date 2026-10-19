@@ -17,7 +17,7 @@ The app already has a **Continue with Google** button on the login page. It work
 1. Supabase, your project, **Authentication, Sign In / Providers, Google**: switch **Enable** on, paste the Client ID and Client secret, save.
 2. **Authentication, URL Configuration**:
    - **Site URL**: `https://career-agent-sand.vercel.app`
-   - **Redirect URLs**: add `https://career-agent-sand.vercel.app/api/auth/callback`
+   - **Redirect URLs**: add `https://career-agent-sand.vercel.app/api/auth/callback` and, to be safe, `https://career-agent-sand.vercel.app/**` (Supabase compares the whole address; if it is not on this list it silently sends you to `http://localhost:3000` instead)
    - If you use Vercel preview addresses, add `https://*-rupash.vercel.app/api/auth/callback` too.
 
 ## 3. Use it

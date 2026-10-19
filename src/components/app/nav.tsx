@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Briefcase, CalendarClock, Cpu, FileStack, FileText, Globe, History, Inbox, Plug, Server, Settings, User } from "lucide-react";
+import { BarChart3, Briefcase, CalendarClock, Cpu, FileStack, FileText, Globe, History, Inbox, Plug, Server, Settings, User, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { navHrefsFor, type Role } from "@/lib/roles";
 
@@ -13,6 +13,7 @@ const GROUPS = [
     title: "1 · Set up (one time)",
     items: [
       { href: "/profile", label: "Profile", icon: User },
+      { href: "/profiles", label: "People (profiles)", icon: Users },
       { href: "/resumes", label: "Resumes", icon: FileStack },
       { href: "/countries", label: "Countries", icon: Globe },
       { href: "/portals", label: "Job sources", icon: Plug },

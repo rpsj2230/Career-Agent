@@ -21,6 +21,11 @@ export const REQUIRED_SCHEMA: { table: string; migration: string; columns: strin
   { table: "daily_reports", migration: "0002_portals_runs_logs_schedules", columns: ["id", "report_date", "summary", "items"] },
   { table: "jobs", migration: "0002_portals_runs_logs_schedules", columns: ["portal", "scan_id", "run_id", "salary_min", "salary_max", "salary_currency", "salary_estimated", "decided_at", "seen_on"] },
   { table: "applications", migration: "0002_portals_runs_logs_schedules", columns: ["job_snapshot", "profile_snapshot", "submission", "run_id", "portal", "country"] },
+  { table: "profiles", migration: "0003_profiles", columns: ["id", "name", "email", "is_default", "enabled"] },
+  { table: "shared_settings", migration: "0003_profiles", columns: ["key", "value"] },
+  { table: "jobs", migration: "0003_profiles", columns: ["profile_id"] },
+  { table: "applications", migration: "0003_profiles", columns: ["profile_id"] },
+  { table: "settings", migration: "0003_profiles", columns: ["profile_id"] },
 ];
 
 export type SchemaProblem = { table: string; column?: string; migration: string; kind: "table" | "column" };

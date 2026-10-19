@@ -12,6 +12,7 @@ import { dedupeList } from "@/lib/country-prefs";
 import { getSetting } from "@/lib/settings";
 import { TeamCard } from "@/components/app/team-card";
 import { getOwnerEmail, getTeam } from "@/lib/owner";
+import { listProfiles } from "@/lib/profiles-store";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +30,7 @@ export default async function SettingsPage() {
     <div className="grid gap-4">
       <h1 className="text-2xl font-semibold">Settings</h1>
       <PauseCard initial={pause} />
-      <TeamCard owner={await getOwnerEmail()} members={await getTeam()} />
+      <TeamCard owner={await getOwnerEmail()} members={await getTeam()} profiles={(await listProfiles().catch(() => [])).map((p) => ({ id: p.id, name: p.name }))} />
       <AutoApplyCard enabled={autoapply.enabled} caps={caps} />
       <AutoPrepareCard initial={autoPrepare} />
       <EmailApplyCard initial={emailApply} mailbox={mailbox ?? ""} />

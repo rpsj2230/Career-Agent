@@ -107,6 +107,11 @@ r = await call("/api/files?path=bad"); check("owner session still works", r.stat
   const strip = (t) => t.replace(/<!-- -->/g, "");
   r = await call("/login", { auth: false }); check("the login page has Continue with Google and the RP logo with the product name", /Continue with Google/.test(strip(r.text)) && /rp-logo/.test(r.text) && /Career Agent/.test(strip(r.text)), r.status);
   r = await call("/api/auth/google?next=/jobs", { auth: false }); check("starting Google sign-in sends the browser to Supabase's Google address", r.status === 307 && /\/auth\/v1\/authorize\?/.test(r.location ?? "") && /provider=google/.test(r.location ?? "") && /redirect_to=/.test(r.location ?? ""), `${r.status} ${r.location}`);
+  r = await call("/api/auth/google?next=%2Fjobs", { auth: false });
+  const redirectTo = decodeURIComponent((r.location ?? "").match(/redirect_to=([^&]+)/)?.[1] ?? "");
+  check("Google sign-in asks Supabase to return to exactly /api/auth/callback (no query string, so the allowed-list entry matches)", r.status === 307 && /\/api\/auth\/callback$/.test(redirectTo), `${r.status} ${r.location}`);
+  check("...and remembers where to go afterwards in a cookie", r.setCookie.some((c) => /^career_next=%2Fjobs|^career_next=\/jobs/.test(c)), JSON.stringify(r.setCookie));
+  jar.delete("career_next");
   r = await call("/api/auth/callback", { auth: false }); check("coming back from Google without a code goes back to the login page with a message", r.status === 307 && /\/login\?error=google/.test(r.location ?? ""), `${r.status} ${r.location}`);
   r = await call("/icon.png", { auth: false }); check("the favicon image is reachable before signing in", r.status === 200 && /image\/png/.test(r.contentType ?? ""), `${r.status} ${r.contentType}`);
   r = await call("/brand/rp-logo.png", { auth: false }); check("the logo is reachable before signing in", r.status === 200 && /image\/png/.test(r.contentType ?? ""), `${r.status} ${r.contentType}`);
@@ -158,9 +163,21 @@ check("the external API received the decrypted credentials", mock.seen.external.
 r = await call("/portals"); check("Portals page renders while the database is behind and says so", r.status === 200 && r.text.includes("Database update needed"), `${r.status}`);
 
 mock.applyMigration2();
-r = await call("/api/system/recheck", { method: "POST" }); check("Re-check endpoint reports the database is now healthy", r.status === 200 && r.json?.ok === true, `${r.status} ${r.text}`);
-r = await call("/system");
-check("after the migration is applied, a re-check reports up to date", r.status === 200 && r.text.includes("up to date") && !r.text.includes("Database update needed"), `${r.status} upToDate=${r.text.includes("up to date")} banner=${r.text.includes("Database update needed")} check_failed=${r.text.includes("check failed")} snippet=${(r.text.match(/Database[^<]{0,40}<[^>]*>[^<]{0,60}/g) ?? []).slice(0, 3).join(" | ")}`);
+// E2E_PROFILES=0 keeps the whole rest of the run on a database that has migrations 1 and 2 only (the app as it was before profiles); the default upgrades it to 3
+const PROFILES = process.env.E2E_PROFILES !== "0";
+r = await call("/api/system/recheck", { method: "POST" });
+check("with migrations 1 and 2 applied, only the profiles migration (0003) is still pending", r.status === 200 && r.json?.ok === false && JSON.stringify(r.json).includes("0003_profiles") && !JSON.stringify(r.json).includes("0002_portals"), `${r.status} ${r.text.slice(0, 300)}`);
+r = await call("/jobs?stage=all"); check("until 0003 is run the app works exactly as before (Jobs page renders, no profile switcher)", r.status === 200 && !r.text.includes("profile-switch"), r.status);
+r = await call("/profiles"); check("the People page says one more setup step is needed", r.status === 200 && r.text.includes("One more setup step") && r.text.includes("0003_profiles"), r.status);
+r = await call("/api/profiles", { method: "POST", body: { name: "Too early" } }); check("a profile cannot be created before the migration", r.status === 409, `${r.status} ${r.text}`);
+r = await call("/system"); check("System health shows the profiles migration SQL", r.text.includes("0003_profiles") && r.text.includes("create table if not exists profiles"), r.status);
+if (PROFILES) {
+  mock.applyMigration3();
+  await new Promise((res) => setTimeout(res, 6_000)); // the app re-checks whether the database has been upgraded every few seconds
+  r = await call("/api/system/recheck", { method: "POST" }); check("Re-check endpoint reports the database is now healthy", r.status === 200 && r.json?.ok === true, `${r.status} ${r.text}`);
+  r = await call("/system");
+  check("after the migration is applied, a re-check reports up to date", r.status === 200 && r.text.includes("up to date") && !r.text.includes("Database update needed"), `${r.status} upToDate=${r.text.includes("up to date")} banner=${r.text.includes("Database update needed")} check_failed=${r.text.includes("check failed")}`);
+}
 
 // ---- portals, scans, runs and the activity log once the database is up to date
 mock.fixtures.adzunaResults = [...mock.fixtures.adzunaResults, { id: 103, title: "Principal Product Manager", company: { display_name: "Gamma Pte Ltd" }, location: { display_name: "Singapore" }, redirect_url: "https://www.adzuna.sg/land/ad/103", description: "Shape the strategy. ".repeat(8), created: new Date().toISOString() }];
@@ -598,7 +615,7 @@ function seedApproved(company, hash, approvedAt, fixture = "greenhouse-like") {
 }
 const runApplyWorker = (extra = {}) => new Promise((resolve) => {
   const p = spawn("node_modules/.bin/tsx", ["worker/apply.ts"], {
-    env: { ...process.env, SUPABASE_URL: `http://127.0.0.1:${MOCK}`, SUPABASE_SERVICE_ROLE_KEY: "service-key", CHROMIUM_PATH: process.env.CHROMIUM_PATH ?? `${process.env.PLAYWRIGHT_BROWSERS_PATH}/chromium`, APPLY_PAUSE_MS: "0", ...extra },
+    env: { ...process.env, NODE_OPTIONS: "--conditions=react-server", SUPABASE_URL: `http://127.0.0.1:${MOCK}`, SUPABASE_SERVICE_ROLE_KEY: "service-key", CHROMIUM_PATH: process.env.CHROMIUM_PATH ?? `${process.env.PLAYWRIGHT_BROWSERS_PATH}/chromium`, APPLY_PAUSE_MS: "0", ...extra },
     stdio: ["ignore", "pipe", "pipe"],
   });
   let text = ""; p.stdout.on("data", (d) => (text += d)); p.stderr.on("data", (d) => (text += d));
@@ -652,7 +669,7 @@ if (process.env.PLAYWRIGHT_BROWSERS_PATH || process.env.CHROMIUM_PATH) {
   mock.rowsOf("jobs").find((j) => j.id === asst.jobId).portal = "naukri";
   const runAssist = (input) => new Promise((resolve) => {
     const p = spawn("node_modules/.bin/tsx", ["worker/assist.ts"], {
-      env: { ...process.env, SUPABASE_URL: `http://127.0.0.1:${MOCK}`, SUPABASE_SERVICE_ROLE_KEY: "service-key", CHROMIUM_PATH: process.env.CHROMIUM_PATH ?? `${process.env.PLAYWRIGHT_BROWSERS_PATH}/chromium`, ASSIST_HEADLESS: "1", ASSIST_PAUSE_MS: "0", APPLICATION_ID: asst.appId, ASSIST_PROFILE_DIR: `${process.env.TMPDIR ?? "/tmp"}/assist-profile-${Date.now()}` },
+      env: { ...process.env, NODE_OPTIONS: "--conditions=react-server", SUPABASE_URL: `http://127.0.0.1:${MOCK}`, SUPABASE_SERVICE_ROLE_KEY: "service-key", CHROMIUM_PATH: process.env.CHROMIUM_PATH ?? `${process.env.PLAYWRIGHT_BROWSERS_PATH}/chromium`, ASSIST_HEADLESS: "1", ASSIST_PAUSE_MS: "0", APPLICATION_ID: asst.appId, ASSIST_PROFILE_DIR: `${process.env.TMPDIR ?? "/tmp"}/assist-profile-${Date.now()}` },
       stdio: ["pipe", "pipe", "pipe"],
     });
     let text = "", sent = false;
@@ -674,7 +691,7 @@ if (process.env.PLAYWRIGHT_BROWSERS_PATH || process.env.CHROMIUM_PATH) {
   // ---- hands-free mode (ASSIST_MODE=auto): presses Submit itself, inside the limits, and hands back what it cannot answer
   const runAuto = (appId, extra = {}) => new Promise((resolve) => {
     const p = spawn("node_modules/.bin/tsx", ["worker/assist.ts"], {
-      env: { ...process.env, SUPABASE_URL: `http://127.0.0.1:${MOCK}`, SUPABASE_SERVICE_ROLE_KEY: "service-key", CHROMIUM_PATH: process.env.CHROMIUM_PATH ?? `${process.env.PLAYWRIGHT_BROWSERS_PATH}/chromium`, ASSIST_HEADLESS: "1", ASSIST_MODE: "auto", ASSIST_AUTO_PAUSE_MS: "0", APPLICATION_ID: appId, ASSIST_PROFILE_DIR: `${process.env.TMPDIR ?? "/tmp"}/assist-profile-${Date.now()}`, ...extra },
+      env: { ...process.env, NODE_OPTIONS: "--conditions=react-server", SUPABASE_URL: `http://127.0.0.1:${MOCK}`, SUPABASE_SERVICE_ROLE_KEY: "service-key", CHROMIUM_PATH: process.env.CHROMIUM_PATH ?? `${process.env.PLAYWRIGHT_BROWSERS_PATH}/chromium`, ASSIST_HEADLESS: "1", ASSIST_MODE: "auto", ASSIST_AUTO_PAUSE_MS: "0", APPLICATION_ID: appId, ASSIST_PROFILE_DIR: `${process.env.TMPDIR ?? "/tmp"}/assist-profile-${Date.now()}`, ...extra },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let text = ""; p.stdout.on("data", (d) => (text += d)); p.stderr.on("data", (d) => (text += d));
@@ -830,7 +847,7 @@ if (process.env.PLAYWRIGHT_BROWSERS_PATH || process.env.CHROMIUM_PATH) {
   r = await call("/api/integrations/mailbox/credentials", { method: "PUT", body: creds({ imap_password: "wrong-password" }) }); check("mailbox credentials are saved without being echoed", r.status === 200 && !r.text.includes("wrong-password"), `${r.status} ${r.text}`);
   r = await call("/api/integrations/mailbox/test", { method: "POST" }); check("a wrong password is explained in plain words", r.status === 422 && /rejected the sign-in.*app password/.test(r.text), r.text);
   r = await call("/api/integrations/mailbox/credentials", { method: "PUT", body: creds() });
-  const stored = JSON.stringify(mock.settings.get("integration_keys") ?? {});
+  const stored = JSON.stringify([mock.settings.get("integration_keys") ?? {}, mock.rowsOf("settings").filter((x) => x.key === "mailbox_keys").map((x) => x.value)]); // the mailbox is kept per profile, the other keys are shared
   check("the mailbox password is encrypted at rest", stored.includes("mailbox.imap_password") && !stored.includes("app-pass-SECRET") && !stored.includes("me@example.com"), "plaintext stored");
   r = await call("/api/integrations/mailbox/test", { method: "POST" }); check("Test connects and reports the alert emails and jobs found", r.json?.ok === true && /3 alert email\(s\).*6 job link\(s\)/.test(r.json.note), r.text);
   
@@ -1130,6 +1147,108 @@ r = await call("/api/models/test", { method: "POST", body: { label: "e2e-model" 
   check("...and every listing fetched", !!f && Number(f[1].replace(/,/g, "")) >= 2600, f ? f[1] : "no figure");
   scansTable.splice(before);
 }
+// ---- several profiles in one app: each person is separate, the automation serves each, and everyone is told
+if (PROFILES) {
+  const mainId = mock.defaultProfileId;
+  const T = (x) => x.text.replace(/<!-- -->/g, "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+  const mainOnly = () => mock.rowsOf("jobs").filter((j) => j.profile_id === mainId).length;
+  r = await call("/profiles"); check("the People page lists the main profile", r.status === 200 && r.text.includes('value="Main profile"') && /Main profile/.test(T(r)), r.status);
+  r = await call("/api/profiles", { method: "POST", body: { name: "  " } }); check("a profile needs a name", r.status === 400, `${r.status} ${r.text}`);
+  r = await call("/api/profiles", { method: "POST", body: { name: "Priya", email: "not-an-email" } }); check("a profile's email must be an email", r.status === 400, `${r.status} ${r.text}`);
+  r = await call("/api/profiles", { method: "POST", body: { name: "Priya", email: "Priya@Family.test" } }); const priyaId = r.json?.profile?.id;
+  check("a second profile is created", r.status === 200 && !!priyaId && r.json.profile.email === "priya@family.test" && mock.rowsOf("profiles").length === 2, `${r.status} ${r.text}`);
+  r = await call("/jobs?stage=all"); check("with two profiles the header offers a switcher", r.text.includes('id="profile-switch"') && r.text.includes("Priya") && r.text.includes("Main profile"), r.status);
+  check("...and no warning banner while on the main profile", !/Everything on every page/.test(T(r)), "banner shown");
+
+  // data that belongs to Priya, put in the database directly
+  const pj = randomUUID(), pa = randomUUID(), pd = randomUUID();
+  const now = new Date().toISOString();
+  mock.rowsOf("jobs").push({ id: pj, profile_id: priyaId, source: "manual", external_id: "p1", dedupe_key: "p1", title: "Priya Only Role", company: "PriyaCo", country: "sg", url: "https://priyaco.example/job", apply_type: "greenhouse", portal: "greenhouse", description: "d", status: "prepared", found_at: now, seen_on: [] });
+  mock.rowsOf("documents").push({ id: pd, profile_id: priyaId, job_id: pj, kind: "resume", version: 1, content: { headline: "PM", summary: { text: "Priya summary", sourceIds: [] }, experience: [], skillIds: [], certificationIds: [], highlightIds: [] }, diff: [], verification: { ok: true, attempts: 1, issues: [] }, storage_path: `${pj}/resume-v1.docx` });
+  mock.rowsOf("applications").push({ id: pa, profile_id: priyaId, job_id: pj, resume_doc_id: pd, status: "prepared", method: "automated", answers: [], portal: "greenhouse", country: "sg", lifecycle: "none", created_at: now });
+  mock.rowsOf("job_scores").push({ job_id: pj, profile_id: priyaId, score: 91, detail: { score: 91, matchedSkills: ["roadmap"], gaps: [], seniorityFit: "good", locationVisaFit: "good", salarySignal: "unknown", summary: "Strong fit." }, model: "m" });
+  mock.rowsOf("answer_bank").push({ key: "priya-q", question: "Priya's private answer", answer: "secret-priya", profile_id: priyaId });
+  const mainBefore = mainOnly();
+
+  check("the main profile does not see Priya's job", !(await call("/jobs?stage=all&size=100")).text.includes("PriyaCo"), "leaked into Jobs");
+  check("...or her application", !(await call("/applications?size=100")).text.includes("PriyaCo"), "leaked into Applications");
+  r = await call(`/jobs/${pj}`); check("...and cannot open her job by its address", r.status === 404, r.status);
+  r = await call(`/applications/${pa}`); check("...or her application", r.status === 404, r.status);
+  r = await call(`/api/applications/${pa}`, { method: "POST", body: { action: "approve" } }); check("...or approve it", r.status === 404 && mock.rowsOf("applications").find((a) => a.id === pa).status === "prepared", `${r.status} ${r.text}`);
+  r = await call("/api/bulk", { method: "POST", body: { action: "skip", ids: [pa] } }); check("...or skip it in bulk", mock.rowsOf("applications").find((a) => a.id === pa).status === "prepared", `${r.status} ${r.text}`);
+  r = await call(`/api/files?path=${encodeURIComponent(`${pj}/resume-v1.docx`)}`); check("...or download her resume file", r.status === 404, r.status);
+  r = await call("/profile"); check("...or read her saved answers", r.status === 200 && !r.text.includes("secret-priya"), "answer leaked");
+  r = await call("/api/export/applications"); check("...or export her applications", !r.text.includes("PriyaCo"), "export leaked");
+
+  r = await call("/api/profiles/switch", { method: "POST", body: { id: priyaId } }); check("switching to Priya sets the choice", r.status === 200 && jar.get("career_profile") === priyaId, `${r.status} ${[...jar.keys()]}`);
+  r = await call("/jobs?stage=all&size=100"); check("on Priya's profile her job is shown", r.status === 200 && r.text.includes("PriyaCo") && !r.text.includes("Zeta Pte"), r.status);
+  check("...with a banner saying whose profile it is", /You are working on Priya/.test(T(r)), "banner missing");
+  r = await call("/applications?size=100"); check("...her application is shown and the main profile's are not", r.text.includes("PriyaCo") && !r.text.includes("FormCo"), r.status);
+  r = await call(`/jobs/${pj}`); check("...and she can open it", r.status === 200 && r.text.includes("Priya Only Role"), r.status);
+  r = await call("/profile"); check("...and sees her own saved answers, not the main profile's", r.text.includes("secret-priya"), r.status);
+  r = await call(`/jobs/${mock.rowsOf("jobs").find((j) => j.profile_id === mainId).id}`); check("...but cannot open a main-profile job", r.status === 404, r.status);
+
+  // settings are separate per person; the AI models and keys are shared
+  r = await call("/api/settings", { method: "PUT", body: { key: "caps", value: { daily_total: 3, daily_linkedin: 1, weekly_linkedin: 2, linkedin_automation_enabled: false } } }); check("Priya's limits are saved on her profile", r.status === 200, `${r.status} ${r.text}`);
+  const capsRows = mock.rowsOf("settings").filter((x) => x.key === "caps");
+  check("...as a row of her own", capsRows.some((x) => x.profile_id === priyaId && x.value.daily_total === 3) && capsRows.every((x) => x.profile_id !== mainId || x.value.daily_total !== 3), JSON.stringify(capsRows));
+  r = await call("/profile"); check("her profile page starts empty", r.status === 200, r.status);
+  r = await call("/models"); check("the AI models are shared", r.status === 200 && r.text.includes("e2e-model"), r.status);
+  r = await call("/api/integrations/mailbox/credentials", { method: "PUT", body: { values: { imap_host: "imap.priya.test", imap_user: "priya.apply@priya.test", imap_password: "priya-app-password" } } });
+  check("Priya connects her own mailbox", r.status === 200, `${r.status} ${r.text}`);
+  const mk = mock.rowsOf("settings").filter((x) => x.key === "mailbox_keys");
+  check("...stored for her only, encrypted", mk.length >= 1 && mk.every((x) => x.profile_id === priyaId || !JSON.stringify(x.value).includes("priya")) && !JSON.stringify(mk).includes("priya-app-password"), JSON.stringify(mk).slice(0, 200));
+  r = await call("/api/profiles/switch", { method: "POST", body: { id: mainId } });
+  r = await call("/portals"); check("the main profile's mailbox is not Priya's", !r.text.includes("priya.apply@priya.test"), "Priya's mailbox shown to the main profile");
+  check("nothing of the main profile changed", mainOnly() === mainBefore, `${mainOnly()} vs ${mainBefore}`);
+  check("the main profile's limits are untouched", !mock.rowsOf("settings").some((x) => x.key === "caps" && x.profile_id === mainId && x.value.daily_total === 3), "caps overwritten");
+
+  // a forged profile choice cannot open a profile the person may not see
+  const adminJar2 = new Map(jar); jar.clear();
+  mock.users.set("family@x.com", { id: "u98", email: "family@x.com", password: PW });
+  jar.clear(); for (const [k, v] of adminJar2) jar.set(k, v);
+  r = await call("/api/team", { method: "PUT", body: { email: "family@x.com", role: "jobs", profiles: [priyaId] } }); check("Priya's family member is given access to her profile only", r.status === 200 && mock.settings.get("team")?.members?.some((m) => m.email === "family@x.com" && m.profiles?.[0] === priyaId), `${r.status} ${r.text}`);
+  jar.clear(); await call("/api/auth/login", { method: "POST", body: { email: "family@x.com", password: PW } });
+  r = await call("/jobs?stage=all&size=100", { headers: { "x-career-profile": mainId, Cookie: `${cookieHeader()}; career_profile=${mainId}` } });
+  check("they land on Priya's profile even if they ask for the main one", r.status === 200 && r.text.includes("PriyaCo") && !r.text.includes("Zeta Pte"), r.status);
+  check("...and see no switcher", !r.text.includes('id="profile-switch"'), "switcher shown");
+  r = await call("/api/profiles", { method: "POST", body: { name: "Intruder" } }); check("...and cannot create profiles", r.status === 403, r.status);
+  r = await call(`/api/applications/${pa}`, { method: "POST", body: { action: "skip" } }); check("...but can act on her applications", r.status === 200 && mock.rowsOf("jobs").find((j) => j.id === pj).status === "skipped", `${r.status} ${r.text}`);
+  jar.clear(); for (const [k, v] of adminJar2) jar.set(k, v);
+
+  // everyone is told: Telegram to you, email to you and to the person (Priya has no mailbox of her own yet, so the main profile's sends for her)
+  r = await call("/api/profiles/switch", { method: "POST", body: { id: priyaId } });
+  r = await call("/api/integrations/mailbox/credentials", { method: "DELETE" }); check("Priya can disconnect her mailbox", r.status === 200, `${r.status} ${r.text}`);
+  r = await call("/api/profiles/switch", { method: "POST", body: { id: mainId } });
+  mock.rowsOf("jobs").find((j) => j.id === pj).status = "prepared";
+  mock.seen.telegram.length = 0; const mailsBefore = smtp.messages.length;
+  r = await call("/api/cron/digest", { auth: false, headers: { Authorization: `Bearer ${SECRET}` } });
+  check("the morning digest runs once for each profile", r.status === 200 && r.json?.reports?.length === 2, `${r.status} ${r.text.slice(0, 200)}`);
+  check("Telegram names the profile once there are several", mock.seen.telegram.some((m) => /^\[Priya\]/.test(m.body.text)) && mock.seen.telegram.some((m) => /^\[Main profile\]/.test(m.body.text)), JSON.stringify(mock.seen.telegram.map((m) => m.body.text.slice(0, 30))));
+  const sent = smtp.messages.slice(mailsBefore);
+  check("Priya's report is emailed to the owner and to Priya", sent.some((m) => m.to.includes("priya@family.test")) && sent.some((m) => m.to.includes("me@x.com") && /Priya/.test(m.raw)), JSON.stringify(sent.map((m) => m.to)));
+  check("the main profile's report is not emailed to Priya", !sent.some((m) => m.to.includes("priya@family.test") && !/Priya/.test(m.raw)), "wrong person emailed");
+
+  // the hourly check and the pipeline cover everyone
+  r = await call("/api/cron/due", { auth: false, headers: { Authorization: `Bearer ${SECRET}` } }); check("the hourly check counts every profile", r.status === 200 && r.json?.profiles?.length === 2, `${r.status} ${r.text.slice(0, 300)}`);
+  check("...and a failure in one profile is not hidden", Array.isArray(r.json?.failedProfiles) && r.json.failedProfiles.length === 0, r.text.slice(0, 200));
+
+  const wk = await runWorker();
+  check("the scheduled pipeline gives every profile its turn, each one labelled", /\[Main profile\]/.test(wk.text) && /\[Priya\]/.test(wk.text), wk.text.slice(-500));
+  check("...and one profile having nothing to do does not fail the run", wk.code === 0, `${wk.code} ${wk.text.slice(-300)}`);
+  mock.rowsOf("profiles").find((x) => x.id === priyaId).enabled = false;
+  const wk2 = await runWorker();
+  check("a profile switched off is skipped by the pipeline", !/\[Priya\]/.test(wk2.text) && /\[Main profile\]/.test(wk2.text), wk2.text.slice(-400));
+  mock.rowsOf("profiles").find((x) => x.id === priyaId).enabled = true;
+
+  // deleting a profile removes everything it owns and nothing else
+  r = await call(`/api/profiles/${mainId}`, { method: "DELETE" }); check("the main profile cannot be deleted", r.status === 400, `${r.status} ${r.text}`);
+  r = await call(`/api/profiles/${priyaId}`, { method: "DELETE" }); check("a profile can be deleted", r.status === 200 && mock.rowsOf("profiles").length === 1, `${r.status} ${r.text}`);
+  check("...with all of its data", ["jobs", "applications", "documents", "job_scores", "answer_bank", "settings", "activity_log", "integrations"].every((t) => mock.rowsOf(t).every((x) => x.profile_id !== priyaId)), "rows left behind");
+  check("...and none of the main profile's", mainOnly() === mainBefore, `${mainOnly()} vs ${mainBefore}`);
+  r = await call("/jobs?stage=all"); check("the app falls back to the main profile after the one in use is deleted", r.status === 200 && !r.text.includes("PriyaCo"), r.status);
+}
+
 r = await call("/api/auth/logout", { method: "POST" }); check("logout succeeds and clears cookies", r.status === 200 && jar.size === 0, `${r.status} cookies=${jar.size}`);
 r = await call("/api/files?path=bad"); check("after logout the API is closed again", r.status === 401, r.status);
 r = await call("/api/models/key", { method: "PUT", body: { label: "e2e-model", apiKey: KEY } }); check("after logout nobody can save keys", r.status === 401, r.status);
