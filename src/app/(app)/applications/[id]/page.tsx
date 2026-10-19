@@ -6,6 +6,7 @@ import { EmailCard } from "@/components/app/email-card";
 import { contactEmailsFor } from "@/lib/apply/contact-email";
 import { loadDraft } from "@/lib/apply/email-store";
 import { RegenerateCard } from "@/components/app/regenerate-card";
+import { ReapplyCard } from "@/components/app/reapply-card";
 import { ApplyTypeBadge, ScoreBadge, SourceBadge, StatusBadge } from "@/components/app/badges";
 import { ResumePreview } from "@/components/app/resume-preview";
 import { Badge } from "@/components/ui/badge";
@@ -75,7 +76,7 @@ export default async function ApplicationPage({ params }: { params: Promise<{ id
           <SourceBadge portal={job.portal} source={job.source} />{fit && <ScoreBadge score={fit.score} />}<ApplyTypeBadge type={job.apply_type} />
         </div>
         <nav className="mt-3 flex flex-wrap gap-3 text-sm" aria-label="Sections">
-          <a className="underline" href="#job">A. Job details</a><a className="underline" href="#documents">B. Resume and documents</a><a className="underline" href="#answers">C. Answers and submission</a>
+          <a className="font-medium underline" href="#regenerate">Write a new resume / apply again</a><a className="underline" href="#job">A. Job details</a><a className="underline" href="#documents">B. Resume and documents</a><a className="underline" href="#answers">C. Answers and submission</a>
           <Link className="underline" href={`/logs?app=${id}`}>Activity log</Link>
           {app.run_id && <Link className="underline" href={`/logs/runs/${app.run_id}`}>Run that prepared it</Link>}
         </nav>
@@ -108,9 +109,13 @@ export default async function ApplicationPage({ params }: { params: Promise<{ id
         </Card>
       )}
 
+      <div id="regenerate" className="grid gap-4 scroll-mt-4">
+        <ReapplyCard id={id} status={app.status} />
+        <RegenerateCard id={id} status={app.status} />
+      </div>
+
       <EmailCard id={id} status={app.status} draft={emailDraft as never} listed={listedEmails} />
 
-      <RegenerateCard id={id} status={app.status} />
 
       <Card>
         <CardHeader><CardTitle>Outcome</CardTitle><CardDescription>Update as employers respond.</CardDescription></CardHeader>

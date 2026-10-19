@@ -1,5 +1,6 @@
 import "server-only";
 import { db } from "@/lib/db";
+import { fetchAll } from "@/lib/fetch-all";
 import { isMissingSchemaError } from "@/lib/schema";
 import { summariseDashboard, type DashApp, type DashJob, type DashRun, type DashScan, type Period, periodStart } from "./dashboard";
 import { appTimezone } from "./time";
@@ -23,7 +24,7 @@ export async function loadDashboard(o: { period: Period; country?: string }, now
   const c = o.country;
 
   const jobCols = "country,portal,status,found_at,decided_at";
-  const jobsQ = (extra: (q: ReturnType<typeof base>) => ReturnType<typeof base>) => extra(base()).limit(5000);
+  const jobsQ = (extra: (q: ReturnType<typeof base>) => ReturnType<typeof base>) => fetchAll<DashJob>((a, b) => extra(base()).order("id").range(a, b), 50_000);
   const base = () => { const q = db().from("jobs").select(jobCols); return c ? q.eq("country", c) : q; };
   const [jobs, decided] = await Promise.all([
     guard<DashJob[]>(jobsQ((q) => q.gte("found_at", iso)), []),
@@ -31,11 +32,17 @@ export async function loadDashboard(o: { period: Period; country?: string }, now
   ]);
 
   const appSelect = `id,status,method,created_at,submitted_at,error, job:jobs${c ? "!inner" : ""}(title,company,country,portal)`;
-  const appQ = () => { const q = db().from("applications").select(appSelect); return (c ? q.eq("job.country", c) : q).limit(2000); };
+  const appQ = (f: { gte?: [string, string]; in?: [string, string[]] }) => fetchAll<Row>((a, b) => {
+    let q = db().from("applications").select(appSelect);
+    if (c) q = q.eq("job.country", c);
+    if (f.gte) q = q.gte(f.gte[0], f.gte[1]);
+    if (f.in) q = q.in(f.in[0], f.in[1]);
+    return q.order("id").range(a, b);
+  }, 50_000);
   const [created, sent, open] = await Promise.all([
-    guard<Row[]>(appQ().gte("created_at", iso), []),
-    guard<Row[]>(appQ().gte("submitted_at", iso), []),
-    guard<Row[]>(appQ().in("status", OPEN), []),
+    guard<Row[]>(appQ({ gte: ["created_at", iso] }), []),
+    guard<Row[]>(appQ({ gte: ["submitted_at", iso] }), []),
+    guard<Row[]>(appQ({ in: ["status", OPEN] }), []),
   ]);
   const apps = new Map<string, DashApp>();
   for (const r of [...created, ...sent, ...open]) {
@@ -50,8 +57,8 @@ export async function loadDashboard(o: { period: Period; country?: string }, now
   const docsRes = await (c ? docsQ.eq("job.country", c) : docsQ);
   const docs = docsRes.error ? 0 : docsRes.count ?? 0;
 
-  const scanQ = db().from("portal_scans").select("integration,country,status,started_at,fetched,inserted,duplicates,error").gte("started_at", iso).limit(2000);
-  const scans = await guard<DashScan[]>(c ? scanQ.eq("country", c) : scanQ, []);
+  const scanQ = () => { const q = db().from("portal_scans").select("integration,country,status,started_at,fetched,inserted,duplicates,error").gte("started_at", iso); return c ? q.eq("country", c) : q; };
+  const scans = await guard<DashScan[]>(fetchAll<DashScan>((a, b) => scanQ().order("id").range(a, b), 50_000), []);
   const runs = await guard<DashRun[]>(db().from("automation_runs").select("id,kind,status,started_at,finished_at,error,stats").order("started_at", { ascending: false }).limit(10), []);
 
   return { from, limited, runs, summary: summariseDashboard({ from, jobs, decided, apps: [...apps.values()], docs, scans, runs }) };

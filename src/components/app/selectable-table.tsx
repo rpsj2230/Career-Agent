@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
-export type BulkAction = { label: string; action: "prepare" | "approve" | "skip"; confirm?: string; variant?: "default" | "outline" | "destructive" };
+export type BulkAction = { label: string; action: "prepare" | "approve" | "skip" | "regenerate" | "reapply"; confirm?: string; variant?: "default" | "outline" | "destructive" };
 export type SelectableRow = { id: string; /** which bulk id this row contributes (a job id or an application id); null = not selectable */ selectId: string | null; cells: ReactNode[] };
 
 /** A table with checkboxes: tick rows (or all), then do one thing to all of them. The actions go to /api/bulk. */

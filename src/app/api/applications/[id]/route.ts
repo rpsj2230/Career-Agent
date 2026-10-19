@@ -16,6 +16,7 @@ const Body = z.discriminatedUnion("action", [
   z.object({ action: z.literal("skip") }),
   z.object({ action: z.literal("save") }),
   z.object({ action: z.literal("retry") }),
+  z.object({ action: z.literal("reapply"), confirmSubmitted: z.boolean().optional() }),
   z.object({ action: z.literal("lifecycle"), lifecycle: z.enum(["applied", "interview", "rejected", "offer", "withdrawn"]), notes: z.string().max(2000).optional() }),
 ]);
 
@@ -68,6 +69,17 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
       await logEvent(id, "retry_requested");
       await log({ kind: "application.lifecycle", message: "Returned to the queue for another attempt", status: "prepared" });
       return NextResponse.json({ ok: true });
+    case "reapply": {
+      // apply again with the same resume and cover letter: back to "Pending approval", then press Approve
+      if (["approved", "submitting"].includes(app.status)) return NextResponse.json({ error: "This application is being sent right now. Wait until it finishes." }, { status: 409 });
+      if (app.status === "prepared") return NextResponse.json({ error: "It is already waiting for your approval. Press Approve." }, { status: 409 });
+      if (app.status === "submitted" && !body.confirmSubmitted) return NextResponse.json({ error: "This application was already submitted. Confirm that you want to apply again.", needsConfirm: true }, { status: 409 });
+      await setApp({ status: "prepared", error: null, approved_at: null, submitted_at: null, lifecycle: "none" });
+      await setJob({ status: "prepared" });
+      await logEvent(id, "reapply_requested", { previousStatus: app.status });
+      await log({ kind: "application.lifecycle", message: `Set up to apply again with the same resume (it was ${app.status})`, status: "prepared", detail: { previousStatus: app.status } });
+      return NextResponse.json({ ok: true, note: "Back to Pending approval with the same resume and cover letter. Press Approve to apply again." });
+    }
     case "lifecycle":
       await setApp({ lifecycle: body.lifecycle, notes: body.notes ?? null });
       await logEvent(id, "lifecycle", { lifecycle: body.lifecycle });

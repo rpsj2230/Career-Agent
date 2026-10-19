@@ -1077,6 +1077,34 @@ r = await call("/api/models/test", { method: "POST", body: { label: "e2e-model" 
   const rs2 = mock.rowsOf("job_scores").find((x) => x.job_id === rj?.id);
   check("the rules-only job is now scored by a model", !!rs2 && rs2.model !== "rules", JSON.stringify({ model: rs2?.model }));
 }
+// regenerate / apply again are easy to find, and the dashboard counts past 1000 rows
+{
+  const strip = (t) => t.replace(/<!-- -->/g, "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+  const apps = mock.rowsOf("applications");
+  const ap = apps.find((x) => x.status === "prepared") ?? apps[0];
+  ap.status = "failed"; ap.error = "boom";
+  r = await call(`/applications/${ap.id}`); check("the application page offers both Write a new resume and Apply again, with a link at the top", /Write a new resume/.test(strip(r.text)) && /Apply again with the same resume/.test(strip(r.text)) && /href="#regenerate"/.test(r.text), r.status);
+  r = await call("/applications?size=100"); check("the Applications list has bulk Write new resumes / Apply again and a per-row link", /Write new resumes for selected/.test(strip(r.text)) && /Apply again \(same resume\)/.test(strip(r.text)) && /New resume \/ apply again/.test(strip(r.text)), r.status);
+  r = await call(`/api/applications/${ap.id}`, { method: "POST", body: { action: "reapply" } }); check("Apply again puts a failed application back to Pending approval with the same documents", r.status === 200 && mock.rowsOf("applications").find((x) => x.id === ap.id).status === "prepared" && !mock.rowsOf("applications").find((x) => x.id === ap.id).error, `${r.status} ${r.text}`);
+  r = await call(`/api/applications/${ap.id}`, { method: "POST", body: { action: "reapply" } }); check("...and a second press says it is already waiting", r.status === 409, `${r.status} ${r.text}`);
+  ap.status = "submitted"; ap.submitted_at = new Date().toISOString();
+  r = await call(`/api/applications/${ap.id}`, { method: "POST", body: { action: "reapply" } }); check("a submitted application needs a confirmation to apply again", r.status === 409 && r.json?.needsConfirm === true, `${r.status} ${r.text}`);
+  r = await call("/api/bulk", { method: "POST", body: { action: "reapply", ids: [ap.id] } }); check("bulk Apply again leaves already-submitted applications alone", r.status === 200 && /Left alone/.test(r.json?.note ?? "") && mock.rowsOf("applications").find((x) => x.id === ap.id).status === "submitted", `${r.status} ${r.text}`);
+  r = await call("/api/bulk", { method: "POST", body: { action: "skip", ids: [ap.id] } }); check("bulk Skip never skips an application that was already sent", r.status === 200 && mock.rowsOf("jobs").find((j) => j.id === ap.job_id)?.status !== "skipped", `${r.status} ${r.text}`);
+  r = await call(`/api/applications/${ap.id}`, { method: "POST", body: { action: "reapply", confirmSubmitted: true } }); check("confirmed, it goes back to Pending approval and the submitted time is cleared", r.status === 200 && mock.rowsOf("applications").find((x) => x.id === ap.id).status === "prepared" && !mock.rowsOf("applications").find((x) => x.id === ap.id).submitted_at, `${r.status} ${r.text}`);
+
+  // the mock, like Supabase, returns at most 1000 rows per request
+  const scansTable = mock.rowsOf("portal_scans");
+  const before = scansTable.length;
+  const nowIso = new Date().toISOString();
+  for (let i = 0; i < 2600; i++) scansTable.push({ id: `00000000-0000-4000-9000-${String(i).padStart(12, "0")}`, integration: "adzuna", country: null, query: null, status: "ok", started_at: nowIso, fetched: 1, inserted: 0, duplicates: 1, error: null });
+  r = await call("/?period=30d");
+  const m = strip(r.text).match(/Scans run\s+([\d,]+)/);
+  check("the dashboard counts every scan, not just the first 1000", !!m && Number(m[1].replace(/,/g, "")) >= 2600, m ? m[1] : strip(r.text).slice(0, 200));
+  const f = strip(r.text).match(/([\d,]+) listings fetched/);
+  check("...and every listing fetched", !!f && Number(f[1].replace(/,/g, "")) >= 2600, f ? f[1] : "no figure");
+  scansTable.splice(before);
+}
 r = await call("/api/auth/logout", { method: "POST" }); check("logout succeeds and clears cookies", r.status === 200 && jar.size === 0, `${r.status} cookies=${jar.size}`);
 r = await call("/api/files?path=bad"); check("after logout the API is closed again", r.status === 401, r.status);
 r = await call("/api/models/key", { method: "PUT", body: { label: "e2e-model", apiKey: KEY } }); check("after logout nobody can save keys", r.status === 401, r.status);

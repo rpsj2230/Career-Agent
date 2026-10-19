@@ -1,5 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { fetchAll } from "@/lib/fetch-all";
 import { db } from "@/lib/db";
 import { INTEGRATIONS } from "@/lib/integrations/catalog";
 import { sourceVerdict, summarizeScans } from "@/lib/source-performance";
@@ -10,8 +11,8 @@ const TONE = { good: "bg-green-600 text-white", ok: "", bad: "bg-red-600 text-wh
 async function load() {
   const since = new Date(Date.now() - 30 * 86_400_000).toISOString();
   return Promise.all([
-    db().from("portal_scans").select("integration,status,fetched,inserted,started_at").gte("started_at", since).limit(20000),
-    db().from("jobs").select("source,status").gte("found_at", since).limit(20000),
+    fetchAll((a, b) => db().from("portal_scans").select("integration,status,fetched,inserted,started_at").gte("started_at", since).order("id").range(a, b), 50_000),
+    fetchAll((a, b) => db().from("jobs").select("source,status").gte("found_at", since).order("id").range(a, b), 50_000),
   ]);
 }
 

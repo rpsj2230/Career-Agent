@@ -1,4 +1,5 @@
 import "server-only";
+import { fetchAll } from "@/lib/fetch-all";
 import { db, must } from "@/lib/db";
 import { APP_STATUSES, JOB_VIEWS, type AppFilters, type JobFilters } from "@/lib/filters";
 import { pageRange } from "@/lib/pagination";
@@ -111,10 +112,12 @@ export async function counts(country?: string) {
 import type { ReportRow } from "@/lib/reports";
 
 export async function reportRows(country?: string): Promise<ReportRow[]> {
-  let q = db().from("applications").select(`status,lifecycle,submitted_at, job:jobs${country ? "!inner" : ""}(country,source,apply_type,job_scores(score,detail))`).limit(2000);
-  if (country) q = q.eq("job.country", country);
+  const page = (a: number, b: number) => {
+    const q = db().from("applications").select(`status,lifecycle,submitted_at, job:jobs${country ? "!inner" : ""}(country,source,apply_type,job_scores(score,detail))`);
+    return (country ? q.eq("job.country", country) : q).order("id").range(a, b);
+  };
   const rows = must<{ status: string; lifecycle: string; submitted_at: string | null; job: { country: string | null; source: string; apply_type: string; job_scores: { score: number; detail: { gaps?: string[] } } | { score: number; detail: { gaps?: string[] } }[] | null } | null }[]>(
-    await q,
+    await fetchAll(page),
     "report rows",
   );
   return rows.map((r) => {
