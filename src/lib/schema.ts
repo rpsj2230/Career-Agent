@@ -61,10 +61,12 @@ let cache: { at: number; status: SchemaStatus } | null = null;
 // Only a HEALTHY result is cached (Next.js keeps route handlers and pages in separate module instances, so a cache
 // cleared in one is not cleared in the other). A broken database is re-checked on every request and a fix is seen at once.
 const TTL_OK_MS = 60_000;
+/** A problem is re-checked sooner (so a fix shows up quickly), but not on every page view: the check is dozens of queries. */
+const TTL_PROBLEM_MS = 20_000;
 
 /** Probes every required column with a zero-row select. Cached for a minute unless `fresh`. */
 export async function checkSchema(fresh = false): Promise<SchemaStatus> {
-  if (!fresh && cache && cache.status.ok && Date.now() - cache.at < TTL_OK_MS) return cache.status;
+  if (!fresh && cache && Date.now() - cache.at < (cache.status.ok ? TTL_OK_MS : TTL_PROBLEM_MS)) return cache.status;
   const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) return buildStatus([], new Date().toISOString(), "SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY are not set");
   const sb = createClient(url, key, { auth: { persistSession: false } });
@@ -91,7 +93,7 @@ export async function checkSchema(fresh = false): Promise<SchemaStatus> {
     return true;
   }).sort((a, b) => (a.table + (a.column ?? "")).localeCompare(b.table + (b.column ?? "")));
   const status = buildStatus(deduped, new Date().toISOString(), unreachable);
-  cache = status.ok ? { at: Date.now(), status } : null;
+  cache = status.unreachable ? null : { at: Date.now(), status };
   return status;
 }
 
