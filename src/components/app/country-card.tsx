@@ -83,7 +83,7 @@ export function CountryCard({ pref, profileTitles, templates, suggested = [] }: 
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
             <CardTitle className="flex items-center gap-2">{info?.name ?? pref.country.toUpperCase()} <Badge variant="outline">{pref.country.toUpperCase()}</Badge></CardTitle>
-            <CardDescription>About {q} search{q === 1 ? "" : "es"} per source on each scan ({titles.trim() ? parseList(titles).length : 0} title(s) x {Math.max(1, parseList(locations).length)} location(s)).</CardDescription>
+            <CardDescription>About {q} search{q === 1 ? "" : "es"} per source on each scan ({titles.trim() ? parseList(titles).length : 0} title(s) x {Math.max(1, parseList(locations).length)} location(s)).{q > 100 && <b className="text-amber-700 dark:text-amber-400"> That is a lot of searches: free job-search plans allow only a few hundred a day, so a scan may not finish every one in a single day. Fewer locations multiplies less.</b>}</CardDescription>
           </div>
           <label className="flex items-center gap-2 text-sm"><Switch checked={enabled} onCheckedChange={setEnabled} /> {enabled ? "Searching" : "Paused"}</label>
         </div>
