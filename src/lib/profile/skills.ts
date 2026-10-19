@@ -25,3 +25,18 @@ export function duplicateId(p: MasterProfile): string | null {
   for (const id of ids) { if (seen.has(id)) return id; seen.add(id); }
   return null;
 }
+
+/** An import replaces the profile, but skills you added by hand must survive it: any current skill the new profile lacks (by name) is carried over. */
+export function keepCurrentSkills(next: MasterProfile, current: MasterProfile): { profile: MasterProfile; kept: number } {
+  const norm = (s: string) => s.trim().toLowerCase();
+  const have = new Set(next.skills.map((s) => norm(s.name)));
+  const skills = [...next.skills];
+  let kept = 0;
+  for (const s of current.skills) {
+    if (!s.name.trim() || have.has(norm(s.name))) continue;
+    have.add(norm(s.name));
+    skills.push({ ...s, id: nextSkillId(skills) });
+    kept++;
+  }
+  return { profile: { ...next, skills }, kept };
+}

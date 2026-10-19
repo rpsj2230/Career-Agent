@@ -3,6 +3,7 @@ import { importProfile } from "@/lib/profile/extract";
 import { parseProfileJson } from "@/lib/profile/json-import";
 import { clearDraft, getProfile, saveDraft } from "@/lib/profile/store";
 import { logConfig } from "@/lib/activity-helpers";
+import { keepCurrentSkills } from "@/lib/profile/skills";
 import { masterExt, saveMasterResume } from "@/lib/tailor/master-store";
 
 export const maxDuration = 60;
@@ -37,18 +38,20 @@ export async function POST(request: Request) {
     const json = files.find((f) => /\.json$/i.test(f.name));
     if (json) {
       const { profile, conflicts } = parseProfileJson(await json.text(), existing.preferences);
-      await saveDraft({ profile, conflicts, model: "ready-made profile file" });
-      await logConfig("Profile loaded from a ready-made file as a draft", { file: json.name, conflicts: conflicts.length });
-      return NextResponse.json({ ok: true, conflicts, model: "ready-made profile file", masterKept, masterGiven: !!masterFile });
+      const { profile: withSkills, kept } = keepCurrentSkills(profile, existing);
+      await saveDraft({ profile: withSkills, conflicts, model: "ready-made profile file" });
+      await logConfig("Profile loaded from a ready-made file as a draft", { file: json.name, conflicts: conflicts.length, skillsKept: kept });
+      return NextResponse.json({ ok: true, conflicts, model: "ready-made profile file", skillsKept: kept, masterKept, masterGiven: !!masterFile });
     }
     const read = async (f: File) => ({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) });
     const master = masterFile ? await read(masterFile) : undefined;
     const supporting = await Promise.all(form.getAll("files").filter(real).map(read));
     const draft = await importProfile({ master, supporting, pastedText: pasted }, existing.preferences);
-    await saveDraft(draft);
+    const { profile: withSkills, kept } = keepCurrentSkills(draft.profile, existing);
+    await saveDraft({ ...draft, profile: withSkills });
     // the master resume is also kept exactly as uploaded: it is the fallback when a tailored resume cannot be made
-    await logConfig("Profile imported as a draft", { master: masterFile?.name ?? null, files: files.map((f) => f.name), pastedText: pasted.trim().length > 0, model: draft.model, conflicts: draft.conflicts.length });
-    return NextResponse.json({ ok: true, conflicts: draft.conflicts, model: draft.model, masterKept, masterGiven: !!masterFile });
+    await logConfig("Profile imported as a draft", { master: masterFile?.name ?? null, files: files.map((f) => f.name), pastedText: pasted.trim().length > 0, model: draft.model, conflicts: draft.conflicts.length, skillsKept: kept });
+    return NextResponse.json({ ok: true, conflicts: draft.conflicts, model: draft.model, skillsKept: kept, masterKept, masterGiven: !!masterFile });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Import failed", masterKept }, { status: 422 });
   }
