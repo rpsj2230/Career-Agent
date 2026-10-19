@@ -42,7 +42,15 @@ function groupSkills(skills: MasterProfile["skills"], kind: "competency" | "tech
     const g = s.group ?? "";
     (out.find((x) => x.group === g) ?? out[out.push({ group: g, items: [] }) - 1]).items.push(labels?.[s.id] ?? s.name);
   }
-  return out;
+  const norm = (t: string) => t.trim().toLowerCase();
+  const headings = new Set(out.map((g) => norm(g.group)).filter(Boolean));
+  const clean = out.map((g) => {
+    const seen = new Set<string>();
+    // a skill printed twice is shown once; a line that only repeats the other headings (a stray "TECHNICAL SKILLS: ..." line) adds nothing
+    const items = g.items.filter((i) => !seen.has(norm(i)) && seen.add(norm(i)) && !(g.group && headings.has(norm(i))));
+    return { group: g.group, items };
+  });
+  return clean.filter((g) => g.items.length > 0);
 }
 
 type Role = { title: string; company: string; dates: string; start?: string; end?: string; location: string | null; bullets: string[] };
