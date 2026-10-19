@@ -20,3 +20,6 @@ A web page cannot start a program on your computer. So the assistant is set up o
 - Press **Run assistant now**; within about 30 seconds the assistant starts a round and the card shows the result.
 - If your computer is off, the card says *not running*. Applications simply stay queued and are done when the computer is on again. You are alerted on Telegram if work has waited for hours.
 - If a portal asks for a sign-in or CAPTCHA, the application is handed back to you with the reason; sign in again with `npm run assist`.
+
+## Leaving a portal to yourself
+If a portal cannot be signed in on this computer, or you prefer to apply there by hand, add this line to `.env.local`: `ASSIST_SKIP=naukri` (several: `naukri,shine`). The assistant never opens those portals; their applications stay waiting in the app for you to do manually. Remove the line to bring the portal back.
