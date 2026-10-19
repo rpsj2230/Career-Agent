@@ -1019,6 +1019,7 @@ r = await call("/api/models/test", { method: "POST", body: { label: "e2e-model" 
   check("the Jobs page explains where to run the whole schedule", /Run this schedule now/.test(strip(r.text)), "hint missing");
   r = await call("/applications?size=100"); check("the Applications page has select-all with Approve and apply selected and Skip selected", /Approve and apply selected/.test(strip(r.text)) && /Skip selected/.test(strip(r.text)) && /View resume/.test(strip(r.text)), r.status);
   r = await call("/schedules"); check("the Schedules page shows what is waiting and says it clears by itself", /Waiting to be processed/.test(strip(r.text)), r.status);
+  r = await call("/jobs?view=all&size=100"); check("the Jobs page shows Where everything stands with counts, percentages and the five steps", /Where everything stands/.test(strip(r.text)) && /% done/.test(strip(r.text)) && /Scoring/.test(strip(r.text)) && /Resume and cover letter/.test(strip(r.text)) && /Approval/.test(strip(r.text)) && /Sending/.test(strip(r.text)), "missing");
   r = await call("/models"); check("the Models page says which model works and why one does not", /Models by provider/.test(strip(r.text)) && /(Working|Not used yet|Unstable|Not working|No key)/.test(strip(r.text)), r.status);
   {
     const adminJar = new Map(jar);
@@ -1060,6 +1061,7 @@ r = await call("/api/models/test", { method: "POST", body: { label: "e2e-model" 
   check("while paused the hourly check reports nothing due and no backlog work", pdue.json?.paused === true && pdue.json?.due === 0 && pdue.json?.drain === false, JSON.stringify(pdue.json)?.slice(0, 200));
   const pw = await runWorker(); check("while paused the worker does nothing by itself", pw.code === 0 && /Everything is paused/.test(pw.text), `${pw.code} ${pw.text.slice(-200)}`);
   r = await call("/"); check("the dashboard says everything is paused", /Everything is paused/.test(strip(r.text)), r.status);
+  check("...and Where everything stands names the cause: a Setting, with the Pause switch as the fix", /Where everything stands/.test(strip(r.text)) && /Setting/.test(strip(r.text)) && /Pause everything/.test(strip(r.text)), "pipeline status missing");
   r = await call("/api/settings", { method: "PUT", body: { key: "automation_pause", value: { paused: false, since: "", note: "" } } }); check("resuming is saved", r.status === 200, `${r.status}`);
   r = await call("/portals"); check("the sources page shows which sources are worth it", /Which job sources are worth it/.test(strip(r.text)) || /Job portals and sources/.test(strip(r.text)), r.status);
 }

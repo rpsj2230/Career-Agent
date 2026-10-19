@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { AddJob } from "@/components/app/add-job";
+import { PipelineStatus } from "@/components/app/pipeline-status";
 import { currentRole } from "@/lib/role-server";
 import { ActionButton } from "@/components/app/action-button";
 import { ScoreBadge, SourceBadge, StatusBadge } from "@/components/app/badges";
@@ -41,6 +42,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
           <ActionButton variant="outline" method="POST" endpoint="/api/run/score" success="Started" title="Rates every job that is still 'Found, not scored' from 0 to 100 against your profile. Jobs at or above your threshold move to the matched list.">Score unscored jobs</ActionButton>
       </div>
       </div>
+      {isAdmin && <PipelineStatus />}
       {isAdmin && <BackgroundBanner />}
       {isAdmin && <BacklogCard />}
       {isAdmin && <PipelineStrip />}
