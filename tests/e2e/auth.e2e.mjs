@@ -743,22 +743,22 @@ if (process.env.PLAYWRIGHT_BROWSERS_PATH || process.env.CHROMIUM_PATH) {
   r = await call("/applications?portal=naukri&size=100"); check("applications: portal filter keeps Naukri applications", r.text.includes("Zeta Pte") && !r.text.includes("FormCo"), "wrong rows");
   r = await call("/applications?portal=greenhouse&country=sg&size=100"); check("applications: portal and country combine", r.text.includes("FormCo") && !r.text.includes("Zeta Pte"), "wrong rows");
   r = await call("/applications?status=submitted"); check("applications: 'Submitted' shows submitted ones only", r.text.includes("FormCo") && !r.text.includes("StuckCo"), "wrong rows");
-  r = await call("/applications?status=manual"); check("applications: 'Requires manual action' includes hand-backs", r.text.includes("StuckCo") || r.text.includes("Requires manual action"), "missing");
+  r = await call("/applications?status=manual&size=100"); check("applications: 'Requires manual action' includes hand-backs", r.text.includes("AskCo") && /Needs your input/.test(r.text), "missing");
 
   // enterprise-style filters and sorting on the lists
   {
     const t = (x) => x.text.replace(/<!-- -->/g, "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
     r = await call("/jobs?stage=all"); check("Jobs: stage chips with counts, presets, search, sort and the filter panel are there", /Not scored yet/.test(t(r)) && /Waiting for your approval/.test(t(r)) && /Needs my action/.test(t(r)) && /Matched, resume not ready/.test(t(r)) && /More filters/.test(t(r)) && /Sort by/.test(t(r)) && /Fit score/.test(t(r)) && /Date posted/.test(t(r)), r.status);
-    r = await call("/jobs?stage=all&sort=company&dir=asc"); const asc = [r.text.indexOf("Delta"), r.text.indexOf("Gamma Pte Ltd")];
-    r = await call("/jobs?stage=all&sort=company&dir=desc"); const desc = [r.text.indexOf("Delta"), r.text.indexOf("Gamma Pte Ltd")];
+    r = await call("/jobs?stage=all&size=100&sort=company&dir=asc"); const asc = [r.text.indexOf("Delta"), r.text.indexOf("Gamma Pte Ltd")];
+    r = await call("/jobs?stage=all&size=100&sort=company&dir=desc"); const desc = [r.text.indexOf("Delta"), r.text.indexOf("Gamma Pte Ltd")];
     check("Jobs: sorting by company A to Z and Z to A reverses the order", asc[0] > -1 && asc[1] > -1 && asc[0] < asc[1] && desc[0] > desc[1], JSON.stringify({ asc, desc }));
-    r = await call("/jobs?stage=all&country=sg&country=in"); check("Jobs: several countries can be chosen at once", r.text.includes("Gamma Pte Ltd") && /Country: Singapore/.test(t(r)) && /Country: India/.test(t(r)), r.status);
+    r = await call("/jobs?stage=all&size=100&country=sg&country=in"); check("Jobs: several countries can be chosen at once", r.text.includes("Gamma Pte Ltd") && /Country: Singapore/.test(t(r)) && /Country: India/.test(t(r)), r.status);
     r = await call("/jobs?stage=all&score_min=101"); r = await call("/jobs?stage=all&score_min=100&score_max=100"); check("Jobs: a score range narrows the list", r.status === 200 && (/Nothing here for these filters/.test(t(r)) || !r.text.includes("Gamma Pte Ltd")), r.status);
-    r = await call("/jobs?stage=all&country=sg"); check("Jobs: an applied filter shows as a pill that can be removed, with the filtered-from count", /Filtered by/.test(t(r)) && /Country: Singapore/.test(t(r)) && /filtered from/.test(t(r)), r.status);
+    r = await call("/jobs?stage=all&size=100&country=sg"); check("Jobs: an applied filter shows as a pill that can be removed, with the filtered-from count", /Filtered by:/.test(t(r)) && /Country: Singapore/.test(t(r)) && /filtered from/.test(t(r)), r.status);
     r = await call("/jobs?stage=unscored"); check("Jobs: the Not scored yet stage lists only unscored jobs", r.status === 200 && !/Why rejected/.test(t(r)), r.status);
     r = await call("/jobs?stage=bogus&sort=drop&dir=up&score_min=abc&from=nope"); check("Jobs: hostile stage, sort, direction, score and date values fall back safely", r.status === 200, r.status);
     r = await call("/applications?stage=applied"); check("Applications: the Applied stage shows submitted ones only", r.text.includes("FormCo") && !r.text.includes("StuckCo"), "wrong rows");
-    r = await call("/applications?stage=awaiting_approval&stage=needs_input&stage=failed&stage=waiting_assistant"); check("Applications: several stages combine", r.status === 200 && /Filtered by/.test(t(r)), r.status);
+    r = await call("/applications?stage=awaiting_approval&stage=needs_input&stage=failed&stage=waiting_assistant"); check("Applications: several stages combine", r.status === 200 && /Filtered by:/.test(t(r)), r.status);
     r = await call("/applications?sort=company&dir=asc&size=100"); const aa = [r.text.indexOf("FormCo"), r.text.indexOf("Zeta Pte")];
     r = await call("/applications?sort=company&dir=desc&size=100"); const ad = [r.text.indexOf("FormCo"), r.text.indexOf("Zeta Pte")];
     check("Applications: sort by company both ways", aa[0] > -1 && aa[1] > -1 && aa[0] < aa[1] && ad[0] > ad[1], JSON.stringify({ aa, ad }));

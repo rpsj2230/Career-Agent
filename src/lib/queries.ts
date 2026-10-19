@@ -109,6 +109,16 @@ export type JobsPage = {
   stageCounts: Record<StageKey, number>; stageOf: Map<string, StageKey>;
 };
 
+/** Every row of a table, ignoring filters, so "filtered from N" tells the truth even when the database already narrowed the fetch. */
+async function tableTotal(table: "jobs" | "applications", floor: number): Promise<number> {
+  try {
+    const { count } = await db().from(table).select("id", { count: "exact", head: true });
+    return Math.max(count ?? 0, floor);
+  } catch {
+    return floor;
+  }
+}
+
 export async function listJobsFiltered(q: JobQuery, paging: { page: number; size: number } = { page: 1, size: 25 }): Promise<JobsPage> {
   const load = async (withPortal: boolean) => fetchAll<RawJob>((a, b) => {
     let x = db().from("jobs").select(`id,title,company,country,location,status,found_at,posted_at,apply_type,url${withPortal ? ",portal" : ""},job_scores(score),application:applications(status)`);
@@ -132,10 +142,10 @@ export async function listJobsFiltered(q: JobQuery, paging: { page: number; size
   const r = pageRange(matching.length, paging.page, paging.size);
   const ids = matching.slice(r.from, r.to + 1).map((x) => x.id);
   const stageOf = new Map(matching.slice(r.from, r.to + 1).map((x) => [x.id, jobStage(x.status, x.appStatus)] as const));
-  if (ids.length === 0) return { rows: [], total: matching.length, totalAll: light.length, page: r.page, pages: r.pages, shownFrom: r.shownFrom, shownTo: r.shownTo, portalUnavailable, stageCounts: counts, stageOf };
+  if (ids.length === 0) return { rows: [], total: matching.length, totalAll: await tableTotal("jobs", light.length), page: r.page, pages: r.pages, shownFrom: r.shownFrom, shownTo: r.shownTo, portalUnavailable, stageCounts: counts, stageOf };
   const full = must<JobListRow[]>(await db().from("jobs").select(portalUnavailable ? JOB_COLS : `${JOB_COLS},portal`).in("id", ids), "list jobs");
   const order = new Map(ids.map((id, i) => [id, i]));
-  return { rows: full.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0)), total: matching.length, totalAll: light.length, page: r.page, pages: r.pages, shownFrom: r.shownFrom, shownTo: r.shownTo, portalUnavailable, stageCounts: counts, stageOf };
+  return { rows: full.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0)), total: matching.length, totalAll: await tableTotal("jobs", light.length), page: r.page, pages: r.pages, shownFrom: r.shownFrom, shownTo: r.shownTo, portalUnavailable, stageCounts: counts, stageOf };
 }
 
 type RawApp = {
@@ -177,11 +187,11 @@ export async function listApplicationsFiltered(q: AppQuery, paging: { page: numb
   const matching = sortApps(filterApps(light, q), q.sort, q.dir);
   const r = pageRange(matching.length, paging.page, paging.size);
   const ids = matching.slice(r.from, r.to + 1).map((x) => x.id);
-  if (ids.length === 0) return { rows: [], total: matching.length, totalAll: light.length, page: r.page, pages: r.pages, shownFrom: r.shownFrom, shownTo: r.shownTo, portalUnavailable, stageCounts: counts };
+  if (ids.length === 0) return { rows: [], total: matching.length, totalAll: await tableTotal("applications", light.length), page: r.page, pages: r.pages, shownFrom: r.shownFrom, shownTo: r.shownTo, portalUnavailable, stageCounts: counts };
   const jobCols = `title,company,country,apply_type,source,url${portalUnavailable ? "" : ",portal"}`;
   const full = must<AppListRow[]>(await db().from("applications").select(`id,status,method,lifecycle,submitted_at,created_at, job:jobs!inner(${jobCols}), resume:documents!applications_resume_doc_id_fkey(version)`).in("id", ids), "list applications");
   const order = new Map(ids.map((id, i) => [id, i]));
-  return { rows: full.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0)), total: matching.length, totalAll: light.length, page: r.page, pages: r.pages, shownFrom: r.shownFrom, shownTo: r.shownTo, portalUnavailable, stageCounts: counts };
+  return { rows: full.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0)), total: matching.length, totalAll: await tableTotal("applications", light.length), page: r.page, pages: r.pages, shownFrom: r.shownFrom, shownTo: r.shownTo, portalUnavailable, stageCounts: counts };
 }
 
 export { appStage };
