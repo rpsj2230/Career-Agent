@@ -27,3 +27,6 @@ export function publicOrigin(request: Request): string {
   const proto = request.headers.get("x-forwarded-proto") ?? new URL(request.url).protocol.replace(":", "");
   return `${proto}://${host}`;
 }
+
+/** Where to go after Google sign-in; kept in a cookie so the address sent to Supabase has no query string. */
+export const NEXT_COOKIE = "career_next";

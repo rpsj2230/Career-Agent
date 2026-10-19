@@ -5,6 +5,7 @@ import { logActivity } from "@/lib/activity";
 import { automationHealth, lastTick } from "@/lib/automation-health";
 import { healKeys } from "@/lib/llm/keys";
 import { deliverDaily } from "@/lib/daily-delivery";
+import { forEachProfile } from "@/lib/profiles-store";
 
 export const maxDuration = 30;
 
@@ -15,11 +16,17 @@ export const maxDuration = 30;
  */
 export async function GET() {
   const healed = await healKeys().catch(() => 0);
-  const daily = await deliverDaily().catch((e) => ({ sent: false, skipped: e instanceof Error ? e.message : String(e) })); // backup for the hourly check
-  const { checks, status } = await automationHealth();
-  const bad = checks.filter((c) => c.status === "fail");
-  let alerted = false;
-  if (bad.length) alerted = await alertOnce("automation-health", 20, `Career Agent: automation needs attention.\n${bad.map((c) => `- ${c.label}: ${c.detail}${c.fix ? `\n  Fix: ${c.fix}` : ""}`).join("\n")}`).catch(() => false);
+  // the morning report, the checklist and its alert are done for each profile that is switched on
+  const per = await forEachProfile(async (p) => {
+    const daily = await deliverDaily().catch((e) => ({ sent: false, skipped: e instanceof Error ? e.message : String(e) })); // backup for the hourly check
+    const { checks, status } = await automationHealth();
+    const bad = checks.filter((c) => c.status === "fail");
+    let alerted = false;
+    if (bad.length) alerted = await alertOnce("automation-health", 20, `Career Agent: automation needs attention.\n${bad.map((c) => `- ${c.label}: ${c.detail}${c.fix ? `\n  Fix: ${c.fix}` : ""}`).join("\n")}`).catch(() => false);
+    return { profile: p?.name ?? null, daily, status, failing: bad.map((c) => c.id), alerted };
+  });
+  const ok = per.flatMap((r) => (r.result ? [r.result] : []));
+  const status = ok.some((r) => r.status === "fail") ? "fail" : ok.some((r) => r.status === "warn") ? "warn" : "ok";
 
   let backup: string | null = null;
   const tick = await lastTick().catch(() => null);
@@ -28,5 +35,5 @@ export async function GET() {
     backup = err ?? "started the scheduled pipeline (the hourly check had been silent for over 3 hours)";
     await logActivity({ kind: "schedule.changed", message: `Backup check: ${backup}`, status: err ? "failed" : "dispatched", detail: { lastTick: tick } }).catch(() => undefined);
   }
-  return NextResponse.json({ status, failing: bad.map((c) => c.id), alerted, healedKeys: healed, daily, backup });
+  return NextResponse.json({ status, failing: ok.flatMap((r) => r.failing), alerted: ok.some((r) => r.alerted), healedKeys: healed, daily: ok[0]?.daily, profiles: ok, backup });
 }

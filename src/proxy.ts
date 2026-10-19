@@ -2,7 +2,8 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { cronBearerValid, decideAccess, isPublic } from "@/lib/access";
-import { getRole } from "@/lib/owner";
+import { getMember, getRole, loadProfileRefs } from "@/lib/owner";
+import { allowedProfiles, pickProfile, PROFILE_COOKIE } from "@/lib/profile-access";
 import { homeFor, roleAllows } from "@/lib/roles";
 
 const text = (status: number, body: string) => new NextResponse(body, { status });
@@ -12,8 +13,16 @@ export async function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
   const isApi = pathname.startsWith("/api/");
 
-  if (isPublic(pathname)) return NextResponse.next();
-  if (cronBearerValid(pathname, request.headers.get("authorization"), process.env.CRON_SECRET)) return NextResponse.next();
+  // never trust who/which-profile headers sent by a browser: they are set below, from the access check, or not at all
+  const bare = () => {
+    const h = new Headers(request.headers);
+    h.delete("x-career-role");
+    h.delete("x-career-profile");
+    h.delete("x-career-profiles");
+    return NextResponse.next({ request: { headers: h } });
+  };
+  if (isPublic(pathname)) return bare();
+  if (cronBearerValid(pathname, request.headers.get("authorization"), process.env.CRON_SECRET)) return bare();
 
   const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) return text(503, "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set");
@@ -49,6 +58,18 @@ export async function proxy(request: NextRequest) {
       // tell the pages who is asking (always overwritten here, so a browser cannot send its own value)
       const forwarded = new Headers(request.headers);
       forwarded.set("x-career-role", role);
+      forwarded.delete("x-career-profile");
+      forwarded.delete("x-career-profiles");
+      // which profile this request works on: the one picked in the header, if this person may open it (none until the profiles migration is run)
+      const refs = await loadProfileRefs();
+      if (refs.length) {
+        const member = role === "admin" ? null : await getMember(data.user?.email);
+        const allowed = allowedProfiles(refs, role === "admin", member?.profiles);
+        const picked = pickProfile(allowed, request.cookies.get(PROFILE_COOKIE)?.value);
+        if (!picked) return isApi ? json(403, "No profile has been shared with this account") : text(403, "No profile has been shared with this account. Ask the super admin to share one.");
+        forwarded.set("x-career-profile", picked);
+        forwarded.set("x-career-profiles", allowed.map((p) => p.id).join(","));
+      }
       const out = NextResponse.next({ request: { headers: forwarded } });
       pending.forEach(({ name, value, options }) => out.cookies.set(name, value, { ...options, httpOnly: true, secure }));
       Object.entries(pendingHeaders).forEach(([k, v]) => out.headers.set(k, v));

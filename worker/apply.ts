@@ -7,10 +7,15 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, extname, join } from "node:path";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { chromium, type Page } from "playwright";
 import { confirmationSnippet, type FieldEntry, type SubmissionRecord } from "../src/lib/apply/submission";
 import { MasterProfile } from "../src/lib/types";
+import { withProfile } from "../src/lib/profile-context";
+import { rawClient } from "../src/lib/raw-client";
+import { mainProfileInUse, scopedDb } from "../src/lib/scoped-db";
+import { profilesEnabled } from "../src/lib/scope";
+import { notifyProfile } from "../src/lib/notify-profile";
 import { clickSubmit, fillForm } from "./form";
 import { CONFIRMATION, detectBlock, type Answer } from "./match";
 
@@ -25,11 +30,7 @@ async function logAct(sb: SupabaseClient, e: Record<string, unknown>) {
   }
 }
 
-async function notify(text: string) {
-  const token = process.env.TELEGRAM_BOT_TOKEN, chat = process.env.TELEGRAM_CHAT_ID;
-  if (!token || !chat) return;
-  await fetch(`https://api.telegram.org/bot${token}/sendMessage`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: chat, text }) }).catch(() => undefined);
-}
+const notify = (text: string) => notifyProfile(text).catch(() => undefined);
 const need = (k: string) => { const v = process.env[k]; if (!v) throw new Error(`${k} is not set`); return v; };
 
 /** Update an application with its submission record; if the database has not been upgraded yet, save the status without it. */
@@ -122,10 +123,11 @@ async function processInner(sb: SupabaseClient, appId: string) {
   const linkedin = job.apply_type === "linkedin";
   let storageStatePath: string | undefined;
   if (linkedin) {
-    const state = process.env.LINKEDIN_STORAGE_STATE;
+    // the one signed-in LinkedIn session in the environment is the main profile's; another person's LinkedIn is applied through their own computer (the local assistant)
+    const state = (await mainProfileInUse()) ? process.env.LINKEDIN_STORAGE_STATE : undefined;
     const { data: capsRow } = await sb.from("settings").select("value").eq("key", "caps").maybeSingle();
     if (capsRow && (capsRow.value as { linkedin_automation_enabled?: boolean }).linkedin_automation_enabled === false) throw new Handback("needs_input", "LinkedIn automation is switched off; apply manually");
-    if (!state) throw new Handback("needs_input", "LinkedIn automation needs LINKEDIN_STORAGE_STATE (your own signed-in session); apply manually instead");
+    if (!state) throw new Handback("needs_input", "LinkedIn automation needs a signed-in LinkedIn session for this profile (LINKEDIN_STORAGE_STATE is the main profile's); apply through the local assistant instead");
     storageStatePath = join(dir, "li-state.json");
     writeFileSync(storageStatePath, state);
   }
@@ -230,24 +232,48 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * Without it: submit every approved automated application, oldest first, up to MAX_APPLY (default 10), with a pause
  * between them so the pace looks like a person and each portal sees at most one request stream.
  */
+/** Runs `fn` for the profile that owns the application, so everything it reads and writes belongs to that person. */
+async function inProfileOf<T>(appId: string, fn: () => Promise<T>): Promise<T | undefined> {
+  if (!(await profilesEnabled(rawClient()))) return fn();
+  const { data } = await rawClient().from("applications").select("profile_id").eq("id", appId).maybeSingle();
+  if (!data?.profile_id) { console.log(`Application ${appId} was not found.`); return undefined; }
+  return withProfile(data.profile_id as string, fn);
+}
+
 async function main() {
-  const sb = createClient(need("SUPABASE_URL"), need("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false } });
+  need("SUPABASE_URL"); need("SUPABASE_SERVICE_ROLE_KEY");
+  const sb = scopedDb();
   const single = process.env.APPLICATION_ID?.trim();
   if (single) {
     if (!UUID.test(single)) throw new Error("APPLICATION_ID is not a uuid");
-    await processOne(sb, single);
+    await inProfileOf(single, () => processOne(sb, single));
     return;
   }
-  const pausedRow = await sb.from("settings").select("value").eq("key", "automation_pause").maybeSingle();
-  if ((pausedRow.data?.value as { paused?: boolean } | null)?.paused) { console.log("Everything is paused (Settings → Pause everything). Nothing was sent."); return; }
   const limit = Math.max(1, Math.min(50, Number(process.env.MAX_APPLY ?? 10) || 10));
-  const { data, error } = await sb.from("applications").select("id").eq("status", "approved").eq("method", "automated").order("approved_at", { ascending: true }).limit(limit);
+  // approved applications of every profile, oldest first; each one is then handled inside its own profile
+  const multi = await profilesEnabled(rawClient());
+  const { data, error } = await rawClient().from("applications").select(multi ? "id,profile_id" : "id").eq("status", "approved").eq("method", "automated").order("approved_at", { ascending: true }).limit(limit * 4);
   if (error) throw error;
-  const ids = (data ?? []).map((r) => r.id as string);
-  console.log(ids.length ? `${ids.length} approved application(s) to submit.` : "No approved applications are waiting.");
-  for (const [i, id] of ids.entries()) {
-    if (i > 0) await sleep(Number(process.env.APPLY_PAUSE_MS ?? 20_000 + Math.random() * 40_000));
-    await processOne(sb, id);
+  const rows = (data ?? []) as unknown as { id: string; profile_id?: string }[];
+  console.log(rows.length ? `${rows.length} approved application(s) to submit.` : "No approved applications are waiting.");
+  const pausedIn = new Map<string, boolean>();
+  let done = 0;
+  for (const r of rows) {
+    if (done >= limit) break;
+    const run = async () => {
+      const key = r.profile_id ?? "-";
+      if (!pausedIn.has(key)) {
+        const row = await sb.from("settings").select("value").eq("key", "automation_pause").maybeSingle();
+        const paused = !!(row.data?.value as { paused?: boolean } | null)?.paused;
+        if (paused) console.log("Everything is paused for this profile (Settings → Pause everything). Its applications were not sent.");
+        pausedIn.set(key, paused);
+      }
+      if (pausedIn.get(key)) return;
+      if (done > 0) await sleep(Number(process.env.APPLY_PAUSE_MS ?? 20_000 + Math.random() * 40_000));
+      done++;
+      await processOne(sb, r.id);
+    };
+    await (r.profile_id ? withProfile(r.profile_id, run) : run());
   }
 }
 

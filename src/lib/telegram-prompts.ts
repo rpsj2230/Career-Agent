@@ -1,6 +1,9 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { sendTelegramWithButtons } from "@/lib/notify";
+import { labelled } from "@/lib/notify-rules";
+import { currentProfileId } from "@/lib/profile-context";
+import { getProfileRecord, listProfiles, profilesReady } from "@/lib/profiles-store";
 import { callbackData, promptText } from "@/lib/telegram";
 
 const SEEN = "telegram_prompted";
@@ -24,9 +27,12 @@ export async function promptPrepared(max = 5): Promise<number> {
     const score = new Map(((scores.data ?? []) as { job_id: string; score: number }[]).map((s) => [s.job_id, s.score]));
     const ranked = fresh.filter((a) => job.has(a.job_id)).sort((a, b) => (score.get(b.job_id) ?? 0) - (score.get(a.job_id) ?? 0)).slice(0, max);
     let sent = 0;
+    // with several profiles, say whose application it is, so a tap never approves the wrong person's
+    let name: string | null = null, count = 1;
+    if (await profilesReady()) { name = (await getProfileRecord(await currentProfileId()))?.name ?? null; count = (await listProfiles()).length; }
     for (const a of ranked) {
       const j = job.get(a.job_id)!;
-      const ok = await sendTelegramWithButtons(promptText({ ...j, score: score.get(a.job_id) }), [{ text: "Approve", data: callbackData("approve", a.id) }, { text: "Skip", data: callbackData("skip", a.id) }]);
+      const ok = await sendTelegramWithButtons(labelled(promptText({ ...j, score: score.get(a.job_id) }), name, count), [{ text: "Approve", data: callbackData("approve", a.id) }, { text: "Skip", data: callbackData("skip", a.id) }]);
       if (!ok) break;
       seen.add(a.id); sent++;
     }

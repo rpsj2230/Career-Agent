@@ -24,6 +24,7 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npx tsx worker/apply.ts
         env:
+          NODE_OPTIONS: --conditions=react-server
           APPLICATION_ID: ${{ inputs.application_id }}
           MAX_APPLY: "25"
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

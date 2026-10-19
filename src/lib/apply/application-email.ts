@@ -4,6 +4,7 @@ import { jobLogFields, type JobRef } from "@/lib/activity-helpers";
 import { db, must } from "@/lib/db";
 import { resolveCredentials } from "@/lib/integrations/credentials";
 import { sendEmail, smtpFromMailbox } from "@/lib/email";
+import { mainProfileInUse } from "@/lib/scoped-db";
 import { getProfile } from "@/lib/profile/store";
 import { getSetting } from "@/lib/settings";
 import { withLegacyFallback } from "@/lib/schema";
@@ -81,7 +82,8 @@ export async function sendApplicationEmail(appId: string, o: { actor: "user" | "
   if (!attachments.some((a) => /Resume/.test(a.filename))) return fail("There is no resume file to attach.", job);
 
   const { creds } = await resolveCredentials();
-  const err = await sendEmail(smtpFromMailbox(creds.mailbox), { to, subject: draft.subject, text: draft.body, attachments, fromName: profile.basics.name, replyTo: profile.basics.email || undefined });
+  // each person applies from their own mailbox; the SMTP settings in the environment are the main profile's only
+  const err = await sendEmail(smtpFromMailbox(creds.mailbox, (await mainProfileInUse()) ? process.env : {}), { to, subject: draft.subject, text: draft.body, attachments, fromName: profile.basics.name, replyTo: profile.basics.email || undefined });
   if (err) return fail(err, job);
 
   const at = new Date().toISOString();

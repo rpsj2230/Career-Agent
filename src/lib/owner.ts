@@ -1,6 +1,8 @@
-import { createClient } from "@supabase/supabase-js";
 import { parseAllowlist } from "./access";
+import { rawClient } from "./raw-client";
 import { cleanTeam, type Role, type TeamMember } from "./roles";
+import { sharedOnlyClient } from "./scope";
+import type { ProfileRef } from "./profile-access";
 
 /**
  * Who may use the app: the owner (first account created, stored in the database) plus any extra emails in
@@ -9,11 +11,8 @@ import { cleanTeam, type Role, type TeamMember } from "./roles";
 let cache: { at: number; owner: string } | null = null;
 const TTL_MS = 60_000;
 
-function client() {
-  const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set");
-  return createClient(url, key, { auth: { persistSession: false } });
-}
+/** Who may sign in is app-wide, so this reaches only the shared settings (never one profile's data). */
+const client = () => sharedOnlyClient(rawClient());
 
 export async function getOwnerEmail(fresh = false): Promise<string | null> {
   if (!fresh && cache && Date.now() - cache.at < TTL_MS) return cache.owner;
@@ -64,4 +63,20 @@ export async function getRole(email: string | null | undefined, fresh = false): 
   if (!e) return null;
   if ((await getAllowedEmails(fresh)).includes(e)) return "admin";
   return (await getTeam()).find((m) => m.email === e)?.role ?? null;
+}
+
+/** The team entry for an email (its profiles, if the super admin named some). */
+export async function getMember(email: string | null | undefined): Promise<TeamMember | null> {
+  const e = email?.trim().toLowerCase();
+  return e ? (await getTeam()).find((m) => m.email === e) ?? null : null;
+}
+
+/** Every profile, or none while the profiles migration has not been run (the app then behaves as a single-profile app). */
+export async function loadProfileRefs(): Promise<ProfileRef[]> {
+  const { error, data } = await rawClient().from("profiles").select("id,name,email,is_default,enabled").order("created_at", { ascending: true });
+  if (error) {
+    if (/profiles/i.test(error.message) && /(does not exist|could not find|schema cache)/i.test(error.message)) return [];
+    throw new Error(`load profiles: ${error.message}`);
+  }
+  return (data ?? []) as ProfileRef[];
 }

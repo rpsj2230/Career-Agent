@@ -1,17 +1,16 @@
 import "server-only";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { rawClient } from "@/lib/raw-client";
+import { scopedDb } from "@/lib/scoped-db";
 
-let client: SupabaseClient | null = null;
+/**
+ * Service-role client with NO profile scoping. Only for things that genuinely span profiles (listing and managing the profiles themselves,
+ * model rows and usage, the automation choosing which profile to work for) and always with the profile named explicitly. Server code only.
+ */
+export const adminDb = (): SupabaseClient => rawClient();
 
-/** Service-role client. Server code only; never import from a client component. */
-export function db(): SupabaseClient {
-  if (client) return client;
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set");
-  client = createClient(url, key, { auth: { persistSession: false } });
-  return client;
-}
+/** Service-role client for the profile currently in use: every per-person table is filtered to it. Server code only; never import from a client component. */
+export const db = (): SupabaseClient => scopedDb();
 
 /** Throw on a Supabase error so callers never silently continue with missing data. */
 export function must<T>(res: { data: unknown; error: { message: string } | null }, what: string): T {

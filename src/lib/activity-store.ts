@@ -1,4 +1,6 @@
-import { createClient } from "@supabase/supabase-js";
+import { NoProfileError } from "./profile-context";
+import { rawClient } from "./raw-client";
+import { scopedDb } from "./scoped-db";
 
 /**
  * The narrow set of database operations the activity module needs. Production uses Supabase; tests use an
@@ -14,19 +16,20 @@ export interface ActivityStore {
 
 /** Service-role store. Deliberately free of "server-only" so the GitHub Actions worker can use it too. */
 export function supabaseStore(): ActivityStore {
-  const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set");
-  const sb = createClient(url, key, { auth: { persistSession: false } });
+  // the log of the profile in use. Events that belong to nobody (a sign-in attempt, before anyone has chosen a profile) go to the main profile's log,
+  // which is what the database does by itself with a row that names no profile
+  const sb = scopedDb();
+  const anyone = async <T,>(f: (c: ReturnType<typeof scopedDb>) => PromiseLike<T>): Promise<T> => { try { return await f(sb); } catch (e) { if (e instanceof NoProfileError) return await f(rawClient()); throw e; } };
   const fail = (what: string, e: { message: string } | null) => { if (e) throw new Error(`${what}: ${e.message}`); };
   return {
     async insert(table, row) {
-      const { data, error } = await sb.from(table).insert(row).select("id").single();
+      const { data, error } = await anyone((c) => c.from(table).insert(row).select("id").single());
       fail(`insert ${table}`, error);
       return data as { id: string | number };
     },
     async insertMany(table, rows) {
       if (rows.length === 0) return;
-      const { error } = await sb.from(table).insert(rows);
+      const { error } = await anyone((c) => c.from(table).insert(rows));
       fail(`insert ${table}`, error);
     },
     async update(table, id, patch) {

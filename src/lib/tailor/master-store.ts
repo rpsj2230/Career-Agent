@@ -21,7 +21,7 @@ export async function getMasterInfo(): Promise<MasterResume | null> {
 export async function saveMasterResume(name: string, bytes: Uint8Array): Promise<MasterResume | null> {
   const ext = masterExt(name);
   if (!ext || bytes.byteLength === 0 || bytes.byteLength > 10 * 1024 * 1024) return null;
-  const path = `master/original-${Date.now()}.${ext}`;
+  const path = `master/original-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
   const up = await db().storage.from("documents").upload(path, Buffer.from(bytes), { contentType: TYPES[ext], upsert: true });
   if (up.error) throw new Error(`could not store the master resume: ${up.error.message}`);
   const prev = await getMasterInfo();

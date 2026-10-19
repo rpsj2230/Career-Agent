@@ -4,8 +4,7 @@
  * This program never sees or stores your passwords. Close the browser window when you are finished.
  */
 import { mkdirSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { asAssistantProfile, browserDirFor, type Who } from "./assist-profile";
 import { browserFromMachine } from "./browser";
 import { chromium } from "playwright";
 
@@ -15,8 +14,9 @@ const SITES = [
   ["Indeed", "https://secure.indeed.com/auth"],
 ] as const;
 
-async function main() {
-  const profileDir = process.env.ASSIST_PROFILE_DIR || join(homedir(), ".career-agent", "browser");
+async function main(who: Who | null) {
+  const profileDir = browserDirFor(who);
+  if (who) console.log(`Signing in for: ${who.name}. Use THEIR LinkedIn, Naukri and Indeed accounts in this window.`);
   mkdirSync(profileDir, { recursive: true });
   const choice = browserFromMachine();
   console.log(`Browser: ${choice.name}. It uses its own profile folder (${profileDir}), not your everyday browser profile.`);
@@ -32,4 +32,4 @@ async function main() {
   console.log("Saved. You can now run: npm run assist:check");
 }
 
-main().catch((e) => { console.error(e instanceof Error ? e.message : e); process.exit(1); });
+asAssistantProfile((who) => main(who)).catch((e) => { console.error(e instanceof Error ? e.message : e); process.exit(1); });

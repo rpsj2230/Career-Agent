@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { discoverNow } from "@/lib/jobs/discover";
 import { scoreNewJobs } from "@/lib/score/run";
+import { forEachProfile } from "@/lib/profiles-store";
 import { hasActiveSchedules } from "@/lib/schedule-store";
 import { within } from "@/lib/time-limit";
 
@@ -18,7 +19,17 @@ const REPLY_BY_MS = 55_000;
  */
 export async function GET(request: Request) {
   const trigger = request.headers.get("authorization")?.startsWith("Bearer ") ? "schedule" : "manual";
-  if (trigger === "schedule" && (await hasActiveSchedules())) return NextResponse.json({ skipped: "Your schedules (Schedules page) handle searching now." });
+  if (trigger === "schedule") {
+    // a scheduled call has no signed-in person: it searches for each profile that has no schedule of its own, one after another
+    const per = await forEachProfile(async (p) => {
+      if (await hasActiveSchedules()) return { profile: p?.name ?? null, skipped: "Your schedules (Schedules page) handle searching now." };
+      const res = await discoverNow({ trigger, budgetMs: 25_000, interactive: true });
+      const scored = await scoreNewJobs({ limit: 10, budgetMs: 15_000, trigger }).catch((e) => ({ error: e instanceof Error ? e.message : String(e) }));
+      return { profile: p?.name ?? null, scans: res.outcomes.length, inserted: res.outcomes.reduce((n, s) => n + s.counts.inserted, 0), scoring: scored };
+    });
+    const out = per.map((r) => r.result ?? { profile: r.profile?.name ?? null, error: String(r.error) });
+    return NextResponse.json(out.length === 1 ? out[0] : { profiles: out });
+  }
   const t0 = Date.now();
   const work = (async (): Promise<Response> => {
     try {

@@ -1,7 +1,7 @@
 import "server-only";
 import { logActivity } from "@/lib/activity";
 import { db } from "@/lib/db";
-import { sendTelegram } from "@/lib/notify";
+import { notifyProfile } from "@/lib/notify-profile";
 import { staleAlerts } from "./health";
 import { loadPortalsView } from "./view";
 
@@ -23,7 +23,7 @@ export async function checkStaleSources(now = new Date()): Promise<{ id: string;
       }));
     const alerts = staleAlerts(rows, now);
     for (const a of alerts) {
-      await sendTelegram(a.message);
+      await notifyProfile(a.message);
       await logActivity({ kind: "integration.error", level: "warn", message: a.message.split("\n")[0], integration: a.id, status: "stale", detail: { reminder: true } });
       const cur = (await db().from("integrations").select("config").eq("id", a.id).maybeSingle()).data as { config?: Record<string, unknown> } | null;
       await db().from("integrations").update({ config: { ...(cur?.config ?? {}), stale_alerted_at: now.toISOString() } }).eq("id", a.id);
