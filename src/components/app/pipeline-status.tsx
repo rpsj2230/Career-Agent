@@ -33,7 +33,7 @@ export async function PipelineStatus() {
         {s.stages.map((g) => (
           <div key={g.id} className="grid gap-2 rounded-md border p-3">
             <div className="flex flex-wrap items-center gap-2">
-              <Link href={g.href} className="font-medium hover:underline">{g.title}</Link>
+              <Link href={g.href.startsWith("/applications") ? `${g.href}#application-list` : g.href} className="font-medium hover:underline">{g.title}</Link>
               <Badge className={STATE[g.state].cls}>{STATE[g.state].label}</Badge>
               <span className="text-xs text-muted-foreground">{g.question}</span>
               <span className="ml-auto text-sm"><b>{g.waiting.toLocaleString("en-US")}</b> waiting{g.pct !== null ? <> · <b>{g.pct}%</b> done ({g.done.toLocaleString("en-US")} of {(g.done + g.waiting).toLocaleString("en-US")})</> : null}</span>
@@ -48,7 +48,7 @@ export async function PipelineStatus() {
                 {g.reasons.map((r, i) => (
                   <li key={i} className="flex flex-wrap items-start gap-2">
                     <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium ${CAUSE[r.cause].cls}`}>{CAUSE[r.cause].label}</span>
-                    <span className="min-w-0 flex-1">{r.text}{r.fix ? <> <span className="text-muted-foreground">{r.fix}</span></> : null}{r.href ? <> <Link href={r.href} className="underline">Open</Link></> : null}</span>
+                    <span className="min-w-0 flex-1">{r.text}{r.fix ? <> <span className="text-muted-foreground">{r.fix}</span></> : null}{r.href ? <> <Link href={r.href.startsWith("/applications") ? `${r.href}#application-list` : r.href} className="underline">Open</Link></> : null}</span>
                   </li>
                 ))}
               </ul>
