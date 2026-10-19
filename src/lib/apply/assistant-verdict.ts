@@ -1,5 +1,5 @@
 /** Is the apply assistant on your computer doing its job? Pure, so the rules are testable. */
-export type Heartbeat = { at: string; mode?: "assist" | "hands-free"; watching?: boolean; hours?: string; tz?: string };
+export type Heartbeat = { at: string; mode?: "assist" | "hands-free"; watching?: boolean; hours?: string; tz?: string; round?: { at: string; submitted: number; handedBack: number; left: Record<string, number> } };
 export type Verdict = { relevant: boolean; offline: boolean; waiting: number; text: string };
 
 const inHours = (spec: string | undefined, hour: number | null): boolean => {

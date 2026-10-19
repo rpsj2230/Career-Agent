@@ -48,10 +48,16 @@ const say = (s: string) => console.log(s);
 const AUTO = process.env.ASSIST_MODE === "auto";
 const WATCH = process.env.ASSIST_WATCH === "1";
 
+/** What the last round did, so the app can say why applications are still waiting. Reasons are counted, never listed with personal data. */
+type Round = { at: string; submitted: number; handedBack: number; left: Record<string, number> };
+let current: Round = { at: new Date().toISOString(), submitted: 0, handedBack: 0, left: {} };
+let lastRound: Round | null = null;
+const leftFor = (reason: string) => { current.left[reason] = (current.left[reason] ?? 0) + 1; };
+
 /** Tell the app this assistant is alive, so it can warn you if applications are waiting and it has gone quiet. Never throws. */
 async function heartbeat(sb: SupabaseClient) {
   try {
-    await sb.from("settings").upsert({ key: "assistant_heartbeat", value: { at: new Date().toISOString(), mode: AUTO ? "hands-free" : "assist", watching: WATCH, hours: process.env.ASSIST_HOURS ?? "", tz: Intl.DateTimeFormat().resolvedOptions().timeZone }, updated_at: new Date().toISOString() });
+    await sb.from("settings").upsert({ key: "assistant_heartbeat", value: { at: new Date().toISOString(), mode: AUTO ? "hands-free" : "assist", watching: WATCH, hours: process.env.ASSIST_HOURS ?? "", tz: Intl.DateTimeFormat().resolvedOptions().timeZone, ...(lastRound ? { round: lastRound } : {}) }, updated_at: new Date().toISOString() });
   } catch { /* the heartbeat is a courtesy, never a reason to stop */ }
 }
 
@@ -122,14 +128,14 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
 
   if (auto) {
     const d = autoDecision(job.portal, auto.caps, auto.state);
-    if (!d.go) { say(`  Left for later: ${d.reason}.`); return "later"; }
+    if (!d.go) { say(`  Left for later: ${d.reason}.`); leftFor(d.reason); return "later"; }
   }
 
   const { data: profileRow } = await sb.from("profile").select("data").eq("id", 1).single();
   const profile = MasterProfile.parse(profileRow?.data ?? {});
   const dir = mkdtempSync(join(tmpdir(), "assist-"));
   const files = await downloadDocs(sb, app, dir);
-  if (!files.resume) { say("  No prepared resume for this application; skipped."); return "later"; }
+  if (!files.resume) { say("  No prepared resume for this application; skipped."); leftFor("No prepared resume for this application"); return "later"; }
   const fctx = {
     applicant: { name: profile.basics.name, email: profile.basics.email, phone: profile.basics.phone, location: profile.basics.location, links: profile.basics.links, currentCompany: profile.experience[0]?.company },
     answers: app.answers ?? [], resumePath: files.resume.path, coverPath: files.cover?.path,
@@ -170,6 +176,7 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
     await sb.from("apply_events").insert({ application_id: app.id, kind: "needs_input", detail: { message } });
     await logAct(sb, { kind: "application.needs_input", level: "warn", message: `Needs you: ${message}`, status: "needs_input", application_id: app.id, job_id: job.id, company: job.company, country: job.country, portal: job.portal, detail: { assistant: true, message } });
     say(`  Handed back to you: ${message}`);
+    current.handedBack++;
   };
 
   try {
@@ -300,6 +307,7 @@ async function batch(sb: SupabaseClient, who: Who | null): Promise<number> {
   });
   await context.addInitScript({ content: "window.__name = window.__name || function (t) { return t; };" });
   let done = 0;
+  current = { at: new Date().toISOString(), submitted: 0, handedBack: 0, left: {} };
   try {
     for (const [i, app] of apps.entries()) {
       if (i > 0) await sleep(auto ? Number(process.env.ASSIST_AUTO_PAUSE_MS ?? humanPause()) : Number(process.env.ASSIST_PAUSE_MS ?? 4000 + Math.random() * 6000));
@@ -315,6 +323,9 @@ async function batch(sb: SupabaseClient, who: Who | null): Promise<number> {
     }
   } finally {
     await context.close().catch(() => undefined);
+    current.submitted = done;
+    lastRound = current;
+    await heartbeat(sb);
   }
   return done;
 }
