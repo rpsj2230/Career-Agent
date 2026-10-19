@@ -21,7 +21,8 @@ describe("CountryPrefInput", () => {
     for (const bad of [{ country: "SGP" }, { country: "S" }, { ...base, currency: "sgd" }, { ...base, remote: "maybe" }, { ...base, work_authorisation: "whatever" }, { ...base, salary_min: -1, currency: "SGD" }, { ...base, titles: ["x".repeat(81)] }]) {
       expect(CountryPrefInput.safeParse(bad).success, JSON.stringify(bad)).toBe(false);
     }
-    expect(CountryPrefInput.safeParse({ ...base, titles: Array.from({ length: 21 }, (_, i) => `Role ${i}`) }).success).toBe(false);
+    expect(CountryPrefInput.safeParse({ ...base, titles: Array.from({ length: 61 }, (_, i) => `Role ${i}`) }).success).toBe(false);
+    expect(CountryPrefInput.safeParse({ ...base, titles: Array.from({ length: 60 }, (_, i) => `Role ${i}`) }).success).toBe(true);
   });
 });
 

@@ -13,6 +13,8 @@ export const WORK_AUTH = [
 ] as const;
 export const needsSponsorship = (auth: string | null | undefined): boolean | null => WORK_AUTH.find((w) => w.value === auth)?.sponsorship ?? null;
 
+/** Job titles to search per country. Each one is a search on every source, so the Countries page shows the number of searches this makes. */
+export const MAX_TITLES = 60;
 const list = (max: number, item = 80) => z.array(z.string().trim().min(1).max(item)).max(max).default([]);
 const money = z.number().finite().nonnegative().max(1e10);
 
@@ -20,7 +22,7 @@ export const CountryPrefInput = z
   .object({
     country: z.string().regex(/^[a-z]{2}$/, "Use a two-letter country code"),
     enabled: z.boolean().default(true),
-    titles: list(20), industries: list(20), locations: list(15),
+    titles: list(MAX_TITLES), industries: list(20), locations: list(15),
     remote: z.enum(REMOTE_OPTIONS).default("any"),
     salary_min: money.nullable().default(null), salary_max: money.nullable().default(null),
     currency: z.string().regex(/^[A-Z]{3}$/, "Use a three-letter currency code such as SGD").nullable().default(null),
