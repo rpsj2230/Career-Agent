@@ -23,6 +23,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { asAssistantProfile, browserDirFor, type Who } from "./assist-profile";
 import { scopedDb } from "../src/lib/scoped-db";
 import { browserFromMachine, PLAIN_HTTP } from "./browser";
+import { isSkipped, skipPortals } from "./assist-skip";
 import { chromium, type BrowserContext, type Page } from "playwright";
 import { confirmationSnippet, type FieldEntry, type SubmissionRecord } from "../src/lib/apply/submission";
 import { MasterProfile } from "../src/lib/types";
@@ -266,11 +267,18 @@ async function batch(sb: SupabaseClient, who: Who | null): Promise<number> {
   await heartbeat(sb);
   const limit = Math.max(1, Math.min(50, Number(process.env.ASSIST_LIMIT ?? 10) || 10));
   const only = process.env.APPLICATION_ID?.trim();
-  let q = sb.from("applications").select("id, job_id, resume_doc_id, cover_doc_id, answers").eq("status", "assisted_pending").order("approved_at", { ascending: true }).limit(limit);
+  const skip = skipPortals(process.env.ASSIST_SKIP);
+  let q = sb.from("applications").select("id, job_id, resume_doc_id, cover_doc_id, answers").eq("status", "assisted_pending").order("approved_at", { ascending: true }).limit(skip.length ? 200 : limit);
   if (only) q = q.eq("id", only);
   const { data, error } = await q;
   if (error) throw error;
-  const apps = (data ?? []) as AppRow[];
+  let apps = (data ?? []) as AppRow[];
+  if (skip.length && apps.length) {
+    // portals you apply to by hand (ASSIST_SKIP=naukri) stay waiting in the app and are never opened here
+    const { data: jobs } = await sb.from("jobs").select("id, portal, source").in("id", apps.map((a) => a.job_id));
+    const skipped = new Set((jobs ?? []).filter((j) => isSkipped(skip, j as { portal?: string | null; source?: string | null })).map((j) => (j as { id: string }).id));
+    apps = apps.filter((a) => !skipped.has(a.job_id)).slice(0, limit);
+  }
   if (!apps.length) { say(WATCH ? `${new Date().toLocaleTimeString()}  Nothing is waiting.` : "Nothing is waiting. Approve applications in the dashboard first (they appear here as \"assisted\")."); return 0; }
 
   let auto: { caps: AutoCaps; state: AutoState } | null = null;
