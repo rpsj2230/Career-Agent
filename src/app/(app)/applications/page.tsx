@@ -9,6 +9,7 @@ import { APP_STATUSES, countryLabel, parseAppFilters } from "@/lib/filters";
 import { filterOptions, listApplications } from "@/lib/queries";
 import { fmtDateTime } from "@/lib/time";
 import { AssistantPanel } from "@/components/app/assistant-panel";
+import { PipelineStatus } from "@/components/app/pipeline-status";
 import { currentRole } from "@/lib/role-server";
 import { PipelineStrip } from "@/components/app/pipeline-strip";
 import { assistantPanelData } from "@/lib/apply/assistant-health";
@@ -41,6 +42,7 @@ export default async function ApplicationsPage({ searchParams }: { searchParams:
         Every application waits here for your OK (<b>prepared</b>). After you approve it: Greenhouse, Lever, Ashby and Workable are sent automatically from the cloud;
         LinkedIn, Naukri and Indeed need the <b>assistant on your computer</b> (they queue below until your computer is on); anything else is yours to submit.
       </p>
+      {isAdmin && <PipelineStatus />}
       {isAdmin && <PipelineStrip />}
       {panel && <AssistantPanel {...panel} />}
       <FilterBar

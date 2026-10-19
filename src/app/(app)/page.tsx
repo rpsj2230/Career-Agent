@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PipelineStatus } from "@/components/app/pipeline-status";
 import { ActionButton } from "@/components/app/action-button";
 import { AutomationBanner } from "@/components/app/automation-banner";
 import { BackgroundBanner } from "@/components/app/background-banner";
@@ -107,6 +108,8 @@ export default async function Dashboard({ searchParams }: { searchParams: SP }) 
           </ol></CardContent>
         </Card>
       )}
+
+      <PipelineStatus />
 
       <form method="get" action="/" className="flex flex-wrap items-end gap-2">
         <label className="grid gap-1 text-xs text-muted-foreground">Period
