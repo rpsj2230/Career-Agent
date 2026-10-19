@@ -28,6 +28,12 @@ export function factsBlock(p: MasterProfile): string {
     for (const b of e.bullets) lines.push(`  [${b.id}] ${b.text}`);
   }
   if (p.highlights.length) { lines.push("CAREER HIGHLIGHTS (shown verbatim; you only choose which ones):"); for (const h of p.highlights) lines.push(`  [${h.id}] ${h.text}`); }
+  if ((p.basics.metrics ?? []).length) { lines.push("KEY FIGURES (printed under the header as written; you may cite them):"); (p.basics.metrics ?? []).forEach((m, i) => lines.push(`  [metric${i + 1}] ${m}`)); }
+  for (const x of p.sections ?? []) {
+    lines.push(`SECTION "${x.title}" (printed as written; you may cite its facts):`);
+    if (x.intro) lines.push(`  [${x.id}.intro] ${x.intro}`);
+    for (const b of x.bullets) lines.push(`  [${b.id}] ${b.label ? `${b.label}: ` : ""}${b.text}`);
+  }
   lines.push("SKILLS: " + p.skills.map((s) => `[${s.id}] ${s.name}${s.group ? ` (${s.group})` : ""}`).join("; "));
   if (p.caseStudies.length) { lines.push("CASE STUDIES (shown verbatim; you only choose which ones):"); for (const c of p.caseStudies) lines.push(`  [${c.id}] ${c.title}`); }
   if (p.certifications.length) lines.push("CERTIFICATIONS: " + p.certifications.map((c) => `[${c.id}] ${c.name}`).join("; "));

@@ -80,3 +80,31 @@ describe("experience facts", () => {
     expect(addFacts(p, "exp1", ["z"]).experience[1].bullets).toEqual([]);
   });
 });
+
+import { caseStudiesToText, draftsToSections, parseCaseStudies, parseMetrics, parseSectionBullets, sectionToDraft } from "@/lib/profile/bulk";
+
+describe("header strip, extra sections and case studies", () => {
+  it("reads key figures one per line or with bars", () => {
+    expect(parseMetrics("150+ People Led | 4 Countries\n\n  S$4M+ Portfolio ")).toEqual(["150+ People Led", "4 Countries", "S$4M+ Portfolio"]);
+  });
+  it("reads 'Label: text' bullets and joins wrapped lines", () => {
+    expect(parseSectionBullets("• MIRA, the Maintenance Agent: supports the team,\nhandles tickets\n• Plain bullet")).toEqual([{ label: "MIRA, the Maintenance Agent", text: "supports the team, handles tickets" }, { text: "Plain bullet" }]);
+  });
+  it("round-trips a section and gives new ones unique ids that never clash", () => {
+    const p = base();
+    p.sections = [{ id: "sec1", title: "Key AI Agents", bullets: [{ id: "sec1.b1", label: "MIRA", text: "does things" }] }];
+    const d = p.sections.map(sectionToDraft);
+    expect(d[0].bulletsText).toBe("MIRA: does things");
+    const out = draftsToSections(p, [...d, { title: "Company Brain", intro: " A paragraph ", flow: "A › B", bulletsText: "One: two\nThree" }, { title: "  ", intro: "", flow: "", bulletsText: "x" }]);
+    expect(out.map((x) => x.id)).toEqual(["sec1", "sec2"]);
+    expect(out[1]).toEqual({ id: "sec2", title: "Company Brain", intro: "A paragraph", flow: "A › B", bullets: [{ id: "sec2.b1", label: "One", text: "two" }, { id: "sec2.b2", text: "Three" }] });
+    expect(duplicateId({ ...p, sections: out })).toBeNull();
+  });
+  it("keeps case study ids and links, adds new ones, ignores repeats and bad links", () => {
+    const p = base();
+    p.caseStudies = [{ id: "cs1", title: "Old study", url: "https://a.example" }];
+    const out = parseCaseStudies(p, "Old study | https://a.example\nNew study | not-a-link\nnew study\nThird | https://b.example/x?y=1|2");
+    expect(out).toEqual([{ id: "cs1", title: "Old study", url: "https://a.example" }, { id: "cs2", title: "New study" }, { id: "cs3", title: "Third", url: "https://b.example/x?y=1|2" }]);
+    expect(caseStudiesToText(out)).toBe("Old study | https://a.example\nNew study\nThird | https://b.example/x?y=1|2");
+  });
+});

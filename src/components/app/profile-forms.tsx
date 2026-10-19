@@ -26,6 +26,7 @@ export function ImportBox() {
       const raw = await res.text();
       let data: { error?: string; model?: string; masterKept?: { name?: string; error?: string } | null; masterGiven?: boolean } = {};
       try { data = JSON.parse(raw); } catch { /* the host answered with a plain page, not JSON */ }
+      if (!res.ok && data.masterKept?.name) toast.message(`Your master resume file WAS replaced (${data.masterKept.name}) and now shows on the Resumes page, but reading it into your profile failed. You can try the import again.`);
       if (!res.ok) toast.error(data.error ?? (res.status === 413 ? "The files are too large to upload here (the limit is about 4 MB in total). Upload your master resume alone first." : res.status === 504 || res.status === 408 ? "The import took too long and was cut off. Try again, or paste less text." : `Import failed (HTTP ${res.status}): ${raw.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 200) || "no details"}`));
       else {
         toast.success(`Draft ready (model ${data.model}). Review it below before confirming.`);

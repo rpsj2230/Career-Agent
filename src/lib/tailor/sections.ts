@@ -4,8 +4,7 @@ import { STYLES, type ResumeStyle, type SectionId } from "./template";
 /** The resume as plain structured text. The DOCX file and the on-screen preview are both built from this, so they cannot disagree. */
 export type ResumeView = {
   name: string; headline: string; credentials: string; contact: string; summary: string;
-  /** the line under the name, and the strip of key figures under the header: both printed exactly as in your profile */
-  tagline: string;
+  /** the strip of key figures under the header, printed exactly as in your profile */
   metrics: string[];
   highlights: string[];
   /** extra headed sections (for example "Company Brain"), printed exactly as in your profile */
@@ -76,9 +75,8 @@ export function resumeView(p: MasterProfile, t: TailoredResume, style?: ResumeSt
     name: b.name,
     headline: t.headline || b.headline,
     credentials: b.credentials ?? "",
-    contact: [b.email, b.phone, [b.location, b.workStatus].filter(Boolean).join(" - "), ...b.links].filter(Boolean).join("  |  "),
+    contact: [[b.location, b.workStatus].filter(Boolean).join(", "), b.phone, b.email, ...b.links].filter(Boolean).join(" · "),
     summary: t.summary.text,
-    tagline: b.tagline ?? "",
     metrics: (b.metrics ?? []).filter((m) => m.trim()),
     extras: (p.sections ?? []).map((x) => ({ title: x.title, intro: x.intro ?? "", flow: x.flow ?? "", bullets: x.bullets.map((y) => ({ label: y.label ?? "", text: y.text })) })),
     highlights: (t.highlightIds ?? []).map((id) => p.highlights.find((h) => h.id === id)?.text).filter((x): x is string => !!x),
@@ -114,13 +112,13 @@ export const experienceTitle = (e: { title: string; company: string; location: s
 
 /** Plain text of a resume, for the preview and for tests. Follows the same section order and labels as the DOCX. */
 export function resumeText(v: ResumeView, style: ResumeStyle = STYLES[0]): string[] {
-  const out: string[] = [v.name, ...(v.tagline ? [v.tagline] : []), ...(v.headline && v.headline !== v.tagline ? [v.headline] : []), ...(v.credentials ? [v.credentials] : []), v.contact, ...(v.metrics.length ? [v.metrics.join("  |  ")] : [])];
+  const out: string[] = [v.name, ...(v.headline ? [v.headline] : []), ...(v.credentials ? [v.credentials] : []), v.contact, ...(v.metrics.length ? [v.metrics.join("  |  ")] : [])];
   const grouped = (label: string, gs: SkillGroup[]) => (gs.length ? [label.toUpperCase(), ...gs.map((g) => (g.group ? `${g.group}: ` : "") + g.items.join(", "))] : []);
   const blocks: Record<SectionId, () => string[]> = {
     summary: () => (v.summary ? [style.summaryLabel.toUpperCase(), v.summary] : []),
     highlights: () => (v.highlights.length ? ["CAREER HIGHLIGHTS", ...v.highlights] : []),
     extras: () => v.extras.flatMap((x) => [x.title.toUpperCase(), ...(x.intro ? [x.intro] : []), ...(x.flow ? [x.flow] : []), ...x.bullets.map((b) => (b.label ? `${b.label}: ` : "") + b.text)]),
-    caseStudies: () => (v.caseStudies.length ? ["CASE STUDIES", ...v.caseStudies.map((c) => (c.url ? `${c.title}: Click Here To View (${c.url})` : c.title))] : []),
+    caseStudies: () => (v.caseStudies.length ? ["CASE STUDIES", ...v.caseStudies.map((c) => (c.url ? `${c.title}: Click Here To View` : c.title))] : []),
     competencies: () => grouped("Core Competencies", v.competencies),
     technical: () => grouped("Technical Skills", v.technical),
     development: () => (v.development.length ? ["PROFESSIONAL DEVELOPMENT", ...v.development] : []),
@@ -130,7 +128,7 @@ export function resumeText(v: ResumeView, style: ResumeStyle = STYLES[0]): strin
       ...(e.employer ? [`${[e.employer.name, e.employer.location].filter(Boolean).join(", ")}${e.employer.dates ? `\t${e.employer.dates}` : ""}`] : []),
       `${e.title}${e.dates ? `\t${e.dates}` : ""}`, ...e.bullets,
     ])],
-    education: () => (v.education.length ? ["EDUCATION", ...v.education.map((e) => `${e.degree}, ${e.school}${e.dates ? ` (${e.dates})` : ""}`)] : []),
+    education: () => (v.education.length ? ["EDUCATION", ...v.education.flatMap((e) => [`${e.degree}${e.dates ? `\t${e.dates}` : ""}`, e.school])] : []),
     certifications: () => (v.certifications.length ? ["CERTIFICATIONS", ...v.certifications] : []),
   };
   return [...out, ...style.sections.flatMap((s) => blocks[s]())];

@@ -15,6 +15,12 @@ export function factIndex(p: MasterProfile): Map<string, string> {
   for (const c of p.certifications) m.set(c.id, c.name);
   for (const ed of p.education) m.set(ed.id, `${ed.degree} ${ed.school}`);
   for (const h of p.highlights ?? []) m.set(h.id, h.text);
+  // the key figures and extra sections of the master resume are the candidate's own facts too, so a summary may use them
+  (p.basics.metrics ?? []).forEach((x, i) => m.set(`metric${i + 1}`, x));
+  for (const x of p.sections ?? []) {
+    if (x.intro) m.set(`${x.id}.intro`, x.intro);
+    for (const b of x.bullets) m.set(b.id, `${b.label ?? ""} ${b.text}`.trim());
+  }
   return m;
 }
 
@@ -124,6 +130,8 @@ export function vocabulary(p: MasterProfile): Set<string> {
     p.basics.credentials ?? "", p.basics.workStatus ?? "",
     ...(p.highlights ?? []).map((h) => h.text), ...(p.caseStudies ?? []).map((c) => c.title),
     ...(p.development ?? []).map((d) => d.name), ...(p.awards ?? []).map((a) => a.name),
+    ...(p.basics.metrics ?? []),
+    ...(p.sections ?? []).flatMap((x) => [x.title, x.intro ?? "", x.flow ?? "", ...x.bullets.flatMap((b) => [b.label ?? "", b.text])]),
   ];
   const v = new Set<string>();
   for (const t of texts) for (const w of t.match(WORD) ?? []) { v.add(w.toLowerCase()); parts(w).forEach((x) => v.add(x)); }

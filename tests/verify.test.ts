@@ -3,7 +3,7 @@ import { buildDiff, numbersIn, verifyCoverLetter, verifyTailored } from "@/lib/d
 import type { MasterProfile, TailoredResume } from "@/lib/types";
 
 const profile: MasterProfile = {
-  basics: { name: "A", email: "", phone: "", location: "", headline: "Product Manager", summary: "PM with 6 years in fintech", links: [], credentials: "", workStatus: "" },
+  basics: { name: "A", email: "", phone: "", location: "", headline: "Product Manager", summary: "PM with 6 years in fintech", links: [], credentials: "", workStatus: "", metrics: [] },
   preferences: { countries: ["in"], roles: [] },
   experience: [
     {
@@ -15,7 +15,7 @@ const profile: MasterProfile = {
     },
   ],
   education: [],
-  highlights: [{ id: "h1", text: "Grew activation by 24% across 3 markets" }], caseStudies: [], development: [], awards: [],
+  highlights: [{ id: "h1", text: "Grew activation by 24% across 3 markets" }], caseStudies: [], development: [], awards: [], sections: [],
   skills: [{ id: "s1", name: "SQL" }, { id: "s2", name: "Roadmapping" }],
   certifications: [],
 };

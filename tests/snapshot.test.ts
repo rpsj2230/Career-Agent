@@ -23,7 +23,7 @@ describe("resume view", () => {
 
   it("takes company, title and dates from the profile and keeps only what was selected", () => {
     const v = resumeView(profile, tailored);
-    expect(v.experience).toEqual([{ title: "Product Manager", company: "Acme", dates: "2020 - Present", location: "Singapore", bullets: ["Grew activation 24%"] }]);
+    expect(v.experience).toEqual([{ title: "Product Manager", company: "Acme", dates: "", location: "Singapore", bullets: ["Grew activation 24%"], employer: { name: "Acme", location: "Singapore", dates: "2020 – Present", roles: 1 } }]);
     expect(v.skills).toEqual(["SQL"]);
     expect(v.headline).toBe("Senior PM");
   });

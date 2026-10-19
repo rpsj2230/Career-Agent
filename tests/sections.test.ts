@@ -36,7 +36,7 @@ describe("resume sections follow the master resume", () => {
 
   it("lays the resume out in the section order with the right headings", () => {
     const text = resumeText(resumeView(profile, t, STYLES[0]), STYLES[0]);
-    const heads = ["CAREER HIGHLIGHTS", "CASE STUDIES", "CORE COMPETENCIES", "TECHNICAL SKILLS", "SKILLS", "WORK EXPERIENCE", "CERTIFICATIONS", "PROFESSIONAL DEVELOPMENT", "EDUCATION", "AWARDS AND RECOGNITION"];
+    const heads = ["CAREER HIGHLIGHTS", "CASE STUDIES", "CORE COMPETENCIES", "TECHNICAL SKILLS", "SKILLS", "PROFESSIONAL EXPERIENCE", "CERTIFICATIONS", "PROFESSIONAL DEVELOPMENT", "EDUCATION", "AWARDS AND RECOGNITION"];
     const at = heads.map((h) => text.findIndex((l) => l === h));
     expect(at.every((i) => i > 0)).toBe(true);
     expect([...at].sort((a, b) => a - b)).toEqual(at);

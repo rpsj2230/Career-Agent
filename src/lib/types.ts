@@ -52,8 +52,6 @@ export const MasterProfile = z.object({
     credentials: z.string().default(""),
     /** shown with the location in the contact line, e.g. "Employment Pass (EP)" */
     workStatus: z.string().default(""),
-    /** the line under the name, e.g. "AI Transformation Leader · AI Agents & Automation · Operations Director" */
-    tagline: z.string().default(""),
     /** the strip of key figures under the header, e.g. "150+ People Led", "4 Countries" */
     metrics: z.array(z.string()).default([]),
   }),

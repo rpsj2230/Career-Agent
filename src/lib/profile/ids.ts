@@ -26,11 +26,20 @@ const skillList = z.preprocess((v) => {
   });
 }, z.array(skillItem));
 
+// Case studies are a title, or {title, url} when the resume links to them.
+const caseList = list(z.preprocess((v) => (typeof v === "string" ? { title: v } : v), z.object({ title: text, url: optText }))).transform((xs) => xs.filter((x) => x.title.trim()));
+// An extra headed section: a bullet is plain text, "Label: text", or {label, text}.
+const sectionBullet = z.preprocess((v) => {
+  if (typeof v === "string") { const m = /^([^:]{2,70}):\s+(\S[\s\S]*)$/.exec(v.trim()); return m ? { label: m[1], text: m[2] } : { text: v }; }
+  return v;
+}, z.object({ label: optText, text: text }));
+const sectionList = list(z.object({ title: text, intro: optText, flow: optText, bullets: list(sectionBullet).transform((xs) => xs.filter((x) => x.text.trim())) })).transform((xs) => xs.filter((x) => x.title.trim()));
+
 /** What the model returns: the same shape as the master profile but without ids. */
 export const ExtractedProfile = z.object({
   basics: z.preprocess((v) => v ?? {}, z.object({
     name: text, email: text, phone: text, location: text, headline: text, summary: text, links: names,
-    credentials: text, workStatus: text,
+    credentials: text, workStatus: text, metrics: names,
   })),
   experience: list(z.object({
     company: text, title: text, location: optText, start: optText, end: optText, bullets: names,
@@ -39,9 +48,10 @@ export const ExtractedProfile = z.object({
   skills: skillList.transform((xs) => xs.filter((x) => x.name.trim())),
   certifications: names,
   highlights: names,
-  caseStudies: names,
+  caseStudies: caseList,
   development: names,
   awards: names,
+  sections: sectionList,
   conflicts: names.describe("Facts where sources disagree, written for the user to resolve"),
 });
 export type ExtractedProfile = z.infer<typeof ExtractedProfile>;
@@ -53,6 +63,11 @@ function dedupe(xs: string[]): string[] {
     if (k && !seen.has(k)) seen.set(k, x.trim()); // keep the first spelling
   }
   return [...seen.values()];
+}
+
+function dedupeBy<T>(xs: T[], key: (x: T) => string): T[] {
+  const seen = new Set<string>();
+  return xs.filter((x) => { const k = key(x).trim().toLowerCase(); if (!k || seen.has(k)) return false; seen.add(k); return true; });
 }
 
 function dedupeSkills(xs: ExtractedProfile["skills"]) {
@@ -84,8 +99,12 @@ export function assignIds(x: ExtractedProfile, preferences: MasterProfile["prefe
     skills: dedupeSkills(x.skills).map((s, i) => ({ id: `skill${i + 1}`, ...s })),
     certifications: dedupe(x.certifications).map((name, i) => ({ id: `cert${i + 1}`, name })),
     highlights: x.highlights.map((t) => t.trim()).filter(Boolean).map((text, i) => ({ id: `hl${i + 1}`, text })),
-    caseStudies: dedupe(x.caseStudies).map((title, i) => ({ id: `cs${i + 1}`, title })),
+    caseStudies: dedupeBy(x.caseStudies, (c) => c.title).map((c, i) => ({ id: `cs${i + 1}`, title: c.title.trim(), ...(c.url ? { url: c.url.trim() } : {}) })),
     development: dedupe(x.development).map((name, i) => ({ id: `dev${i + 1}`, name })),
     awards: dedupe(x.awards).map((name, i) => ({ id: `aw${i + 1}`, name })),
+    sections: x.sections.map((sec, i) => ({
+      id: `sec${i + 1}`, title: sec.title.trim(), ...(sec.intro ? { intro: sec.intro.trim() } : {}), ...(sec.flow ? { flow: sec.flow.trim() } : {}),
+      bullets: sec.bullets.map((b, j) => ({ id: `sec${i + 1}.b${j + 1}`, text: b.text.trim(), ...(b.label ? { label: b.label.trim() } : {}) })),
+    })),
   });
 }

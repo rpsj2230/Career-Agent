@@ -14,6 +14,9 @@ Rules:
 - Empty string for any basics field that is not present.
 - Keep the resume's own sections apart. "highlights" are the Career Highlights achievements; "caseStudies" are case study titles; "certifications" are professional certifications; "development" is courses and training; "awards" are awards and recognition.
 - Skills: one entry per skill as {"name", "group", "kind"} (plus "extra" only as described below). "kind" is "competency" for items under Core Competencies and "technical" for items under Technical Skills; "group" is the sub-heading they sit under (for example "Delivery & Project Management"), or empty.
+- "headline" is the line directly under the name (for example "AI Transformation Leader · AI Agents & Automation"); "metrics" are the short key figures in the strip under the header, one string each (for example "150+ People Led"). Copy them exactly.
+- "sections" are any headed parts of the resume that are NOT one of the standard sections above (for example "Company Brain: The AI Operating System" or "Key AI Agents"). For each give {"title", "intro" (a paragraph under the heading, or empty), "flow" (a one-line chain such as "Channels > Connectors > Agents", or empty), "bullets"}. A bullet is {"label", "text"} when it starts with a bold lead-in ("MIRA, the Maintenance Agent: supports ...") and {"text"} otherwise. Keep their order. Never move content from a standard section into "sections".
+- "caseStudies" are {"title", "url"}: "url" is the link behind the case study when the resume has one, otherwise empty.
 - "credentials" is the line of professional credentials under the name (for example "PMP | SFC"); "workStatus" is work authorisation shown on the resume (for example "Employment Pass"), or empty.`;
 
 /** The master resume sets the profile's structure and wording; supporting documents (LinkedIn PDF, another resume, LinkedIn export) only add to it. */
@@ -24,7 +27,7 @@ const MAX_SUPPORT = 30_000;
 
 const WITH_MASTER = `
 There are two kinds of source, each labelled in the input.
-- MASTER RESUME: the authority. Build every section (summary, highlights, case studies, competencies, technical skills, experience, certifications, development, education, awards, credentials) from it alone, keeping its sections, headings, order and wording.
+- MASTER RESUME: the authority. Build every section (headline, metrics, summary, highlights, extra sections, case studies, competencies, technical skills, experience, certifications, development, education, awards, credentials) from it alone, keeping its sections, headings, order and wording.
 - SUPPORTING sources (LinkedIn profile, another resume): use them only to (a) fill a basics field the master resume leaves empty, and (b) add skills the master resume does not list. Mark every such added skill with "extra": true (omit "extra" for skills from the master resume); put it under a "group" only if the source gives one.
 - Anything else found only in a supporting source (a role, a school, a certification) must NOT be added; instead write one line in "conflicts" such as "LinkedIn also lists <item>, which is not in your master resume".
 - Where a supporting source disagrees with the master resume, the master resume wins; note the difference in "conflicts".`;

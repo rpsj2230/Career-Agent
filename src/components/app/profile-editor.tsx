@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import type { MasterProfile } from "@/lib/types";
 import { call } from "./api";
 import { nextSkillId, skillSection, SECTION_LABEL, type SkillSection } from "@/lib/profile/skills";
-import { addFacts, addSkills, looksGrouped, parseFacts, parseSkillLines } from "@/lib/profile/bulk";
+import { addFacts, addSkills, caseStudiesToText, draftsToSections, looksGrouped, parseCaseStudies, parseFacts, parseMetrics, parseSkillLines, sectionToDraft, type SectionDraft } from "@/lib/profile/bulk";
 
 /** Edit the saved profile: add, change or remove skills with a form, or edit every field as JSON. Saving replaces the profile. */
 export function ProfileEditor({ profile }: { profile: MasterProfile }) {
@@ -26,6 +26,11 @@ export function ProfileEditor({ profile }: { profile: MasterProfile }) {
   const [bulkExtra, setBulkExtra] = useState(false);
   const [facts, setFacts] = useState<Record<string, string>>({});
   const [factsFirst, setFactsFirst] = useState(true);
+  const [headline, setHeadline] = useState(profile.basics.headline);
+  const [metricsText, setMetricsText] = useState((profile.basics.metrics ?? []).join("\n"));
+  const [drafts, setDrafts] = useState<SectionDraft[]>((profile.sections ?? []).map(sectionToDraft));
+  const [casesText, setCasesText] = useState(caseStudiesToText(profile.caseStudies));
+  const edited = () => ({ ...profile, basics: { ...profile.basics, headline, metrics: parseMetrics(metricsText) }, skills, experience, sections: draftsToSections(profile, drafts), caseStudies: parseCaseStudies(profile, casesText) });
   const [name, setName] = useState("");
   const [section, setSection] = useState<SkillSection>("technical");
   const [group, setGroup] = useState("");
@@ -104,7 +109,7 @@ export function ProfileEditor({ profile }: { profile: MasterProfile }) {
           <div className="grid gap-1"><Label htmlFor="sk-group">Heading (optional)</Label><Input id="sk-group" list="sk-groups" value={group} onChange={(e) => setGroup(e.target.value)} placeholder="e.g. Platforms" /><datalist id="sk-groups">{groups.map((g) => <option key={g} value={g} />)}</datalist></div>
           <label className="flex items-center gap-2 text-xs md:col-span-3"><Checkbox checked={extra} onCheckedChange={(v) => setExtra(v === true)} /> Search and scoring only: do not print it in the master resume template</label>
           <div className="flex gap-2 md:col-span-3"><Button type="button" variant="outline" onClick={add}>Add skill</Button>
-            <Button type="button" disabled={busy} onClick={() => save({ ...profile, skills, experience }, "Skills and experience saved")}>{busy ? "Saving..." : "Save skills and experience"}</Button></div>
+            <Button type="button" disabled={busy} onClick={() => save(edited(), "Saved")}>{busy ? "Saving..." : "Save skills and experience"}</Button></div>
         </div>
       </section>
 
@@ -145,7 +150,28 @@ export function ProfileEditor({ profile }: { profile: MasterProfile }) {
             </div>
           </details>
         ))}
-        <div><Button type="button" disabled={busy} onClick={() => save({ ...profile, skills, experience }, "Skills and experience saved")}>{busy ? "Saving..." : "Save skills and experience"}</Button></div>
+        <div><Button type="button" disabled={busy} onClick={() => save(edited(), "Saved")}>{busy ? "Saving..." : "Save skills and experience"}</Button></div>
+      </section>
+
+      <section className="grid gap-3 rounded-md border p-3">
+        <h3 className="text-sm font-semibold">Resume header, extra sections and case studies</h3>
+        <p className="text-xs text-muted-foreground">These are printed exactly as written on every resume (they are never reworded). The line under your name, the strip of key figures, extra headed sections such as &quot;Company Brain&quot; or &quot;Key AI Agents&quot;, and the case studies with their links.</p>
+        <div className="grid gap-1"><Label htmlFor="hd-line">Line under your name (blue)</Label><Input id="hd-line" value={headline} onChange={(e) => setHeadline(e.target.value)} placeholder="AI Transformation Leader · AI Agents & Automation · Operations Director" /></div>
+        <div className="grid gap-1"><Label htmlFor="hd-metrics">Key figures strip (one per line)</Label><Textarea id="hd-metrics" rows={4} value={metricsText} onChange={(e) => setMetricsText(e.target.value)} placeholder={"150+ People Led\n4 Countries\nS$4M+ Portfolio"} /></div>
+        <div className="grid gap-2">
+          <Label>Extra sections (shown after Career Highlights)</Label>
+          {drafts.map((d, i) => (
+            <div key={d.id ?? `new${i}`} className="grid gap-2 rounded-md border p-2">
+              <div className="flex items-center gap-2"><Input aria-label="Section title" value={d.title} onChange={(e) => setDrafts((xs) => xs.map((x, j) => (j === i ? { ...x, title: e.target.value } : x)))} placeholder="Section title, e.g. Key AI Agents" /><Button type="button" variant="ghost" size="sm" onClick={() => setDrafts((xs) => xs.filter((_, j) => j !== i))}>Remove</Button></div>
+              <Textarea aria-label="Paragraph under the heading" rows={3} value={d.intro} onChange={(e) => setDrafts((xs) => xs.map((x, j) => (j === i ? { ...x, intro: e.target.value } : x)))} placeholder="Paragraph under the heading (optional)" />
+              <Input aria-label="One-line chain" value={d.flow} onChange={(e) => setDrafts((xs) => xs.map((x, j) => (j === i ? { ...x, flow: e.target.value } : x)))} placeholder="One-line chain, e.g. Channels › Connectors › Agents (optional)" />
+              <Textarea aria-label="Bullets" rows={6} value={d.bulletsText} onChange={(e) => setDrafts((xs) => xs.map((x, j) => (j === i ? { ...x, bulletsText: e.target.value } : x)))} placeholder={"One bullet per line. Start with a bold lead-in using Label: text\nMIRA, the Maintenance Agent: supports the maintenance department..."} />
+            </div>
+          ))}
+          <div><Button type="button" variant="outline" onClick={() => setDrafts((xs) => [...xs, { title: "", intro: "", flow: "", bulletsText: "" }])}>Add a section</Button></div>
+        </div>
+        <div className="grid gap-1"><Label htmlFor="hd-cases">Case studies (one per line; add a link after a bar: Title | https://...)</Label><Textarea id="hd-cases" rows={4} value={casesText} onChange={(e) => setCasesText(e.target.value)} placeholder={"Cutting Delivery Cycles by Two Thirds | https://www.linkedin.com/feed/update/..."} /></div>
+        <div><Button type="button" disabled={busy} onClick={() => save(edited(), "Saved")}>{busy ? "Saving..." : "Save everything"}</Button></div>
       </section>
 
       <details className="grid gap-2">
