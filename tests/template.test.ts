@@ -55,6 +55,6 @@ describe("template", () => {
     expect(await (await zip("standard")).file("word/document.xml")!.async("string")).toMatch(/w:w="11906"/);
   });
   it("every style lists every section exactly once", () => {
-    for (const s of STYLES) expect([...s.sections].sort()).toEqual(["awards", "caseStudies", "certifications", "competencies", "development", "education", "experience", "highlights", "skills", "summary", "technical"]);
+    for (const s of STYLES) expect([...s.sections].sort()).toEqual(["awards", "caseStudies", "certifications", "competencies", "development", "education", "experience", "extras", "highlights", "skills", "summary", "technical"]);
   });
 });

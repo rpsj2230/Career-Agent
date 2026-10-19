@@ -92,11 +92,12 @@ export function parseFacts(text: string): string[] {
   return facts;
 }
 
-export const allIds = (p: Pick<MasterProfile, "experience" | "education" | "skills" | "certifications" | "highlights" | "caseStudies" | "development" | "awards">): Set<string> =>
+export const allIds = (p: Pick<MasterProfile, "experience" | "education" | "skills" | "certifications" | "highlights" | "caseStudies" | "development" | "awards"> & { sections?: MasterProfile["sections"] }): Set<string> =>
   new Set([
     ...p.experience.flatMap((e) => [e.id, ...e.bullets.map((b) => b.id)]),
     ...p.education.map((e) => e.id), ...p.skills.map((s) => s.id), ...p.certifications.map((c) => c.id),
     ...p.highlights.map((h) => h.id), ...p.caseStudies.map((c) => c.id), ...p.development.map((d) => d.id), ...p.awards.map((a) => a.id),
+    ...(p.sections ?? []).flatMap((x) => [x.id, ...x.bullets.map((b) => b.id)]),
   ]);
 
 /** Add facts to one role. `first` puts them at the top, in the order pasted. Facts already in the role (any capitals) are skipped. */
@@ -121,3 +122,68 @@ export function addFacts(profile: MasterProfile, experienceId: string, facts: st
   });
   return { experience, added, skipped };
 }
+
+// ---------------------------------------------------------------- header strip, extra sections and case study links
+
+/** Key figures: one per line (or separated by "|"); blanks dropped. */
+export const parseMetrics = (text: string): string[] => text.split(/\n|\|/).map(clean).filter(Boolean);
+
+export type SectionDraft = { id?: string; title: string; intro: string; flow: string; bulletsText: string };
+
+/**
+ * "Label: text" bullets, the label printed in bold. When the pasted text uses bullet marks, a wrapped line joins the bullet above it;
+ * without marks every line is its own bullet (which is how the editor writes them back).
+ */
+export function parseSectionBullets(text: string): { label?: string; text: string }[] {
+  const marked = text.split("\n").some((l) => MARK.test(l));
+  const facts = marked ? parseFacts(text) : text.split("\n").map(clean).filter(Boolean);
+  return facts.map((f) => {
+    const m = /^([^:]{2,70}):\s+(\S[\s\S]*)$/.exec(f);
+    return m ? { label: m[1].trim(), text: m[2].trim() } : { text: f };
+  });
+}
+
+export const sectionToDraft = (x: MasterProfile["sections"][number]): SectionDraft => ({
+  id: x.id, title: x.title, intro: x.intro ?? "", flow: x.flow ?? "",
+  bulletsText: x.bullets.map((b) => `${b.label ? `${b.label}: ` : ""}${b.text}`).join("\n"),
+});
+
+/** Turn the edited drafts back into sections: ids are kept for existing sections, new ones get fresh unique ids, empty ones are dropped. */
+export function draftsToSections(profile: MasterProfile, drafts: SectionDraft[]): MasterProfile["sections"] {
+  const used = new Set([...allIds(profile)].filter((id) => !(profile.sections ?? []).some((x) => id === x.id || id.startsWith(`${x.id}.`))));
+  const out: MasterProfile["sections"] = [];
+  for (const d of drafts) {
+    const title = clean(d.title);
+    if (!title) continue;
+    let id = d.id && !used.has(d.id) ? d.id : "";
+    for (let n = 1; !id; n++) if (!used.has(`sec${n}`)) id = `sec${n}`;
+    used.add(id);
+    out.push({
+      id, title,
+      ...(clean(d.intro) ? { intro: clean(d.intro) } : {}), ...(clean(d.flow) ? { flow: clean(d.flow) } : {}),
+      bullets: parseSectionBullets(d.bulletsText).map((b, j) => ({ id: `${id}.b${j + 1}`, text: b.text, ...(b.label ? { label: b.label } : {}) })),
+    });
+  }
+  return out;
+}
+
+/** "Title" or "Title | https://link" per line; ids and links of case studies already there are kept. */
+export function parseCaseStudies(profile: MasterProfile, text: string): MasterProfile["caseStudies"] {
+  const used = allIds(profile);
+  const have = new Map(profile.caseStudies.map((c) => [c.title.toLowerCase(), c.id]));
+  const out: MasterProfile["caseStudies"] = [];
+  const seen = new Set<string>();
+  for (const raw of text.split("\n")) {
+    const [titlePart, ...urlParts] = raw.split("|");
+    const title = clean(titlePart ?? "");
+    const url = clean(urlParts.join("|"));
+    if (!title || seen.has(title.toLowerCase())) continue;
+    seen.add(title.toLowerCase());
+    let id = have.get(title.toLowerCase()) ?? "";
+    for (let n = 1; !id; n++) if (!used.has(`cs${n}`)) id = `cs${n}`;
+    used.add(id);
+    out.push({ id, title, ...(/^https?:\/\//i.test(url) ? { url } : {}) });
+  }
+  return out;
+}
+export const caseStudiesToText = (cs: MasterProfile["caseStudies"]): string => cs.map((c) => (c.url ? `${c.title} | ${c.url}` : c.title)).join("\n");

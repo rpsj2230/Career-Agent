@@ -1,3 +1,5 @@
+import { parseProfileJson } from "@/lib/profile/json-import";
+import { duplicateId } from "@/lib/profile/skills";
 import { describe, expect, it } from "vitest";
 import { linkedinExportToText } from "@/lib/profile/linkedin";
 import { assignIds } from "@/lib/profile/ids";
@@ -21,12 +23,12 @@ describe("linkedinExportToText", () => {
 describe("assignIds", () => {
   const p = assignIds(
     {
-      basics: { name: "A", email: "", phone: "", location: "", headline: "", summary: "", links: [], credentials: "", workStatus: "" },
+      basics: { name: "A", email: "", phone: "", location: "", headline: "", summary: "", links: [], credentials: "", workStatus: "", metrics: [] },
       experience: [{ company: "Acme", title: "PM", bullets: ["one", " ", "two"] }, { company: "B", title: "APM", bullets: [] }],
       education: [{ school: "S", degree: "D" }],
       skills: [{ name: "SQL" }, { name: "sql" }, { name: "Go" }],
       certifications: [],
-      highlights: ["Won a thing"], caseStudies: [], development: [], awards: [],
+      highlights: ["Won a thing"], caseStudies: [], development: [], awards: [], sections: [],
       conflicts: [],
     },
     { countries: ["in"], roles: [] },
@@ -83,5 +85,36 @@ describe("sloppy extraction output is read as meant", () => {
   it("accepts an empty object", async () => {
     const { ExtractedProfile } = await import("@/lib/profile/ids");
     expect(ExtractedProfile.safeParse({}).success).toBe(true);
+  });
+});
+
+describe("the template's own parts", () => {
+  const file = JSON.stringify({
+    basics: { name: "Asha Rao", metrics: ["150+ People Led", "4 Countries", " "], headline: "AI Transformation Leader · Operations Director", summary: "s" },
+    experience: [{ company: "Acme", title: "PM", bullets: ["x"] }],
+    caseStudies: ["Plain title", { title: "Cutting Delivery Cycles", url: "https://example.com/case" }, "plain title"],
+    sections: [
+      { title: "Company Brain", intro: "A paragraph.", flow: "Channels > Connectors > Agents", bullets: ["A company memory: SOPs stay.", "No label here", { label: "Built to replicate", text: "Modular." }] },
+      { title: "", bullets: ["dropped"] },
+    ],
+  });
+  const { profile } = parseProfileJson(file, { countries: [], roles: [] });
+  it("keeps the headline and drops blank key figures", () => {
+    expect(profile.basics.headline).toBe("AI Transformation Leader · Operations Director");
+    expect(profile.basics.metrics).toEqual(["150+ People Led", "4 Countries"]);
+  });
+  it("keeps case study links and drops repeats", () => {
+    expect(profile.caseStudies).toEqual([{ id: "cs1", title: "Plain title" }, { id: "cs2", title: "Cutting Delivery Cycles", url: "https://example.com/case" }]);
+  });
+  it("reads extra sections with 'Label: text' bullets and gives everything its own id", () => {
+    expect(profile.sections.length).toBe(1);
+    const sec = profile.sections[0];
+    expect(sec).toMatchObject({ id: "sec1", title: "Company Brain", intro: "A paragraph.", flow: "Channels > Connectors > Agents" });
+    expect(sec.bullets).toEqual([
+      { id: "sec1.b1", label: "A company memory", text: "SOPs stay." },
+      { id: "sec1.b2", text: "No label here" },
+      { id: "sec1.b3", label: "Built to replicate", text: "Modular." },
+    ]);
+    expect(duplicateId(profile)).toBeNull();
   });
 });

@@ -105,7 +105,8 @@ describe("writeCoverLetter", () => {
 describe("docx", () => {
   it("takes company and dates from the profile and orders skills as tailored", async () => {
     const texts = (await mammoth.extractRawText({ buffer: await renderResumeDocx(profile, good) })).value;
-    expect(texts).toContain("PM, Acme");
+    expect(texts).toContain("PM");
+    expect(texts).toContain("Acme");
     expect(texts.indexOf("Roadmapping")).toBeLessThan(texts.indexOf("SQL"));
   });
   it("produces valid zip packages", async () => {

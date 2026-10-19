@@ -32,7 +32,7 @@ export function applyScope(content: TailoredResume, profile: MasterProfile, scop
 
 /** A made-up profile so the template can be shown before yours is imported. It never reaches an application. */
 export const SAMPLE_PROFILE: MasterProfile = {
-  basics: { name: "Your Name", email: "you@example.com", phone: "+00 0000 000000", location: "City, Country", headline: "Product Manager", summary: "Product manager with several years of experience taking products from idea to launch.", links: ["linkedin.com/in/your-name"], credentials: "PMP® · CSPO", workStatus: "" },
+  basics: { name: "Your Name", email: "you@example.com", phone: "+00 0000 000000", location: "City, Country", headline: "Product Manager", summary: "Product manager with several years of experience taking products from idea to launch.", links: ["linkedin.com/in/your-name"], credentials: "PMP® · CSPO", workStatus: "", metrics: ["8+ Years", "3 Product Lines", "12 Launches a Year"] },
   preferences: { countries: [], roles: [] },
   experience: [
     { id: "exp1", company: "Latest Company", title: "Senior Product Manager", location: "City", start: "Jan 2022", end: "Present", bullets: [{ id: "exp1.b1", text: "Led the roadmap for a product used by thousands of customers." }, { id: "exp1.b2", text: "Worked with engineering and design to ship features every quarter." }, { id: "exp1.b3", text: "Defined success metrics and reported results to leadership." }] },
@@ -48,4 +48,5 @@ export const SAMPLE_PROFILE: MasterProfile = {
   caseStudies: [{ id: "cs1", title: "Case study: Rebuilding checkout to lift conversion" }],
   development: [{ id: "dev1", name: "Course name, Provider" }],
   awards: [{ id: "aw1", name: "Award name, Year" }],
+  sections: [{ id: "sec1", title: "Key Products", intro: "A short paragraph about what you built and run.", flow: "Discovery › Build › Launch › Grow", bullets: [{ id: "sec1.b1", label: "Product name", text: "One line on what it does and the result it delivered." }] }],
 };

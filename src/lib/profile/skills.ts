@@ -20,6 +20,7 @@ export function duplicateId(p: MasterProfile): string | null {
     ...p.experience.flatMap((e) => [e.id, ...e.bullets.map((b) => b.id)]),
     ...p.education.map((e) => e.id), ...p.skills.map((s) => s.id), ...p.certifications.map((c) => c.id),
     ...p.highlights.map((h) => h.id), ...p.caseStudies.map((c) => c.id), ...p.development.map((d) => d.id), ...p.awards.map((a) => a.id),
+    ...(p.sections ?? []).flatMap((x) => [x.id, ...x.bullets.map((b) => b.id)]),
   ];
   for (const id of ids) { if (seen.has(id)) return id; seen.add(id); }
   return null;
