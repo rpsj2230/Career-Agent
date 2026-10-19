@@ -27,6 +27,18 @@ export const Named = z.object({ id: z.string(), name: z.string().min(1) });
 export const Skill = Named.extend({ group: z.string().optional(), kind: z.enum(["competency", "technical"]).optional(), /** found only outside the master resume (e.g. your LinkedIn PDF): used for matching and available to tailoring, but not printed in the master template */ extra: z.boolean().optional() });
 export const CaseStudy = z.object({ id: z.string(), title: z.string().min(1), url: z.string().optional() });
 
+/** A part of the resume with its own heading beyond the standard ones, for example "Company Brain" or "Key AI Agents". Printed exactly as written. */
+export const ExtraBullet = Bullet.extend({ /** printed in bold before the text, e.g. "MIRA, the Maintenance Agent" */ label: z.string().optional() });
+export const ExtraSection = z.object({
+  id: z.string(),
+  title: z.string().min(1),
+  /** a short paragraph under the heading */
+  intro: z.string().optional(),
+  /** a one-line chain under the paragraph, e.g. "Channels > Connectors > Knowledge (RAG) > Agents" */
+  flow: z.string().optional(),
+  bullets: z.array(ExtraBullet).default([]),
+});
+
 export const MasterProfile = z.object({
   basics: z.object({
     name: z.string().default(""),
@@ -40,6 +52,10 @@ export const MasterProfile = z.object({
     credentials: z.string().default(""),
     /** shown with the location in the contact line, e.g. "Employment Pass (EP)" */
     workStatus: z.string().default(""),
+    /** the line under the name, e.g. "AI Transformation Leader · AI Agents & Automation · Operations Director" */
+    tagline: z.string().default(""),
+    /** the strip of key figures under the header, e.g. "150+ People Led", "4 Countries" */
+    metrics: z.array(z.string()).default([]),
   }),
   preferences: z
     .object({
@@ -64,6 +80,8 @@ export const MasterProfile = z.object({
   development: z.array(Named).default([]),
   /** "Awards and Recognition" */
   awards: z.array(Named).default([]),
+  /** extra headed sections (after Career Highlights), shown exactly as written */
+  sections: z.array(ExtraSection).default([]),
 });
 export type MasterProfile = z.infer<typeof MasterProfile>;
 
