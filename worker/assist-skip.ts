@@ -14,7 +14,7 @@ export const isSkipped = (skip: string[], job: Job): boolean => skip.some((s) =>
 /** With ASSIST_ONLY set (the cloud assistant: "employer"), only matching jobs are worked on. */
 export const isWanted = (only: string[], job: Job): boolean => only.length === 0 || only.some((s) => matches(s, job));
 
-export type Takeable = { skip: string[]; only: string[]; /** pages that another worker gets first, as tokens like "employer" */ defer: string[]; deferMs: number; now: number };
+export type Takeable = { skip: string[]; only: string[]; /** pages that another worker gets first, as tokens like "employer" or "linkedin" */ defer: string[]; deferMs: number; now: number; /** this worker's name, and the workers that already tried this application and passed it on (a sign-in page, a security check) */ me?: string; declined?: string[] };
 
 /**
  * May this worker take this application now? Skipped portals never; with ASSIST_ONLY only the matching ones; and pages in the defer list
@@ -22,6 +22,8 @@ export type Takeable = { skip: string[]; only: string[]; /** pages that another 
  */
 export function takeable(job: Job, approvedAt: string | null, t: Takeable): boolean {
   if (isSkipped(t.skip, job) || !isWanted(t.only, job)) return false;
+  if (t.me && t.declined?.includes(t.me)) return false; // this worker already passed it on: never again
+  if (t.declined?.length) return true; // another worker could not do it (blocked): nobody waits for that one any more
   if (t.defer.length && t.defer.some((d) => matches(d, job))) {
     const waited = approvedAt ? t.now - new Date(approvedAt).getTime() : Infinity;
     return waited >= t.deferMs;

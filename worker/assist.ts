@@ -24,6 +24,7 @@ import { asAssistantProfile, browserDirFor, type Who } from "./assist-profile";
 import { scopedDb } from "../src/lib/scoped-db";
 import { browserFromMachine, LEAN_BROWSER } from "./browser";
 import { skipPortals, takeable } from "./assist-skip";
+import { applyStorageState } from "./assist-state";
 import { chromium, type BrowserContext, type Page } from "playwright";
 import { confirmationSnippet, type FieldEntry, type SubmissionRecord } from "../src/lib/apply/submission";
 import { MasterProfile } from "../src/lib/types";
@@ -58,7 +59,15 @@ const leftFor = (reason: string) => { current.left[reason] = (current.left[reaso
 
 /** Tell the app this assistant is alive, so it can warn you if applications are waiting and it has gone quiet. Never throws. */
 async function heartbeat(sb: SupabaseClient) {
-  if (process.env.ASSIST_NO_HEARTBEAT === "1") return; // the cloud assistant must not pose as the one on your computer
+  if (process.env.ASSIST_NO_HEARTBEAT === "1") {
+    // a second worker must not pose as the one on your computer, but says it is alive and which sign-ins it has, so your computer can leave those to it
+    const name = process.env.ASSIST_WORKER?.trim();
+    if (name && name !== "computer") {
+      const portals = (process.env.ASSIST_PORTALS ?? "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
+      try { await sb.from("settings").upsert({ key: `worker_heartbeat:${name}`, value: { at: new Date().toISOString(), portals }, updated_at: new Date().toISOString() }); } catch { /* a courtesy */ }
+    }
+    return;
+  }
   try {
     await sb.from("settings").upsert({ key: "assistant_heartbeat", value: { at: new Date().toISOString(), mode: AUTO ? "hands-free" : "assist", watching: WATCH, hours: process.env.ASSIST_HOURS ?? "", tz: Intl.DateTimeFormat().resolvedOptions().timeZone, ...(lastRound ? { round: lastRound } : {}) }, updated_at: new Date().toISOString() });
   } catch { /* the heartbeat is a courtesy, never a reason to stop */ }
@@ -120,7 +129,7 @@ async function blocked(page: Page) {
 
 type Outcome = "done" | "later" | "skipped" | "quit" | "stop";
 class Handback extends Error {
-  constructor(message: string, public stopAll = false) { super(message); }
+  constructor(message: string, public stopAll = false, public block: "login" | "captcha" | "checkpoint" | null = null) { super(message); }
 }
 
 /** One application: open it, fill it, then either wait for you (assist) or press Submit within the limits (hands-free). */
@@ -187,7 +196,7 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
     for (let attempt = 0; attempt < 3; attempt++) {
       const b = await blocked(page);
       if (!b) break;
-      if (auto) throw new Handback(b === "login" ? "The portal asked for a sign-in: open the assistant once without hands-free mode and sign in" : b === "captcha" ? "The page shows a CAPTCHA; please do this one yourself" : "The portal shows a security check; automatic applying was stopped for safety", b === "checkpoint");
+      if (auto) throw new Handback(b === "login" ? "The portal asked for a sign-in: open the assistant once without hands-free mode and sign in" : b === "captcha" ? "The page shows a CAPTCHA; please do this one yourself" : "The portal shows a security check; automatic applying was stopped for safety", b === "checkpoint", b);
       await waitForHuman(page, b === "login" ? "This portal wants you to sign in." : b === "captcha" ? "There is a CAPTCHA." : "The portal shows a security check.");
     }
     const opened = await openApplyForm(page);
@@ -217,7 +226,19 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
       await sleep(900);
     }
   } catch (e) {
-    if (e instanceof Handback) { await handBack(e.message); await page.close().catch(() => undefined); return e.stopAll ? "stop" : "later"; }
+    if (e instanceof Handback) {
+      // a worker on a cloud address that meets a sign-in page or a security check passes the application on to another worker
+      // (your computer) instead of handing it to you, and leaves that portal alone for a few hours
+      if (FAILOVER && e.block) {
+        await sb.from("apply_events").insert({ application_id: app.id, kind: "worker_declined", detail: { worker: WORKER, reason: e.block, portal: job.portal ?? null } });
+        if (job.portal) blockedPortals.set(String(job.portal).toLowerCase(), Date.now() + 6 * 3_600_000);
+        leftFor(`${job.portal ?? "this site"} showed a ${e.block === "login" ? "sign-in page" : e.block === "captcha" ? "CAPTCHA" : "security check"} to this worker: passed to another worker`);
+        say(`  Passed on to another worker: ${e.message}`);
+        await page.close().catch(() => undefined);
+        return "later";
+      }
+      await handBack(e.message); await page.close().catch(() => undefined); return e.stopAll ? "stop" : "later";
+    }
     if (auto) { await handBack(`Could not prepare the page automatically (${e instanceof Error ? e.message.split("\n")[0] : e})`); await page.close().catch(() => undefined); return "later"; }
     say(`  Could not finish preparing this page automatically (${e instanceof Error ? e.message.split("\n")[0] : e}). The window is open: you can still complete it by hand.`);
   }
@@ -284,6 +305,10 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
 }
 
 const WORKER = process.env.ASSIST_WORKER?.trim() || "computer";
+/** A worker on a cloud address: a sign-in page or security check is passed on to another worker, not handed to you. */
+const FAILOVER = process.env.ASSIST_FAILOVER === "1";
+/** Portals this worker has met a block on, with when it will try them again. */
+const blockedPortals = new Map<string, number>();
 
 /** Atomically move an application from "waiting for the assistant" to "being sent" by this worker. False when another worker got there first. */
 async function claim(sb: SupabaseClient, id: string): Promise<boolean> {
@@ -309,11 +334,19 @@ async function batch(sb: SupabaseClient, who: Who | null): Promise<number> {
   const only = skipPortals(process.env.ASSIST_ONLY);
   if (only.length && !cloudOn) { say("The cloud assistant is switched off (Autopilot turns it on). Nothing to do here."); return 0; }
   const skip = skipPortals(process.env.ASSIST_SKIP);
-  // when a cloud worker is switched on, the assistant on your computer lets it have the first go at employers' own pages and
-  // takes over any that have waited too long (the cloud worker down, busy or out of time): that is the hand-over between the workers
-  const defer = cloudOn && only.length === 0 ? ["employer"] : [];
+  // when other workers are switched on, the assistant on your computer lets them have the first go and takes over what they cannot do:
+  //  - employers' own pages: after they have waited too long (the other workers down, busy or out of time);
+  //  - LinkedIn, Indeed, Naukri: only while a worker that holds those sign-ins is reporting in; once it stops, or passes one on, they are yours
+  const defer: string[] = [];
+  if (cloudOn && only.length === 0 && WORKER === "computer") {
+    defer.push("employer");
+    for (const name of (process.env.ASSIST_PEERS ?? "oracle").split(",").map((x) => x.trim()).filter(Boolean)) {
+      const hb = (await sb.from("settings").select("value").eq("key", `worker_heartbeat:${name}`).maybeSingle()).data?.value as { at?: string; portals?: string[] } | undefined;
+      if (hb?.at && Date.now() - new Date(hb.at).getTime() < 10 * 60_000) defer.push(...(hb.portals ?? []));
+    }
+  }
   const deferMs = Math.max(1, Number(process.env.ASSIST_FALLBACK_MINUTES ?? 90) || 90) * 60_000;
-  const filtered = skip.length > 0 || only.length > 0 || defer.length > 0;
+  const filtered = skip.length > 0 || only.length > 0 || defer.length > 0 || FAILOVER || cloudOn;
   const one = process.env.APPLICATION_ID?.trim();
   let q = sb.from("applications").select("id, job_id, resume_doc_id, cover_doc_id, answers, approved_at").eq("status", "assisted_pending").order("approved_at", { ascending: true }).limit(filtered ? 200 : limit);
   if (one) q = q.eq("id", one);
@@ -324,8 +357,18 @@ async function batch(sb: SupabaseClient, who: Who | null): Promise<number> {
     const { data: jobs } = await sb.from("jobs").select("id, portal, source, apply_type").in("id", apps.map((a) => a.job_id));
     type J = { id: string; portal?: string | null; source?: string | null; apply_type?: string | null };
     const byId = new Map(((jobs ?? []) as J[]).map((j) => [j.id, j]));
+    // which workers already tried an application and passed it on (a sign-in page, a security check)
+    const declined = new Map<string, string[]>();
+    const ev = await sb.from("apply_events").select("application_id, detail").eq("kind", "worker_declined").in("application_id", apps.map((a) => a.id));
+    for (const e of (ev.data ?? []) as { application_id: string; detail: { worker?: string } | null }[]) declined.set(e.application_id, [...(declined.get(e.application_id) ?? []), e.detail?.worker ?? "?"]);
     const now = Date.now();
-    apps = apps.filter((a) => { const j = byId.get(a.job_id); return !!j && takeable(j, a.approved_at ?? null, { skip, only, defer, deferMs, now }); }).slice(0, limit);
+    apps = apps.filter((a) => {
+      const j = byId.get(a.job_id);
+      if (!j) return false;
+      const until = blockedPortals.get(String(j.portal ?? "").toLowerCase());
+      if (until && until > now) return false; // this worker met a block on that portal a short while ago
+      return takeable(j, a.approved_at ?? null, { skip, only, defer, deferMs, now, me: WORKER, declined: declined.get(a.id) });
+    }).slice(0, limit);
   }
   if (!apps.length) { say(WATCH ? `${new Date().toLocaleTimeString()}  Nothing is waiting.` : "Nothing is waiting. Approve applications in the dashboard first (they appear here as \"assisted\")."); return 0; }
 
@@ -347,6 +390,7 @@ async function batch(sb: SupabaseClient, who: Who | null): Promise<number> {
     headless: process.env.ASSIST_HEADLESS === "1", viewport: null, executablePath: choice.executablePath, channel: choice.channel, ...LEAN_BROWSER,
   });
   await context.addInitScript({ content: "window.__name = window.__name || function (t) { return t; };" });
+  if (await applyStorageState(context, process.env.ASSIST_STORAGE_STATE, profileDir)) say("Sign-ins loaded from the exported file.");
   let done = 0;
   current = { at: new Date().toISOString(), submitted: 0, handedBack: 0, left: {} };
   try {

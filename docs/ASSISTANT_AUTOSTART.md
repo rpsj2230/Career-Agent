@@ -38,8 +38,18 @@ With Autopilot on, an application is taken by exactly one worker: it is claimed 
 - **Your computer**: LinkedIn, Indeed, Naukri (they need your sign-in), and it takes over any employer page that has waited more than 90 minutes (`ASSIST_FALLBACK_MINUTES`) because the other two were down, busy or out of time.
 An application that a worker started and then lost (the machine died mid-way) is handed back to you after 75 minutes, because nobody knows whether the employer received it.
 
-### Setting up the always-on machine
-1. Create the machine (Ubuntu, any size with at least 1 GB of memory; 2 GB or more is comfortable) and connect with SSH using a key, never a password.
-2. On it, as a normal user: `curl -fsSL https://raw.githubusercontent.com/rpsj2230/Career-Agent/main/scripts/oracle/setup.sh -o setup.sh && bash setup.sh`. It installs everything, asks for SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY and CRON_SECRET (kept in a file only you can read), closes every port except SSH, and starts the worker now and at every boot.
-3. Watch it: `journalctl -u career-agent-assist -f`. Stop it: `sudo systemctl disable --now career-agent-assist`.
-LinkedIn, Indeed and Naukri are deliberately not run there: they need your signed-in browser, and from a datacenter address those sites often show security checks.
+### Setting up the always-on machine (Oracle Cloud, step by step)
+1. **Sign up** at https://www.oracle.com/cloud/free/ ("Start for free"). A card is needed to verify who you are; for the Always Free resources it is not charged. Choose your **home region** with care: it cannot be changed later, and Always Free machines can only be created there.
+2. **Make an SSH key** on your computer (once): `ssh-keygen -t ed25519` and press Enter for the defaults. Your public key is the file `~/.ssh/id_ed25519.pub` (`cat ~/.ssh/id_ed25519.pub`).
+3. In the Oracle console: **Compute → Instances → Create instance**. Image: **Ubuntu 24.04**. Shape: **Ampere (VM.Standard.A1.Flex)** with 2 OCPU and 12 GB, or, if that says "out of capacity", try again later, try another availability domain, or use the AMD micro shape (1 GB is small for a browser). Networking: give it a public address. SSH keys: **paste your public key**. Create it.
+4. In the instance's network settings keep only **port 22 (SSH)** open. The setup script also closes everything else on the machine.
+5. **Connect:** `ssh -i ~/.ssh/id_ed25519 ubuntu@THE_PUBLIC_ADDRESS`.
+6. **On the machine** run: `curl -fsSL https://raw.githubusercontent.com/rpsj2230/Career-Agent/main/scripts/oracle/setup.sh -o setup.sh && bash setup.sh`. It installs everything, asks for SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY and CRON_SECRET (kept in a file only you can read), and starts the worker now and at every boot. It handles employers' own pages first.
+7. Watch it: `journalctl -u career-agent-assist -f`. Stop it: `sudo systemctl disable --now career-agent-assist`.
+
+### Adding LinkedIn, Indeed and Naukri to the always-on machine (optional)
+Your computer signs in once as usual (`npm run assist:login`). Then:
+1. On your computer: `npm run assist:export`. It saves your sign-ins to one file (as sensitive as a password) and prints the `scp` command; run it to copy the file to the machine, then delete the file on your computer.
+2. On the machine: `bash ~/Career-Agent/scripts/oracle/enable-logins.sh`.
+From then on the machine also applies on those three sites. If a site shows it a sign-in page, a CAPTCHA or a security check (likely from a datacenter address), the application is **passed to the assistant on your computer, not handed to you**, and the machine leaves that site alone for six hours. Your computer leaves those sites to the machine only while it reports in (every few minutes); if it stops, your computer takes them at once. Sites may ask you to verify, or restrict the account, when you sign in from a new place: that is the risk you accept by doing this.
+Oracle can reclaim "idle" Always Free machines (check their current rule); if that happens the failover above means your computer simply takes over.
