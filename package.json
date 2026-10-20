@@ -13,6 +13,7 @@
     "test:e2e": "node tests/e2e/auth.e2e.mjs",
     "gen:migrations": "node scripts/gen-migrations.mjs",
     "assist": "NODE_OPTIONS=--conditions=react-server tsx --env-file-if-exists=.env.local worker/assist.ts",
+    "assist:export": "NODE_OPTIONS=--conditions=react-server tsx --env-file-if-exists=.env.local worker/assist-export.ts",
     "assist:login": "NODE_OPTIONS=--conditions=react-server tsx --env-file-if-exists=.env.local worker/assist-login.ts",
     "assist:check": "NODE_OPTIONS=--conditions=react-server tsx --env-file-if-exists=.env.local worker/assist-check.ts",
     "assist:auto": "NODE_OPTIONS=--conditions=react-server ASSIST_MODE=auto tsx --env-file-if-exists=.env.local worker/assist.ts",

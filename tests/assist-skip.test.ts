@@ -54,3 +54,30 @@ describe("hand-over between workers", () => {
     expect(takeable(linkedin, ago(9999), { ...computer, skip: ["linkedin"] })).toBe(false);
   });
 });
+
+import { localStorageScript } from "../worker/assist-state";
+describe("passing an application on when a worker is blocked", () => {
+  const linkedin = { portal: "linkedin", apply_type: "linkedin" };
+  const now = Date.parse("2026-10-20T12:00:00Z");
+  const fresh = new Date(now - 60_000).toISOString();
+  const computerWhileOracleAlive = { skip: [] as string[], only: [] as string[], defer: ["linkedin", "indeed", "naukri"], deferMs: 90 * 60_000, now, me: "computer" };
+  const oracle = { skip: [] as string[], only: [] as string[], defer: [] as string[], deferMs: 0, now, me: "oracle" };
+
+  it("the computer leaves LinkedIn to the other worker while that one is alive, but takes it the moment the other worker passes it on", () => {
+    expect(takeable(linkedin, fresh, computerWhileOracleAlive)).toBe(false);
+    expect(takeable(linkedin, fresh, { ...computerWhileOracleAlive, declined: ["oracle"] })).toBe(true);
+  });
+  it("the worker that passed it on never takes it again", () => {
+    expect(takeable(linkedin, fresh, oracle)).toBe(true);
+    expect(takeable(linkedin, fresh, { ...oracle, declined: ["oracle"] })).toBe(false);
+  });
+  it("when the other worker stops reporting in, nothing is deferred and the computer takes everything at once", () => {
+    expect(takeable(linkedin, fresh, { ...computerWhileOracleAlive, defer: ["employer"] })).toBe(true);
+  });
+  it("restores a site's local storage only on that site", () => {
+    const script = localStorageScript([{ origin: "https://www.linkedin.com", localStorage: [{ name: "a", value: "1" }] }]);
+    expect(script).toContain("https://www.linkedin.com");
+    expect(script).toContain("location.origin");
+    expect(() => new Function(script)).not.toThrow();
+  });
+});

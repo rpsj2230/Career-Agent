@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Sets up a second apply worker on a small always-on Linux machine (for example an Oracle Cloud "Always Free" Ubuntu instance).
 # It applies to employers' own pages (sites that need no sign-in), headless, around the clock. If it is down or busy, the assistant on your
-# computer takes over any application that has waited more than 90 minutes. LinkedIn, Indeed and Naukri stay on your computer.
+# computer takes over any application that has waited more than 90 minutes. LinkedIn, Indeed and Naukri are added afterwards with
+# scripts/oracle/enable-logins.sh once you have copied your sign-ins here; if a site shows a sign-in page or security check to this
+# machine, the application is passed to your computer instead of being handed to you.
 #
 # Run it on the machine, as a normal user (not root), from an empty home folder:
 #   curl -fsSL https://raw.githubusercontent.com/rpsj2230/Career-Agent/main/scripts/oracle/setup.sh -o setup.sh && bash setup.sh
@@ -46,6 +48,9 @@ sudo ufw allow OpenSSH
 sudo ufw --force enable
 
 echo "== 6/6 Start it now and at every boot"
+WORKERENV="$HOME/career-agent-worker.env"
+[ -f "$WORKERENV" ] || printf 'ASSIST_ONLY=employer\n' > "$WORKERENV"
+chmod 600 "$WORKERENV"
 UNIT=/etc/systemd/system/career-agent-assist.service
 sudo tee "$UNIT" >/dev/null <<UN
 [Unit]
@@ -58,7 +63,7 @@ WorkingDirectory=$DIR
 Environment=NODE_OPTIONS=--conditions=react-server
 Environment=ASSIST_MODE=auto
 Environment=ASSIST_WATCH=1
-Environment=ASSIST_ONLY=employer
+EnvironmentFile=-$HOME/career-agent-worker.env
 Environment=ASSIST_HEADLESS=1
 Environment=ASSIST_NO_HEARTBEAT=1
 Environment=ASSIST_WORKER=oracle
