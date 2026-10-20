@@ -25,11 +25,13 @@ import { backlogCounts } from "../src/lib/backlog";
 import { drainDecision, type DrainState } from "../src/lib/backlog-rules";
 import { db } from "../src/lib/db";
 import { getSetting, putSetting } from "../src/lib/settings";
+import { AUTOPILOT } from "../src/lib/autopilot";
 
 async function runOne(s: ScheduleRow, trigger: "schedule" | "manual"): Promise<PipelineSummary | null> {
   console.log(`== ${s.name} (${s.mode})`);
   try {
-    const sum = await runPipeline(s, liveDeps(), { trigger, prepareConcurrency: (await getSetting("auto_prepare").catch(() => null))?.concurrency });
+    const autopilot = !!(await getSetting("autopilot").catch(() => null))?.enabled;
+    const sum = await runPipeline(s, liveDeps(), { trigger, prepareConcurrency: (await getSetting("auto_prepare").catch(() => null))?.concurrency, ...(autopilot ? { approveBacklog: AUTOPILOT.approvePerRound } : {}) });
     await recordScheduleRun(s.id, sum.partial ? "partial" : "succeeded").catch((e) => console.error("could not record the schedule's result:", e));
     await notifyTelegram(pipelineSummaryText(s.name, sum, process.env.APP_URL));
     console.log(JSON.stringify(sum));
@@ -53,12 +55,18 @@ async function drainBacklog(): Promise<number> {
   const state = (stateRow.data?.value as DrainState) ?? null;
   const d = drainDecision({ ...counts, modelsUsable: models.usable.length > 0, autoPrepare: autoPrepare.enabled && autoPrepare.per_run > 0, preparingSchedule: !!preparing, state });
   console.log(`Backlog: ${counts.unscored} to score, ${counts.unprepared} matched without a resume. ${d.reason}`);
-  if (!d.drain) return 0;
+  // Autopilot also approves what is prepared and still waiting for a person, even when nothing is left to score or write
+  const autopilot = !!(await getSetting("autopilot").catch(() => null))?.enabled;
+  const waiting = autopilot ? ((await db().from("applications").select("id", { count: "exact", head: true }).eq("status", "prepared")).count ?? 0) : 0;
+  if (autopilot) console.log(`Autopilot: ${waiting} prepared application(s) waiting for approval.`);
+  if (!d.drain && waiting === 0) return 0;
   const sum = await runPipeline({
-    id: "backlog", name: "Backlog", countries: [], integrations: [], mode: preparing && autoPrepare.enabled ? preparing.mode : "scan",
-    require_approval: preparing ? preparing.require_approval : true, max_prepare: autoPrepare.enabled ? autoPrepare.per_run : 0, max_apply: preparing?.max_apply ?? 0,
-  }, liveDeps(), { trigger: "schedule", skipScan: true, prepareConcurrency: autoPrepare.concurrency });
-  const progress = sum.scored + sum.prepared;
+    id: "backlog", name: "Backlog", countries: [], integrations: [],
+    ...(autopilot
+      ? { mode: AUTOPILOT.schedule.mode, require_approval: false, max_prepare: autoPrepare.enabled ? autoPrepare.per_run : 0, max_apply: AUTOPILOT.schedule.max_apply }
+      : { mode: preparing && autoPrepare.enabled ? preparing.mode : "scan", require_approval: preparing ? preparing.require_approval : true, max_prepare: autoPrepare.enabled ? autoPrepare.per_run : 0, max_apply: preparing?.max_apply ?? 0 }),
+  }, liveDeps(), { trigger: "schedule", skipScan: true, prepareConcurrency: autoPrepare.concurrency, ...(autopilot ? { approveBacklog: AUTOPILOT.approvePerRound } : {}) });
+  const progress = sum.scored + sum.prepared + sum.autoApproved + sum.manualRequired;
   await putSetting("drain_state", { at: new Date().toISOString(), noProgress: progress === 0 ? (state?.noProgress ?? 0) + 1 : 0, last: { scored: sum.scored, matched: sum.matched, prepared: sum.prepared } });
   if (progress > 0) await notifyTelegram(pipelineSummaryText("Backlog cleared a little", sum, process.env.APP_URL)).catch(() => undefined);
   console.log(JSON.stringify(sum));

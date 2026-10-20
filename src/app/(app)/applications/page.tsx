@@ -11,6 +11,7 @@ import { activePills, APP_SORTS, APP_STAGES, appQueryParams, parseAppQuery, quer
 import { filterOptions, listApplicationsFiltered } from "@/lib/queries";
 import { fmtDateTime } from "@/lib/time";
 import { AssistantPanel } from "@/components/app/assistant-panel";
+import { AutopilotCard } from "@/components/app/autopilot-card";
 import { PipelineStatus } from "@/components/app/pipeline-status";
 import { currentRole } from "@/lib/role-server";
 import { PipelineStrip } from "@/components/app/pipeline-strip";
@@ -48,9 +49,11 @@ export default async function ApplicationsPage({ searchParams }: { searchParams:
         <Button variant="outline" asChild><a href={`/api/export/applications${exportQuery ? `?${exportQuery}` : ""}`}>Export CSV</a></Button>
       </div>
       <p className="max-w-3xl text-sm text-muted-foreground">
-        Every application waits here for your OK (<b>prepared</b>). After you approve it: Greenhouse, Lever, Ashby and Workable are sent automatically from the cloud;
-        LinkedIn, Naukri and Indeed need the <b>assistant on your computer</b> (they queue below until your computer is on); anything else is yours to submit.
+        With <b>Autopilot</b> on, every application is approved and sent by itself, and this page is where you watch it. Without it, each waits here for your OK (<b>prepared</b>).
+        Greenhouse, Lever, Ashby and Workable are sent from the cloud; LinkedIn, Naukri, Indeed and every employer&apos;s own page are filled and submitted by the <b>assistant on your computer</b>
+        (they queue below until it is running). Only a CAPTCHA, a sign-in you do not have, or a question your profile cannot truthfully answer is handed back to you, with the reason.
       </p>
+      {isAdmin && <AutopilotCard />}
       {isAdmin && <PipelineStatus />}
       {isAdmin && <PipelineStrip />}
       {panel && <AssistantPanel {...panel} />}

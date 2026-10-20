@@ -195,3 +195,32 @@ describe("clearing a backlog", () => {
     expect(scanned).toBe(false);
   });
 });
+
+describe("Autopilot: approving what is already waiting", () => {
+  const waiting = (n: number) => Array.from({ length: n }, (_, i) => ({ applicationId: `old-${i}`, verified: true, job: job(100 + i, { portal: "linkedin", apply_type: "linkedin" }) }));
+
+  it("approves earlier prepared applications when asked to, not otherwise", async () => {
+    const asked = setup([], { preparedBacklog: async (_c, limit) => waiting(5).slice(0, limit), approve: async () => ({ ok: true, mode: "assisted", note: null }) });
+    const calls: string[] = [];
+    asked.deps.approve = async (id) => { calls.push(id); return { ok: true, mode: "assisted", note: null }; };
+    const s = await runPipeline(sched(), asked.deps, { trigger: "schedule", skipScan: true, approveBacklog: 3 });
+    expect(calls).toEqual(["old-0", "old-1", "old-2"]);
+    expect(s.manualRequired).toBe(3);
+
+    const not = setup([], { preparedBacklog: async () => waiting(5) });
+    const none: string[] = [];
+    not.deps.approve = async (id) => { none.push(id); return { ok: true, mode: "assisted", note: null }; };
+    await runPipeline(sched(), not.deps, { trigger: "schedule", skipScan: true });
+    expect(none).toEqual([]);
+  });
+
+  it("never approves the backlog for a schedule that asks first or only scans", async () => {
+    for (const over of [{ require_approval: true }, { mode: "scan_prepare" as const }]) {
+      const t = setup([], { preparedBacklog: async () => waiting(2) });
+      const seen: string[] = [];
+      t.deps.approve = async (id) => { seen.push(id); return { ok: true, mode: "assisted", note: null }; };
+      await runPipeline(sched(over), t.deps, { trigger: "schedule", skipScan: true, approveBacklog: 10 });
+      expect(seen).toEqual([]);
+    }
+  });
+});
