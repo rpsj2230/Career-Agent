@@ -23,3 +23,10 @@ A web page cannot start a program on your computer. So the assistant is set up o
 
 ## Leaving a portal to yourself
 If a portal cannot be signed in on this computer, or you prefer to apply there by hand, add this line to `.env.local`: `ASSIST_SKIP=naukri` (several: `naukri,shine`). The assistant never opens those portals; their applications stay waiting in the app for you to do manually. Remove the line to bring the portal back.
+
+## If the computer feels slow
+The assistant opens one browser, one page at a time, with a pause of 45 to 120 seconds between applications, and closes each page afterwards. It runs at low priority (set by the autostart) and only one copy per profile may work at a time; a second copy waits.
+- See what is running: `ps aux | grep -E "assist|chrom" | grep -v grep | cut -c1-150` (several `assist.ts` lines means more than one is running) and open Activity Monitor, sorted by Memory.
+- Close any browser window left over from `npm run assist:login`.
+- Make it smaller: `ASSIST_LIMIT=10` in `.env.local` (applications per round), or `ASSIST_HOURS=22-6` so it only works at night. Then run `bash scripts/autostart/install.sh` again.
+- Stop it completely: `bash scripts/autostart/install.sh --remove`.

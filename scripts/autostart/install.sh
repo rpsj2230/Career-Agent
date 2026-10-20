@@ -27,6 +27,7 @@ case "$(uname -s)" in
   <key>WorkingDirectory</key><string>$REPO</string>
   <key>EnvironmentVariables</key><dict><key>PATH</key><string>$(dirname "$NPM"):/usr/local/bin:/usr/bin:/bin</string><key>ASSIST_FOR</key><string>$FOR</string></dict>
   <key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
+  <key>ProcessType</key><string>Background</string><key>Nice</key><integer>15</integer><key>LowPriorityIO</key><true/><key>LowPriorityBackgroundIO</key><true/>
   <key>StandardOutPath</key><string>$LOG</string>
   <key>StandardErrorPath</key><string>$LOG</string>
 </dict></plist>
@@ -45,6 +46,8 @@ WorkingDirectory=$REPO
 Environment=PATH=$(dirname "$NPM"):/usr/local/bin:/usr/bin:/bin
 Environment=ASSIST_FOR=$FOR
 ExecStart=$NPM run assist:watch
+Nice=15
+CPUWeight=20
 Restart=always
 RestartSec=30
 StandardOutput=append:$LOG
