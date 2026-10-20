@@ -13,3 +13,18 @@ export const isSkipped = (skip: string[], job: Job): boolean => skip.some((s) =>
 
 /** With ASSIST_ONLY set (the cloud assistant: "employer"), only matching jobs are worked on. */
 export const isWanted = (only: string[], job: Job): boolean => only.length === 0 || only.some((s) => matches(s, job));
+
+export type Takeable = { skip: string[]; only: string[]; /** pages that another worker gets first, as tokens like "employer" */ defer: string[]; deferMs: number; now: number };
+
+/**
+ * May this worker take this application now? Skipped portals never; with ASSIST_ONLY only the matching ones; and pages in the defer list
+ * only once they have waited `deferMs`, which is how work moves to the next worker when the first one is down or busy.
+ */
+export function takeable(job: Job, approvedAt: string | null, t: Takeable): boolean {
+  if (isSkipped(t.skip, job) || !isWanted(t.only, job)) return false;
+  if (t.defer.length && t.defer.some((d) => matches(d, job))) {
+    const waited = approvedAt ? t.now - new Date(approvedAt).getTime() : Infinity;
+    return waited >= t.deferMs;
+  }
+  return true;
+}

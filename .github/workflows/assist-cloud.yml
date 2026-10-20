@@ -1,7 +1,8 @@
 name: Cloud assistant (employer pages)
 
 # Applies, from a GitHub runner, to applications on employers' own pages (the ones that need no sign-in), so they do not wait for your
-# computer. It works only while Autopilot has switched "cloud assistant" on, and the assistant on your computer then leaves those pages alone.
+# computer. It works only while Autopilot has switched "cloud assistant" on. The assistant on your computer lets it have the first go and
+# takes over any application that has waited more than 90 minutes.
 # LinkedIn, Indeed, Naukri and anything else that needs your sign-in stay with the assistant on your computer.
 on:
   schedule:
@@ -34,6 +35,7 @@ jobs:
           ASSIST_ONLY: employer
           ASSIST_HEADLESS: "1"
           ASSIST_NO_HEARTBEAT: "1"
+          ASSIST_WORKER: github
           ASSIST_LIMIT: "25"
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

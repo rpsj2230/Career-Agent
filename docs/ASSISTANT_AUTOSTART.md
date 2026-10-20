@@ -31,6 +31,15 @@ The assistant opens one browser, one page at a time, with a pause of 45 to 120 s
 - Make it smaller: `ASSIST_LIMIT=10` in `.env.local` (applications per round), or `ASSIST_HOURS=22-6` so it only works at night. Then run `bash scripts/autostart/install.sh` again.
 - Stop it completely: `bash scripts/autostart/install.sh --remove`.
 
-## Without your computer: the cloud assistant
-With Autopilot on, applications to employers' own pages (sites that need no sign-in) are applied for by a GitHub runner every hour (workflow "Cloud assistant (employer pages)", free for a public repository), and the assistant on your computer leaves them alone. Nothing to install. It uses the same repository secrets as the scheduled pipeline (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, CRON_SECRET, APP_URL, and optionally the model and Telegram secrets).
-LinkedIn, Indeed and Naukri stay with the assistant on your computer, because they need your signed-in browser session; from a cloud address they would also be likely to show security checks.
+## Three workers that back each other up
+With Autopilot on, an application is taken by exactly one worker: it is claimed in the database before any browser opens, so two workers can never submit the same one.
+- **GitHub runner** (free, hourly, nothing to install): employers' own pages (sites that need no sign-in). Workflow "Cloud assistant (employer pages)".
+- **A small always-on machine** (optional, for example Oracle Cloud Always Free): the same employer pages, around the clock, headless. Set it up with `scripts/oracle/setup.sh` (steps below).
+- **Your computer**: LinkedIn, Indeed, Naukri (they need your sign-in), and it takes over any employer page that has waited more than 90 minutes (`ASSIST_FALLBACK_MINUTES`) because the other two were down, busy or out of time.
+An application that a worker started and then lost (the machine died mid-way) is handed back to you after 75 minutes, because nobody knows whether the employer received it.
+
+### Setting up the always-on machine
+1. Create the machine (Ubuntu, any size with at least 1 GB of memory; 2 GB or more is comfortable) and connect with SSH using a key, never a password.
+2. On it, as a normal user: `curl -fsSL https://raw.githubusercontent.com/rpsj2230/Career-Agent/main/scripts/oracle/setup.sh -o setup.sh && bash setup.sh`. It installs everything, asks for SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY and CRON_SECRET (kept in a file only you can read), closes every port except SSH, and starts the worker now and at every boot.
+3. Watch it: `journalctl -u career-agent-assist -f`. Stop it: `sudo systemctl disable --now career-agent-assist`.
+LinkedIn, Indeed and Naukri are deliberately not run there: they need your signed-in browser, and from a datacenter address those sites often show security checks.

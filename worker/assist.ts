@@ -23,7 +23,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { asAssistantProfile, browserDirFor, type Who } from "./assist-profile";
 import { scopedDb } from "../src/lib/scoped-db";
 import { browserFromMachine, LEAN_BROWSER } from "./browser";
-import { isSkipped, isWanted, skipPortals } from "./assist-skip";
+import { skipPortals, takeable } from "./assist-skip";
 import { chromium, type BrowserContext, type Page } from "playwright";
 import { confirmationSnippet, type FieldEntry, type SubmissionRecord } from "../src/lib/apply/submission";
 import { MasterProfile } from "../src/lib/types";
@@ -283,6 +283,21 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
   return outcome;
 }
 
+const WORKER = process.env.ASSIST_WORKER?.trim() || "computer";
+
+/** Atomically move an application from "waiting for the assistant" to "being sent" by this worker. False when another worker got there first. */
+async function claim(sb: SupabaseClient, id: string): Promise<boolean> {
+  const r = await sb.from("applications").update({ status: "submitting", error: null }).eq("id", id).eq("status", "assisted_pending").select("id");
+  if (r.error || !r.data?.length) return false;
+  await sb.from("apply_events").insert({ application_id: id, kind: "worker_started", detail: { worker: WORKER } });
+  return true;
+}
+
+/** Put an application this worker did not finish back in the queue. An application that was submitted or handed back already has another status and is left alone. */
+async function release(sb: SupabaseClient, id: string) {
+  await sb.from("applications").update({ status: "assisted_pending" }).eq("id", id).eq("status", "submitting");
+}
+
 /** One pass over everything waiting. Returns how many were recorded as submitted. */
 async function batch(sb: SupabaseClient, who: Who | null): Promise<number> {
   await heartbeat(sb);
@@ -293,20 +308,24 @@ async function batch(sb: SupabaseClient, who: Who | null): Promise<number> {
   const cloudOn = !!((await sb.from("settings").select("value").eq("key", "cloud_assist").maybeSingle()).data?.value as { enabled?: boolean } | undefined)?.enabled;
   const only = skipPortals(process.env.ASSIST_ONLY);
   if (only.length && !cloudOn) { say("The cloud assistant is switched off (Autopilot turns it on). Nothing to do here."); return 0; }
-  const skip = [...skipPortals(process.env.ASSIST_SKIP), ...(cloudOn && only.length === 0 ? ["employer"] : [])];
-  const filtered = skip.length > 0 || only.length > 0;
+  const skip = skipPortals(process.env.ASSIST_SKIP);
+  // when a cloud worker is switched on, the assistant on your computer lets it have the first go at employers' own pages and
+  // takes over any that have waited too long (the cloud worker down, busy or out of time): that is the hand-over between the workers
+  const defer = cloudOn && only.length === 0 ? ["employer"] : [];
+  const deferMs = Math.max(1, Number(process.env.ASSIST_FALLBACK_MINUTES ?? 90) || 90) * 60_000;
+  const filtered = skip.length > 0 || only.length > 0 || defer.length > 0;
   const one = process.env.APPLICATION_ID?.trim();
-  let q = sb.from("applications").select("id, job_id, resume_doc_id, cover_doc_id, answers").eq("status", "assisted_pending").order("approved_at", { ascending: true }).limit(filtered ? 200 : limit);
+  let q = sb.from("applications").select("id, job_id, resume_doc_id, cover_doc_id, answers, approved_at").eq("status", "assisted_pending").order("approved_at", { ascending: true }).limit(filtered ? 200 : limit);
   if (one) q = q.eq("id", one);
   const { data, error } = await q;
   if (error) throw error;
-  let apps = (data ?? []) as AppRow[];
+  let apps = (data ?? []) as (AppRow & { approved_at?: string | null })[];
   if (filtered && apps.length) {
-    // portals you apply to by hand (ASSIST_SKIP=naukri) stay waiting in the app and are never opened here
     const { data: jobs } = await sb.from("jobs").select("id, portal, source, apply_type").in("id", apps.map((a) => a.job_id));
     type J = { id: string; portal?: string | null; source?: string | null; apply_type?: string | null };
-    const mine = new Set(((jobs ?? []) as J[]).filter((j) => !isSkipped(skip, j) && isWanted(only, j)).map((j) => j.id));
-    apps = apps.filter((a) => mine.has(a.job_id)).slice(0, limit);
+    const byId = new Map(((jobs ?? []) as J[]).map((j) => [j.id, j]));
+    const now = Date.now();
+    apps = apps.filter((a) => { const j = byId.get(a.job_id); return !!j && takeable(j, a.approved_at ?? null, { skip, only, defer, deferMs, now }); }).slice(0, limit);
   }
   if (!apps.length) { say(WATCH ? `${new Date().toLocaleTimeString()}  Nothing is waiting.` : "Nothing is waiting. Approve applications in the dashboard first (they appear here as \"assisted\")."); return 0; }
 
@@ -333,7 +352,11 @@ async function batch(sb: SupabaseClient, who: Who | null): Promise<number> {
   try {
     for (const [i, app] of apps.entries()) {
       if (i > 0) await sleep(auto ? Number(process.env.ASSIST_AUTO_PAUSE_MS ?? humanPause()) : Number(process.env.ASSIST_PAUSE_MS ?? 4000 + Math.random() * 6000));
-      const r = await assistOne(sb, context, app, i + 1, apps.length, auto);
+      // take the application before touching it: only one worker can, so two assistants never submit the same one
+      if (!(await claim(sb, app.id))) { say(`  [${i + 1}/${apps.length}] taken by another assistant; skipped.`); continue; }
+      let r: Outcome;
+      try { r = await assistOne(sb, context, app, i + 1, apps.length, auto); }
+      finally { await release(sb, app.id); } // anything not finished or handed back goes back to the queue for the next round, or for another worker
       if (r === "done") done++;
       if (r === "quit") break;
       if (r === "stop") {
@@ -369,7 +392,7 @@ async function main(who: Who | null) {
     for (;;) {
       await heartbeat(sb);
       // the "Run assistant now" button leaves a request; answer it straight away, whatever the working hours
-      const req = (await sb.from("settings").select("value").eq("key", "assistant_request").maybeSingle()).data?.value as AssistantRequest | undefined;
+      const req = process.env.ASSIST_NO_HEARTBEAT === "1" ? undefined : ((await sb.from("settings").select("value").eq("key", "assistant_request").maybeSingle()).data?.value as AssistantRequest | undefined); // only the main assistant answers the Run-now button
       const requested = requestPending(req);
       if (requested || (Date.now() >= nextRound && withinHours(new Date(), process.env.ASSIST_HOURS))) {
         let n = 0, note = "";
