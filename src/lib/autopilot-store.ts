@@ -23,9 +23,11 @@ export async function setAutopilot(on: boolean): Promise<{ schedules: number }> 
     for (const s of rows) await updateSchedule(s.id, { ...toConfig(s), mode: a.mode, require_approval: a.require_approval, max_prepare: a.max_prepare, max_apply: a.max_apply, frequency: a.frequency, interval_hours: a.interval_hours, days: [], enabled: true });
     if (rows.length === 0) await createSchedule({ ...BLANK_SCHEDULE, name: "Autopilot", timezone: appTimezone(), ...a, days: [] });
     await putSetting("autopilot", { enabled: true, since: new Date().toISOString() });
+    await putSetting("cloud_assist", { enabled: true });
   } else {
     for (const s of rows) if (s.mode === "scan_prepare_apply") await updateSchedule(s.id, { ...toConfig(s), require_approval: true });
     await putSetting("autopilot", { enabled: false, since: "" });
+    await putSetting("cloud_assist", { enabled: false });
   }
   await logConfig(`Autopilot switched ${on ? "on" : "off"}`, { schedules: rows.length });
   return { schedules: rows.length || (on ? 1 : 0) };

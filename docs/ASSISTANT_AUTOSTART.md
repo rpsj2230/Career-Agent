@@ -30,3 +30,7 @@ The assistant opens one browser, one page at a time, with a pause of 45 to 120 s
 - Close any browser window left over from `npm run assist:login`.
 - Make it smaller: `ASSIST_LIMIT=10` in `.env.local` (applications per round), or `ASSIST_HOURS=22-6` so it only works at night. Then run `bash scripts/autostart/install.sh` again.
 - Stop it completely: `bash scripts/autostart/install.sh --remove`.
+
+## Without your computer: the cloud assistant
+With Autopilot on, applications to employers' own pages (sites that need no sign-in) are applied for by a GitHub runner every hour (workflow "Cloud assistant (employer pages)", free for a public repository), and the assistant on your computer leaves them alone. Nothing to install. It uses the same repository secrets as the scheduled pipeline (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, CRON_SECRET, APP_URL, and optionally the model and Telegram secrets).
+LinkedIn, Indeed and Naukri stay with the assistant on your computer, because they need your signed-in browser session; from a cloud address they would also be likely to show security checks.

@@ -23,7 +23,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { asAssistantProfile, browserDirFor, type Who } from "./assist-profile";
 import { scopedDb } from "../src/lib/scoped-db";
 import { browserFromMachine, LEAN_BROWSER } from "./browser";
-import { isSkipped, skipPortals } from "./assist-skip";
+import { isSkipped, isWanted, skipPortals } from "./assist-skip";
 import { chromium, type BrowserContext, type Page } from "playwright";
 import { confirmationSnippet, type FieldEntry, type SubmissionRecord } from "../src/lib/apply/submission";
 import { MasterProfile } from "../src/lib/types";
@@ -58,6 +58,7 @@ const leftFor = (reason: string) => { current.left[reason] = (current.left[reaso
 
 /** Tell the app this assistant is alive, so it can warn you if applications are waiting and it has gone quiet. Never throws. */
 async function heartbeat(sb: SupabaseClient) {
+  if (process.env.ASSIST_NO_HEARTBEAT === "1") return; // the cloud assistant must not pose as the one on your computer
   try {
     await sb.from("settings").upsert({ key: "assistant_heartbeat", value: { at: new Date().toISOString(), mode: AUTO ? "hands-free" : "assist", watching: WATCH, hours: process.env.ASSIST_HOURS ?? "", tz: Intl.DateTimeFormat().resolvedOptions().timeZone, ...(lastRound ? { round: lastRound } : {}) }, updated_at: new Date().toISOString() });
   } catch { /* the heartbeat is a courtesy, never a reason to stop */ }
@@ -287,18 +288,25 @@ async function batch(sb: SupabaseClient, who: Who | null): Promise<number> {
   await heartbeat(sb);
   // hands-free rounds take a larger bite: the daily limit, not the round size, is what paces the day
   const limit = Math.max(1, Math.min(50, Number(process.env.ASSIST_LIMIT ?? (AUTO ? 40 : 10)) || (AUTO ? 40 : 10)));
-  const only = process.env.APPLICATION_ID?.trim();
-  const skip = skipPortals(process.env.ASSIST_SKIP);
-  let q = sb.from("applications").select("id, job_id, resume_doc_id, cover_doc_id, answers").eq("status", "assisted_pending").order("approved_at", { ascending: true }).limit(skip.length ? 200 : limit);
-  if (only) q = q.eq("id", only);
+  // the cloud assistant (a GitHub runner, ASSIST_ONLY=employer) takes employers' own pages when you switched it on (Autopilot does);
+  // the assistant on your computer then leaves exactly those pages alone, so the two never work on the same application
+  const cloudOn = !!((await sb.from("settings").select("value").eq("key", "cloud_assist").maybeSingle()).data?.value as { enabled?: boolean } | undefined)?.enabled;
+  const only = skipPortals(process.env.ASSIST_ONLY);
+  if (only.length && !cloudOn) { say("The cloud assistant is switched off (Autopilot turns it on). Nothing to do here."); return 0; }
+  const skip = [...skipPortals(process.env.ASSIST_SKIP), ...(cloudOn && only.length === 0 ? ["employer"] : [])];
+  const filtered = skip.length > 0 || only.length > 0;
+  const one = process.env.APPLICATION_ID?.trim();
+  let q = sb.from("applications").select("id, job_id, resume_doc_id, cover_doc_id, answers").eq("status", "assisted_pending").order("approved_at", { ascending: true }).limit(filtered ? 200 : limit);
+  if (one) q = q.eq("id", one);
   const { data, error } = await q;
   if (error) throw error;
   let apps = (data ?? []) as AppRow[];
-  if (skip.length && apps.length) {
+  if (filtered && apps.length) {
     // portals you apply to by hand (ASSIST_SKIP=naukri) stay waiting in the app and are never opened here
-    const { data: jobs } = await sb.from("jobs").select("id, portal, source").in("id", apps.map((a) => a.job_id));
-    const skipped = new Set((jobs ?? []).filter((j) => isSkipped(skip, j as { portal?: string | null; source?: string | null })).map((j) => (j as { id: string }).id));
-    apps = apps.filter((a) => !skipped.has(a.job_id)).slice(0, limit);
+    const { data: jobs } = await sb.from("jobs").select("id, portal, source, apply_type").in("id", apps.map((a) => a.job_id));
+    type J = { id: string; portal?: string | null; source?: string | null; apply_type?: string | null };
+    const mine = new Set(((jobs ?? []) as J[]).filter((j) => !isSkipped(skip, j) && isWanted(only, j)).map((j) => j.id));
+    apps = apps.filter((a) => mine.has(a.job_id)).slice(0, limit);
   }
   if (!apps.length) { say(WATCH ? `${new Date().toLocaleTimeString()}  Nothing is waiting.` : "Nothing is waiting. Approve applications in the dashboard first (they appear here as \"assisted\")."); return 0; }
 
