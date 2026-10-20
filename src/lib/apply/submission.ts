@@ -4,8 +4,9 @@ import { z } from "zod";
 export const FieldEntry = z.object({
   label: z.string(),
   value: z.string(),
-  kind: z.enum(["text", "select", "radio", "file"]),
-  source: z.enum(["profile", "answers", "upload"]),
+  kind: z.enum(["text", "select", "radio", "file", "checkbox"]),
+  /** "ai": the answer was written from your profile for a question that was not in your answer bank */
+  source: z.enum(["profile", "answers", "upload", "ai"]),
 });
 export type FieldEntry = z.infer<typeof FieldEntry>;
 
