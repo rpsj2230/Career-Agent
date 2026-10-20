@@ -22,7 +22,7 @@ import { createInterface } from "node:readline";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { asAssistantProfile, browserDirFor, type Who } from "./assist-profile";
 import { scopedDb } from "../src/lib/scoped-db";
-import { browserFromMachine, PLAIN_HTTP } from "./browser";
+import { browserFromMachine, LEAN_BROWSER } from "./browser";
 import { isSkipped, skipPortals } from "./assist-skip";
 import { chromium, type BrowserContext, type Page } from "playwright";
 import { confirmationSnippet, type FieldEntry, type SubmissionRecord } from "../src/lib/apply/submission";
@@ -31,6 +31,7 @@ import { finalStepVisible, nextStep, openApplyForm } from "./assist-lib";
 import { requestPending, type AssistantRequest } from "../src/lib/apply/assistant-request";
 import { autoDecision, humanPause, withinHours, type AutoCaps, type AutoState } from "./assist-policy";
 import { answerPending } from "./ai-answers";
+import { acquireWatcherLock, lockPathFor } from "./assist-lock";
 import { clickSubmit, fillForm } from "./form";
 import { CONFIRMATION, detectBlock, type Answer } from "./match";
 
@@ -316,7 +317,7 @@ async function batch(sb: SupabaseClient, who: Who | null): Promise<number> {
   mkdirSync(profileDir, { recursive: true });
   const choice = browserFromMachine(); // the assistant's own Chromium unless you chose Brave, Chrome or Edge (worker/browser.ts)
   const context = await chromium.launchPersistentContext(profileDir, {
-    headless: process.env.ASSIST_HEADLESS === "1", viewport: null, executablePath: choice.executablePath, channel: choice.channel, ...PLAIN_HTTP,
+    headless: process.env.ASSIST_HEADLESS === "1", viewport: null, executablePath: choice.executablePath, channel: choice.channel, ...LEAN_BROWSER,
   });
   await context.addInitScript({ content: "window.__name = window.__name || function (t) { return t; };" });
   let done = 0;
@@ -349,6 +350,10 @@ async function main(who: Who | null) {
   if (who) say(`Working for: ${who.name}${who.is_default ? " (main profile)" : ""}. Their own sign-ins are kept in ${browserDirFor(who)}.`);
   if (WATCH) {
     if (!AUTO) throw new Error("Watch mode needs hands-free mode: use `npm run assist:watch` (and switch hands-free on in Settings).");
+    // one watcher per profile: two would double the memory and processor use of the browsers
+    const release = await acquireWatcherLock(lockPathFor(who ? who.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") : ""), say, async (ms) => { await sleep(ms); });
+    for (const sig of ["SIGINT", "SIGTERM"] as const) process.on(sig, () => { release(); process.exit(0); });
+    process.on("exit", release);
     const pollMs = Math.max(1, Number(process.env.ASSIST_POLL_MINUTES ?? 20)) * 60_000;
     say(`Watching for approved applications every ${pollMs / 60_000} minute(s)${process.env.ASSIST_HOURS ? `, working hours ${process.env.ASSIST_HOURS}` : ""}. Press Ctrl+C to stop.`);
     let nextRound = 0;

@@ -44,3 +44,6 @@ export function browserFromMachine(): BrowserChoice {
  * Asking for plain HTTP/1.1 makes those pages load. It changes only the network protocol, nothing about how the window presents itself.
  */
 export const PLAIN_HTTP: { args: string[] } = { args: ["--disable-http2"] };
+
+/** The assistant's working window: plain HTTP (see above) and nothing that costs memory or processor without helping an application (no GPU use, extensions, background sync or sound). */
+export const LEAN_BROWSER: { args: string[] } = { args: [...PLAIN_HTTP.args, "--disable-gpu", "--disable-extensions", "--disable-background-networking", "--disable-sync", "--mute-audio", "--no-first-run"] };
