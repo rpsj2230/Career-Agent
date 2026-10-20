@@ -22,7 +22,7 @@ export async function AutopilotCard() {
         {ap.enabled
           ? <ActionButton variant="outline" endpoint="/api/autopilot" body={{ enabled: false }} success="Autopilot is off" confirm="Turn Autopilot off? Schedules will ask for your approval again.">Turn Autopilot off</ActionButton>
           : <ActionButton endpoint="/api/autopilot" body={{ enabled: true }} success="Autopilot is on" confirm={`Turn Autopilot on? From now on applications are approved and sent without asking you, up to ${c.daily_total} a day. LinkedIn restricts accounts that apply in bulk, so its limit is ${c.daily_linkedin} a day.`}>Turn Autopilot on</ActionButton>}
-        <span className="text-xs text-muted-foreground">Your computer is needed only for LinkedIn, Indeed and Naukri, which need your sign-in (<code>npm run assist:check</code>). Greenhouse, Lever, Ashby, Workable and employers\u2019 own pages (no sign-in needed) are sent from the cloud, even with your computer off.</span>
+        <span className="text-xs text-muted-foreground">Your computer is needed only for LinkedIn, Indeed and Naukri, which need your sign-in (<code>npm run assist:check</code>). Greenhouse, Lever, Ashby, Workable and employers\u2019 own pages (no sign-in needed) are sent from the cloud (GitHub, and an always-on machine if you set one up), even with your computer off. Your computer takes over any that wait more than 90 minutes.</span>
       </CardContent>
     </Card>
   );
