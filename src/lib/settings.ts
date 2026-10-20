@@ -47,6 +47,8 @@ export const DEFAULTS = {
   autoapply: { enabled: false },
   /** one switch that turns on everything needed to run without you: see lib/autopilot.ts */
   autopilot: { enabled: false, since: "" },
+  /** employers' own pages are applied for by a GitHub runner (no sign-in needed), so they do not wait for your computer */
+  cloud_assist: { enabled: false },
   caps: { daily_total: 15, daily_linkedin: 10, weekly_linkedin: 40, linkedin_automation_enabled: false, local_auto_enabled: false, company_cooldown_days: 14 } as Caps,
 };
 

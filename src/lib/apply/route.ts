@@ -29,7 +29,7 @@ function baseRoute(job: { apply_type?: string | null; url?: string | null; porta
   const ats: Ats | null = (job.url ? parseAtsUrl(job.url)?.ats : null) ?? (job.apply_type === "greenhouse" || job.apply_type === "lever" ? job.apply_type : null);
   if (ats && (AUTO_APPLY_ATS as string[]).includes(ats)) return { kind: "cloud", label: `Automatic · ${ATS_LABEL[ats]}`, detail: `Sent automatically from the cloud (${ATS_LABEL[ats]} needs no login), after you approve it or if your schedule applies by itself.` };
   if (job.apply_type && ASSISTED_TYPES.has(job.apply_type)) return { kind: "assistant", label: "Assistant · your computer", detail: "This site needs you signed in, so the assistant on your computer opens it and fills the form. It waits in the queue while your computer is off." };
-  return { kind: "assistant", generic: true, label: "Assistant · employer site", detail: "The employer's own page. The assistant on your computer opens it, fills every question from your profile (answering open questions from your real experience) and submits. If the page needs a CAPTCHA or a sign-in you do not have, it is handed back with that exact reason." };
+  return { kind: "assistant", generic: true, label: "Assistant · employer site", detail: "The employer's own page. With Autopilot on, the cloud assistant (a GitHub runner; your computer can be off) opens it, otherwise the assistant on your computer does. It fills every question from your profile (answering open questions from your real experience) and submits. If the page needs a CAPTCHA or a sign-in you do not have, it is handed back with that exact reason." };
 }
 
 export type NextStep = { text: string; href?: string; action?: "assistant" };
