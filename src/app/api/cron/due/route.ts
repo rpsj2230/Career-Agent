@@ -34,10 +34,12 @@ export async function GET() {
     const due = paused ? [] : rows.filter((s) => isDue(s, now));
     const delivered = await deliverDaily().catch((e) => ({ sent: false, skipped: e instanceof Error ? e.message : String(e) })); // the morning report and health check, once a day
     // between schedules, work through whatever is waiting (scoring first, then resumes for the matches) so a backlog never sits for a day
-    const [counts, ready, autoPrepare, stateRow] = await Promise.all([backlogCounts().catch(() => ({ unscored: 0, unprepared: 0 })), modelReadiness().catch(() => ({ usable: [] as string[] })), getSetting("auto_prepare"), db().from("settings").select("value").eq("key", "drain_state").maybeSingle()]);
+    const [counts, ready, autoPrepare, stateRow, autopilot] = await Promise.all([backlogCounts().catch(() => ({ unscored: 0, unprepared: 0 })), modelReadiness().catch(() => ({ usable: [] as string[] })), getSetting("auto_prepare"), db().from("settings").select("value").eq("key", "drain_state").maybeSingle(), getSetting("autopilot").catch(() => ({ enabled: false }))]);
     const drain = drainDecision({ ...counts, modelsUsable: ready.usable.length > 0, autoPrepare: autoPrepare.enabled && autoPrepare.per_run > 0, preparingSchedule: rows.some((s) => s.enabled && !s.paused && s.mode !== "scan"), state: (stateRow.data?.value as DrainState) ?? null });
     return {
-      profile: p?.name ?? null, drain: !paused && drain.drain && due.length === 0, drainReason: paused ? "Everything is paused (Settings)." : drain.reason, paused, backlog: counts, daily: delivered,
+      profile: p?.name ?? null,
+      // Autopilot works every hour whatever is waiting: finishing unfinished searches, scoring, writing, approving; otherwise only when something is backed up
+      drain: !paused && due.length === 0 && (drain.drain || !!autopilot.enabled), drainReason: paused ? "Everything is paused (Settings)." : autopilot.enabled ? `Autopilot: hourly round. ${drain.reason}` : drain.reason, paused, backlog: counts, daily: delivered,
       due: due.length, schedules: due.map((s) => s.name), total: rows.length, missing, seeded: !!seeded, swept, staleSources: stale.length, assistantAlerted,
     };
   }, { onError: (p, e) => console.error(`${p ? `[${p.name}] ` : ""}hourly check failed:`, e) });
