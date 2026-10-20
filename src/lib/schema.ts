@@ -61,8 +61,8 @@ let cache: { at: number; status: SchemaStatus } | null = null;
 // Only a HEALTHY result is cached (Next.js keeps route handlers and pages in separate module instances, so a cache
 // cleared in one is not cleared in the other). A broken database is re-checked on every request and a fix is seen at once.
 const TTL_OK_MS = 60_000;
-/** A problem is re-checked sooner (so a fix shows up quickly), but not on every page view: the check is dozens of queries. */
-const TTL_PROBLEM_MS = 20_000;
+/** A problem is re-checked within seconds (so a fix shows up at once), but not on every request of a burst: the check is dozens of queries. */
+const TTL_PROBLEM_MS = 5_000;
 
 /** Probes every required column with a zero-row select. Cached for a minute unless `fresh`. */
 export async function checkSchema(fresh = false): Promise<SchemaStatus> {

@@ -112,18 +112,18 @@ import { assistChecks } from "../worker/assist-check-lib";
 import { applyRoute, nextStep } from "@/lib/apply/route";
 
 describe("how an application is sent", () => {
-  it("separates the cloud, the assistant on your computer, and manual", () => {
+  it("separates the cloud from the assistant on your computer (which also fills any employer site)", () => {
     expect(applyRoute({ apply_type: "greenhouse", url: "https://boards.greenhouse.io/acme/jobs/1" }).kind).toBe("cloud");
     expect(applyRoute({ apply_type: "unknown", url: "https://jobs.ashbyhq.com/acme/abc" }).kind).toBe("cloud");
     expect(applyRoute({ apply_type: "linkedin", url: "https://www.linkedin.com/jobs/view/1" }).kind).toBe("assistant");
     expect(applyRoute({ apply_type: "portal", url: "https://www.naukri.com/job-listings-1" }).kind).toBe("assistant");
-    expect(applyRoute({ apply_type: "unknown", url: "https://careers.example.com/1" }).kind).toBe("manual");
+    expect(applyRoute({ apply_type: "unknown", url: "https://careers.example.com/1" })).toMatchObject({ kind: "assistant", generic: true, label: "Assistant · employer site" });
   });
   it("tells you what to do next in every status", () => {
     const cloud = applyRoute({ apply_type: "greenhouse" }), asst = applyRoute({ apply_type: "linkedin" }), man = applyRoute({ apply_type: "unknown" });
     expect(nextStep("prepared", cloud, "a")).toMatchObject({ text: "Review and approve", href: "/applications/a" });
     expect(nextStep("assisted_pending", asst, "a")).toMatchObject({ action: "assistant" });
-    expect(nextStep("assisted_pending", man, "a").action).toBeUndefined();
+    expect(nextStep("assisted_pending", man, "a")).toMatchObject({ action: "assistant" });
     expect(nextStep("approved", cloud, "a").text).toMatch(/cloud/);
     expect(nextStep("needs_input", asst, "a").text).toMatch(/Answer/);
     expect(nextStep("submitted", cloud, "a").text).toBe("Done");

@@ -30,6 +30,7 @@ import { MasterProfile } from "../src/lib/types";
 import { finalStepVisible, nextStep, openApplyForm } from "./assist-lib";
 import { requestPending, type AssistantRequest } from "../src/lib/apply/assistant-request";
 import { autoDecision, humanPause, withinHours, type AutoCaps, type AutoState } from "./assist-policy";
+import { answerPending } from "./ai-answers";
 import { clickSubmit, fillForm } from "./form";
 import { CONFIRMATION, detectBlock, type Answer } from "./match";
 
@@ -195,7 +196,18 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
     if (opened === "none" && !auto) say("  No apply button found on this page. The form may be on the employer's site: use the open window.");
 
     for (let step = 0; step < 8; step++) {
-      const r = await fillForm(page, fctx);
+      let r = await fillForm(page, fctx);
+      if (r.pending.length) {
+        // questions the rules and the answer bank could not answer are answered from the profile by a model, never by guessing
+        const extra = await answerPending({ profile, bank: fctx.answers, job: { title: job.title, company: job.company, description: job.description }, pending: r.pending, jobId: job.id });
+        if (extra.length) {
+          fctx.answers = [...fctx.answers, ...extra];
+          const ai = new Set(extra.map((e) => e.question));
+          const again = await fillForm(page, fctx);
+          r = { filled: [...r.filled, ...again.filled], unanswered: again.unanswered, pending: again.pending, entries: [...r.entries, ...again.entries.filter((e) => e.kind !== "file").map((e) => (ai.has(e.label) ? { ...e, source: "ai" as const } : e))] };
+          say(`  Answered ${extra.length} question(s) from your profile.`);
+        }
+      }
       entered.push(...r.entries); steps++;
       for (const u of r.unanswered) if (!unanswered.includes(u)) unanswered.push(u);
       if (await finalStepVisible(page)) break;
@@ -272,7 +284,8 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
 /** One pass over everything waiting. Returns how many were recorded as submitted. */
 async function batch(sb: SupabaseClient, who: Who | null): Promise<number> {
   await heartbeat(sb);
-  const limit = Math.max(1, Math.min(50, Number(process.env.ASSIST_LIMIT ?? 10) || 10));
+  // hands-free rounds take a larger bite: the daily limit, not the round size, is what paces the day
+  const limit = Math.max(1, Math.min(50, Number(process.env.ASSIST_LIMIT ?? (AUTO ? 40 : 10)) || (AUTO ? 40 : 10)));
   const only = process.env.APPLICATION_ID?.trim();
   const skip = skipPortals(process.env.ASSIST_SKIP);
   let q = sb.from("applications").select("id, job_id, resume_doc_id, cover_doc_id, answers").eq("status", "assisted_pending").order("approved_at", { ascending: true }).limit(skip.length ? 200 : limit);
@@ -350,7 +363,8 @@ async function main(who: Who | null) {
         try { n = await batch(sb, who); if (n) say(`${new Date().toLocaleTimeString()}  ${n} application(s) submitted this round.`); note = `${n} submitted`; }
         catch (e) { note = `failed: ${e instanceof Error ? e.message : e}`; console.error(`round failed (will try again): ${note}`); }
         if (requested) await sb.from("settings").upsert({ key: "assistant_request", value: { at: req!.at, handled_at: new Date().toISOString(), done: n, note }, updated_at: new Date().toISOString() });
-        nextRound = Date.now() + pollMs;
+        // a round that sent something is followed by another after a minute, so a backlog clears without waiting for the next check
+        nextRound = Date.now() + (n > 0 ? 60_000 : pollMs);
       }
       await sleep(30_000);
     }

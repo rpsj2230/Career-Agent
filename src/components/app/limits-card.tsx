@@ -25,7 +25,9 @@ export async function LimitsCard() {
     <Card>
       <CardHeader>
         <CardTitle className="text-base">What happens on every run: the limit at each step, in one place</CardTitle>
-        <CardDescription>Each run goes through five steps. Finding and scoring have no total limit, so many jobs can be found and matched in a day. Only writing and sending are limited. A schedule&apos;s &quot;write at most&quot; number counts only that schedule&apos;s own run; catch-up rounds write more on top. Sending is capped per day for everything together.</CardDescription>
+        <CardDescription>
+          <b>When it runs:</b> the app checks every hour. A schedule runs every N hours (Autopilot: every 6) and does all five steps; between schedules each hourly check works through the backlog (scores up to about 480 jobs, writes the resumes below, and with Autopilot approves up to 150 waiting applications). The assistant on your computer works through its queue non-stop: 40 at a time, with a new round a minute after any round that sent something. <b>Per run</b> means per schedule run or hourly round; <b>per day</b> is the sending limit, which starts again every day, so a backlog clears over the days it needs, not in one run.
+        </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4 text-sm">
         {(["Find", "Score", "Match", "Resumes", "Sending"] as const).map((g) => (

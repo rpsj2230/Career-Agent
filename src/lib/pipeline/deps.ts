@@ -11,6 +11,24 @@ import type { PipelineDeps, QueuedJob } from "./run";
 
 type QueuedRow = { id: string; title: string; company: string; country: string | null; posted_at?: string | null; url?: string; portal: string | null; source: string | null; apply_type: ApplyType; job_scores: { score: number } | { score: number }[] | null };
 
+const PREPARED_COLS = "id,resume_doc_id,cover_doc_id,country,job:jobs(id,title,company,country,portal,source,apply_type,url,job_scores(score))";
+type PreparedRow = { id: string; resume_doc_id: string | null; cover_doc_id: string | null; country: string | null; job: QueuedRow | QueuedRow[] | null };
+
+/** Prepared applications with whether their documents passed verification, limited to the countries asked for. */
+async function loadPrepared(query: PromiseLike<{ data: unknown; error: { message: string } | null }>, countries: string[]): Promise<{ applicationId: string; verified: boolean; job: QueuedJob }[]> {
+  const apps = must<PreparedRow[]>(await query, "load prepared applications");
+  const out: { applicationId: string; verified: boolean; job: QueuedJob }[] = [];
+  for (const a of apps) {
+    const r = Array.isArray(a.job) ? a.job[0] : a.job;
+    if (!r || (countries.length && r.country && !countries.includes(r.country))) continue;
+    const docIds = [a.resume_doc_id, a.cover_doc_id].filter(Boolean) as string[];
+    const docs = docIds.length ? must<{ verification: { ok: boolean } | null }[]>(await db().from("documents").select("verification").in("id", docIds), "load documents") : [];
+    const sc = Array.isArray(r.job_scores) ? r.job_scores[0] : r.job_scores;
+    out.push({ applicationId: a.id, verified: docs.length > 0 && docs.every((d) => d.verification?.ok === true), job: { id: r.id, title: r.title, company: r.company, country: r.country, portal: r.portal ?? r.source?.split(":")[0] ?? null, apply_type: r.apply_type, score: sc?.score ?? 0, posted_at: r.posted_at ?? null, url: r.url } });
+  }
+  return out;
+}
+
 /** The real database, model and portal implementations of the pipeline's steps. */
 export function liveDeps(): PipelineDeps {
   return {
@@ -32,19 +50,12 @@ export function liveDeps(): PipelineDeps {
     requeued: async (countries) => {
       const ev = must<{ application_id: string }[]>(await db().from("apply_events").select("application_id").eq("kind", "answer_added").order("at", { ascending: false }).limit(100), "load re-queued applications");
       const ids = [...new Set(ev.map((e) => e.application_id))];
-      if (!ids.length) return [];
-      const apps = must<{ id: string; resume_doc_id: string | null; cover_doc_id: string | null; country: string | null; job: QueuedRow | QueuedRow[] | null }[]>(
-        await db().from("applications").select("id,resume_doc_id,cover_doc_id,country,job:jobs(id,title,company,country,portal,source,apply_type,job_scores(score))").in("id", ids).eq("status", "prepared"), "load re-queued applications");
-      const out: { applicationId: string; verified: boolean; job: QueuedJob }[] = [];
-      for (const a of apps) {
-        const r = Array.isArray(a.job) ? a.job[0] : a.job;
-        if (!r || (countries.length && r.country && !countries.includes(r.country))) continue;
-        const docIds = [a.resume_doc_id, a.cover_doc_id].filter(Boolean) as string[];
-        const docs = docIds.length ? must<{ verification: { ok: boolean } | null }[]>(await db().from("documents").select("verification").in("id", docIds), "load documents") : [];
-        const sc = Array.isArray(r.job_scores) ? r.job_scores[0] : r.job_scores;
-        out.push({ applicationId: a.id, verified: docs.length > 0 && docs.every((d) => d.verification?.ok === true), job: { id: r.id, title: r.title, company: r.company, country: r.country, portal: r.portal ?? r.source?.split(":")[0] ?? null, apply_type: r.apply_type, score: sc?.score ?? 0 } });
-      }
-      return out;
+      return ids.length ? loadPrepared(db().from("applications").select(PREPARED_COLS).in("id", ids).eq("status", "prepared"), countries) : [];
+    },
+    // every prepared application still waiting for an approval, best matches first: with Autopilot on nothing waits for a person
+    preparedBacklog: async (countries, limit) => {
+      const rows = await loadPrepared(db().from("applications").select(PREPARED_COLS).eq("status", "prepared").order("created_at", { ascending: true }).limit(500), countries);
+      return rows.sort((x, y) => y.job.score - x.job.score).slice(0, limit);
     },
     prepare: (jobId, runId) => prepareApplication(jobId, runId),
     approve: (applicationId, runId) => approveApplication(applicationId, { actor: "schedule", runId, dispatch: false }),

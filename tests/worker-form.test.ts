@@ -55,12 +55,14 @@ describe.skipIf(!executablePath)("fillForm against a Greenhouse-like fixture", (
     await page.close();
   });
 
-  it("refuses to proceed when a required consent box needs the human", async () => {
+  it("ticks a required privacy-policy agreement and records it", async () => {
     if (!browser) throw new Error("Chromium failed to launch");
     const page = await browser.newPage();
     await page.goto(fixture("#consent"));
     const r = await fillForm(page, ctx);
-    expect(r.unanswered.join("|")).toMatch(/privacy policy.*tick this yourself/);
+    expect(r.unanswered).toEqual([]);
+    expect(r.entries.some((e) => e.kind === "checkbox" && /privacy policy/i.test(e.label))).toBe(true);
+    expect(await page.locator('input[type="checkbox"]').first().isChecked()).toBe(true);
     await page.close();
   });
 
@@ -70,6 +72,7 @@ describe.skipIf(!executablePath)("fillForm against a Greenhouse-like fixture", (
     await page.goto(fixture("#unknown"));
     const r = await fillForm(page, ctx);
     expect(r.unanswered).toEqual(["Name your favourite sorting algorithm"]);
+    expect(r.pending).toEqual([{ label: "Name your favourite sorting algorithm", type: "text", options: [], required: true }]);
     expect(await page.inputValue("#q9")).toBe("");
     await page.close();
   });

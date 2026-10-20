@@ -4,7 +4,12 @@ import type { FieldEntry } from "../src/lib/apply/submission";
 import { matchAnswer, standardValue, type Answer, type Applicant } from "./match";
 
 export type FillContext = { applicant: Applicant; answers: Answer[]; resumePath: string; coverPath?: string };
-export type FillResult = { filled: string[]; unanswered: string[]; entries: FieldEntry[] };
+/** A question the rules could not answer, with what is needed to answer it from the profile. */
+export type Pending = { label: string; type: "text" | "textarea" | "select" | "radio" | "number"; options: string[]; required: boolean };
+export type FillResult = { filled: string[]; unanswered: string[]; entries: FieldEntry[]; pending: Pending[] };
+
+/** Required boxes that only agree to the site's terms, privacy policy or data use, or confirm the application is true. They are ticked, because submitting is the point. */
+export const CONSENT_BOX = /\b(i\s+(have\s+read|agree|accept|consent|acknowledge|understand|confirm|certify|authori[sz]e)|terms|privacy|consent|data\s+(protection|processing)|gdpr|agree|acknowledg|accurate|true\s+and\s+(correct|complete)|declaration)\b/i;
 
 type Field = {
   idx: number; tag: string; type: string; label: string; name: string; required: boolean;
@@ -93,6 +98,13 @@ export async function fillForm(page: Page, ctx: FillContext): Promise<FillResult
   const filled: string[] = [];
   const unanswered: string[] = [];
   const entries: FieldEntry[] = [];
+  const pending: Pending[] = [];
+  const ask = (f: Field, label: string) => {
+    if (!f.required) return;
+    unanswered.push(label);
+    const t = f.type === "textarea" ? "textarea" : f.type === "select" ? "select" : f.type === "radio" ? "radio" : f.type === "number" ? "number" : "text";
+    pending.push({ label, type: t, options: f.options.map((o) => o.text), required: true });
+  };
   const at = (i: number) => page.locator(`[data-ca-i="${i}"]`);
   let fileCount = 0;
 
@@ -110,7 +122,10 @@ export async function fillForm(page: Page, ctx: FillContext): Promise<FillResult
         continue;
       }
       if (f.type === "checkbox") {
-        if (f.required && !f.hasValue) unanswered.push(`${label} (you must tick this yourself)`);
+        if (f.required && !f.hasValue) {
+          if (CONSENT_BOX.test(label)) { await at(f.idx).check(); filled.push(label); entries.push({ label, value: "ticked", kind: "checkbox", source: "profile" }); }
+          else unanswered.push(`${label} (a required box that is not a plain agreement)`);
+        }
         continue;
       }
       if (f.hasValue) continue;
@@ -123,22 +138,22 @@ export async function fillForm(page: Page, ctx: FillContext): Promise<FillResult
         const answer = matchAnswer(f.label, ctx.answers);
         const i = answer ? pickOption(f.options, answer) : -1;
         if (i >= 0) { await at(f.options[i].idx).check(); filled.push(label); entries.push({ label, value: f.options[i].text, kind: "radio", source: "answers" }); }
-        else if (f.required) unanswered.push(label);
+        else ask(f, label);
         continue;
       }
       if (f.type === "select") {
         const i = value ? pickOption(f.options, value) : -1;
         if (i >= 0) { await at(f.idx).selectOption({ index: f.options[i].idx }); filled.push(label); entries.push({ label, value: f.options[i].text, kind: "select", source }); }
-        else if (f.required) unanswered.push(label);
+        else ask(f, label);
         continue;
       }
       if (value) { await at(f.idx).fill(value); filled.push(label); entries.push({ label, value, kind: "text", source }); }
-      else if (f.required) unanswered.push(label);
+      else ask(f, label);
     } catch (e) {
       if (f.required) unanswered.push(`${label} (${e instanceof Error ? e.message.split("\n")[0] : "error"})`);
     }
   }
-  return { filled, unanswered, entries };
+  return { filled, unanswered, entries, pending };
 }
 
 /**

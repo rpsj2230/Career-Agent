@@ -22,6 +22,8 @@ export type PipelineDeps = {
   approve(applicationId: string, runId: string | null): Promise<ApproveResult>;
   /** applications returned to the queue because you answered the question that stopped them: approved again under the same rules */
   requeued?(countries: string[]): Promise<{ applicationId: string; verified: boolean; job: QueuedJob }[]>;
+  /** every prepared application still waiting for an approval, best matches first (Autopilot) */
+  preparedBacklog?(countries: string[], limit: number): Promise<{ applicationId: string; verified: boolean; job: QueuedJob }[]>;
   loadCaps(): Promise<{ caps: Caps; state: CapState }>;
   /** the global Auto-Apply switch; absent means on (the per-schedule settings still apply) */
   autoApplyEnabled?(): Promise<boolean>;
@@ -53,7 +55,7 @@ export type PipelineSummary = {
 export async function runPipeline(
   schedule: Pick<ScheduleConfig, "countries" | "integrations" | "mode" | "require_approval" | "max_prepare" | "max_apply"> & { id: string; name: string },
   deps: PipelineDeps,
-  o: { trigger: RunTrigger; budgetMs?: number; /** clearing the backlog between schedules: nothing is searched */ skipScan?: boolean; /** resumes written at the same time */ prepareConcurrency?: number },
+  o: { trigger: RunTrigger; budgetMs?: number; /** clearing the backlog between schedules: nothing is searched */ skipScan?: boolean; /** resumes written at the same time */ prepareConcurrency?: number; /** Autopilot: also approve up to this many already-prepared applications that are still waiting */ approveBacklog?: number },
 ): Promise<PipelineSummary> {
   const budgetMs = o.budgetMs ?? 40 * 60_000;
   const started = deps.now();
@@ -137,19 +139,26 @@ export async function runPipeline(
     // applications that were waiting for an answer you have now given go through the same approval rules
     const again = deps.requeued ? await deps.requeued(schedule.countries).catch(() => []) : [];
     for (const r of again) if (!prepared.some((p) => p.applicationId === r.applicationId)) prepared.push(r);
+    // Autopilot: what was prepared in earlier rounds and is still waiting is approved too, not only what this round prepared
+    if (o.approveBacklog && deps.preparedBacklog && schedule.mode === "scan_prepare_apply" && !schedule.require_approval) {
+      for (const r of await deps.preparedBacklog(schedule.countries, o.approveBacklog).catch(() => [])) if (!prepared.some((p) => p.applicationId === r.applicationId)) prepared.push(r);
+    }
 
     // 4. approve, only within what this schedule is allowed to do
     let automated = 0;
     // the global Auto-Apply switch: when it is off every application waits for you, whatever the schedule says
     const autoOn = deps.autoApplyEnabled ? await deps.autoApplyEnabled().catch(() => false) : true;
+    const loaded = await deps.loadCaps();
+    const caps = loaded.caps;
+    let state = loaded.state;
     for (const p of prepared) {
-      const { caps, state } = await deps.loadCaps();
+      if (left() < 45_000) { out.timedOut = true; ctx.markPartial("Time limit reached before every approval was made; the rest continue next round"); break; }
       const d = decideAutoApply({ mode: schedule.mode, requireApproval: schedule.require_approval || !autoOn, verified: p.verified, applyType: p.job.apply_type, ats: p.job.url ? parseAtsUrl(p.job.url)?.ats ?? null : null, caps, capState: state, automatedThisRun: automated, maxApply: schedule.max_apply });
       if (d.action === "leave") { out.awaitingApproval++; ctx.stat(`left_${d.code}`); continue; }
       const r = await deps.approve(p.applicationId, ctx.id);
       if (!r.ok && r.status === 409 && /applied to .* recently/.test(r.error)) { out.awaitingApproval++; ctx.stat("left_cooldown"); continue; }
       if (!r.ok) { out.blocked++; ctx.stat("approval_blocked"); ctx.markPartial(`An approval was refused: ${r.error}`); continue; }
-      if (r.mode === "automated") { automated++; out.autoApproved++; out.readyToSubmit++; ctx.stat("auto_approved"); }
+      if (r.mode === "automated") { automated++; out.autoApproved++; out.readyToSubmit++; ctx.stat("auto_approved"); state = { ...state, automatedToday: state.automatedToday + 1 }; }
       else { out.manualRequired++; ctx.stat("manual_required"); }
     }
   }, deps.store);

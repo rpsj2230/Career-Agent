@@ -45,6 +45,8 @@ export const DEFAULTS = {
   delivery: { enabled: true, hour: 8, telegram: true, email: true, to: "" },
   /** master switch for everything that submits without you pressing a button (schedules and the hands-free assistant). Off until you turn it on. */
   autoapply: { enabled: false },
+  /** one switch that turns on everything needed to run without you: see lib/autopilot.ts */
+  autopilot: { enabled: false, since: "" },
   caps: { daily_total: 15, daily_linkedin: 10, weekly_linkedin: 40, linkedin_automation_enabled: false, local_auto_enabled: false, company_cooldown_days: 14 } as Caps,
 };
 
