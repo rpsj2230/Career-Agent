@@ -26,6 +26,7 @@ import { drainDecision, type DrainState } from "../src/lib/backlog-rules";
 import { db } from "../src/lib/db";
 import { getSetting, putSetting } from "../src/lib/settings";
 import { AUTOPILOT } from "../src/lib/autopilot";
+import { getProfile } from "../src/lib/profile/store";
 import { pauseActive } from "../src/lib/pause-rules";
 
 async function runOne(s: ScheduleRow, trigger: "schedule" | "manual"): Promise<PipelineSummary | null> {
@@ -89,6 +90,11 @@ async function runProfile(p: Profile | null, id: string | undefined): Promise<nu
   if (reaped) console.log(`${label}Handed back ${reaped} application(s) whose worker stopped before finishing.`);
   const replies = await trackReplies();
   if (replies.updated.length) console.log(`${label}Replies: ${replies.updated.map((u) => `${u.company} (${u.reply})`).join(", ")}`);
+  // a profile that has not been set up (no confirmed resume yet) has nothing to search with or score against: its schedules wait, they do not fail
+  if (!id && !((await getProfile().catch(() => null))?.experience.length)) {
+    console.log(`${label}This profile has no confirmed resume yet, so its schedules wait (Profile page: import and confirm it).`);
+    return 0;
+  }
   let list: ScheduleRow[];
   if (id) {
     const s = await getSchedule(id);

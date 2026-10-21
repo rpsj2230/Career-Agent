@@ -1,3 +1,4 @@
+import { getProfile } from "@/lib/profile/store";
 import { NextResponse } from "next/server";
 import { failStaleRuns } from "@/lib/activity";
 import { checkAssistant } from "@/lib/apply/assistant-health";
@@ -27,7 +28,9 @@ export async function GET() {
     const assistantAlerted = await checkAssistant();
     const listed = await listSchedules();
     const { missing } = listed;
-    const seeded = missing ? null : await seedRecommendedSchedule(listed.rows.length).catch(() => null);
+    // a new, empty profile gets no automatic first schedule: it would only fail on its first run and send a failure email
+    const setUp = (await getProfile().catch(() => null))?.experience.length ? true : false;
+    const seeded = missing || !setUp ? null : await seedRecommendedSchedule(listed.rows.length).catch(() => null);
     const rows = seeded ? [...listed.rows, seeded] : listed.rows;
     const now = new Date();
     const paused = await automationPaused();
