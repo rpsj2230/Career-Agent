@@ -14,6 +14,7 @@ import { BackgroundBanner } from "@/components/app/background-banner";
 import { BacklogCard } from "@/components/app/backlog-card";
 import { LimitsCard } from "@/components/app/limits-card";
 import { AutopilotCard } from "@/components/app/autopilot-card";
+import { WorkersCard } from "@/components/app/workers-card";
 import { appTimezone, fmtDateTime, fmtDuration } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
@@ -38,6 +39,7 @@ export default async function SchedulesPage() {
       </div>
       <BackgroundBanner />
       <Suspense fallback={<CardSkeleton />}><AutopilotCard /></Suspense>
+      <Suspense fallback={<CardSkeleton height="h-64" />}><WorkersCard /></Suspense>
       <Suspense fallback={<CardSkeleton height="h-48" />}><LimitsCard /></Suspense>
       <Suspense fallback={<CardSkeleton />}><BacklogCard /></Suspense>
       {missing && <Alert variant="destructive"><AlertTitle>Database update needed</AlertTitle><AlertDescription>Schedules cannot be saved until the update is applied. <Link className="underline" href="/system">Open System</Link>.</AlertDescription></Alert>}

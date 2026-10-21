@@ -22,6 +22,7 @@ const Schemas = {
   apify: ApifySettings,
   watchlist: z.object({ enabled: z.boolean(), boards: z.record(z.string(), z.array(z.string().max(80)).max(300)), added: z.record(z.string(), z.string()).default({}) }),
   autoapply: z.object({ enabled: z.boolean() }),
+  cloud_assist: z.object({ enabled: z.boolean(), fallback_minutes: z.number().int().min(5).max(1440).default(90) }),
   automation_pause: z.object({ paused: z.boolean(), since: z.string().max(40).default(""), until: z.string().max(40).default(""), note: z.string().max(200).default("") }),
   auto_prepare: z.object({ enabled: z.boolean(), per_run: z.number().int().min(0).max(40), concurrency: z.number().int().min(1).max(8).default(3) }),
   email_apply: z.object({ enabled: z.boolean(), also_when_listed: z.boolean(), daily_cap: z.number().int().min(0).max(100) }),

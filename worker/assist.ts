@@ -331,7 +331,8 @@ async function batch(sb: SupabaseClient, who: Who | null): Promise<number> {
   const limit = Math.max(1, Math.min(50, Number(process.env.ASSIST_LIMIT ?? (AUTO ? 40 : 10)) || (AUTO ? 40 : 10)));
   // the cloud assistant (a GitHub runner, ASSIST_ONLY=employer) takes employers' own pages when you switched it on (Autopilot does);
   // the assistant on your computer then leaves exactly those pages alone, so the two never work on the same application
-  const cloudOn = !!((await sb.from("settings").select("value").eq("key", "cloud_assist").maybeSingle()).data?.value as { enabled?: boolean } | undefined)?.enabled;
+  const cloud = (await sb.from("settings").select("value").eq("key", "cloud_assist").maybeSingle()).data?.value as { enabled?: boolean; fallback_minutes?: number } | undefined;
+  const cloudOn = !!cloud?.enabled;
   const only = skipPortals(process.env.ASSIST_ONLY);
   if (only.length && !cloudOn) { say("The cloud assistant is switched off (Autopilot turns it on). Nothing to do here."); return 0; }
   const skip = skipPortals(process.env.ASSIST_SKIP);
@@ -346,7 +347,7 @@ async function batch(sb: SupabaseClient, who: Who | null): Promise<number> {
       if (hb?.at && Date.now() - new Date(hb.at).getTime() < 10 * 60_000) defer.push(...(hb.portals ?? []));
     }
   }
-  const deferMs = Math.max(1, Number(process.env.ASSIST_FALLBACK_MINUTES ?? 90) || 90) * 60_000;
+  const deferMs = Math.max(1, Number(process.env.ASSIST_FALLBACK_MINUTES ?? cloud?.fallback_minutes ?? 90) || 90) * 60_000;
   const filtered = skip.length > 0 || only.length > 0 || defer.length > 0 || FAILOVER || cloudOn;
   const one = process.env.APPLICATION_ID?.trim();
   let q = sb.from("applications").select("id, job_id, resume_doc_id, cover_doc_id, answers, approved_at").eq("status", "assisted_pending").order("approved_at", { ascending: true }).limit(filtered ? 200 : limit);
