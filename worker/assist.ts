@@ -25,6 +25,7 @@ import { scopedDb } from "../src/lib/scoped-db";
 import { browserFromMachine, LEAN_BROWSER } from "./browser";
 import { skipPortals, takeable } from "./assist-skip";
 import { applyStorageState } from "./assist-state";
+import { pauseActive } from "../src/lib/pause-rules";
 import { chromium, type BrowserContext, type Page } from "playwright";
 import { confirmationSnippet, type FieldEntry, type SubmissionRecord } from "../src/lib/apply/submission";
 import { MasterProfile } from "../src/lib/types";
@@ -375,7 +376,7 @@ async function batch(sb: SupabaseClient, who: Who | null): Promise<number> {
   let auto: { caps: AutoCaps; state: AutoState } | null = null;
   if (AUTO) {
     const pausedRow = await sb.from("settings").select("value").eq("key", "automation_pause").maybeSingle();
-    if ((pausedRow.data?.value as { paused?: boolean } | null)?.paused) { say("Everything is paused (Settings → Pause everything): hands-free applying waits."); return 0; }
+    if (pauseActive(pausedRow.data?.value as { paused?: boolean; until?: string } | null)) { say("Everything is paused (Settings → Pause everything): hands-free applying waits."); return 0; }
     const caps = await loadCaps(sb);
     if (!(await autoApplyOn(sb))) { say("Auto-Apply is switched off. Turn it on in Settings > Auto-Apply, or run `npm run assist` to press Submit yourself."); return 0; }
     if (!caps.local_auto_enabled) { say("Hands-free mode is switched off. Turn it on in Settings > Application limits, or run `npm run assist` to press Submit yourself."); return 0; }
@@ -396,6 +397,8 @@ async function batch(sb: SupabaseClient, who: Who | null): Promise<number> {
   try {
     for (const [i, app] of apps.entries()) {
       if (i > 0) await sleep(auto ? Number(process.env.ASSIST_AUTO_PAUSE_MS ?? humanPause()) : Number(process.env.ASSIST_PAUSE_MS ?? 4000 + Math.random() * 6000));
+      // a pause starts at once, not at the next round
+      if (AUTO && i > 0 && pauseActive((await sb.from("settings").select("value").eq("key", "automation_pause").maybeSingle()).data?.value as { paused?: boolean; until?: string } | null)) { say("Paused (Settings → Pause everything): stopping after the application in progress."); break; }
       // take the application before touching it: only one worker can, so two assistants never submit the same one
       if (!(await claim(sb, app.id))) { say(`  [${i + 1}/${apps.length}] taken by another assistant; skipped.`); continue; }
       let r: Outcome;

@@ -26,6 +26,7 @@ import { drainDecision, type DrainState } from "../src/lib/backlog-rules";
 import { db } from "../src/lib/db";
 import { getSetting, putSetting } from "../src/lib/settings";
 import { AUTOPILOT } from "../src/lib/autopilot";
+import { pauseActive } from "../src/lib/pause-rules";
 
 async function runOne(s: ScheduleRow, trigger: "schedule" | "manual"): Promise<PipelineSummary | null> {
   console.log(`== ${s.name} (${s.mode})`);
@@ -78,7 +79,7 @@ async function drainBacklog(): Promise<number> {
 async function runProfile(p: Profile | null, id: string | undefined): Promise<number> {
   const label = p ? `[${p.name}] ` : "";
   // the pause switch: nothing runs by itself (a schedule you start by hand with "Run this schedule now" still runs)
-  if (!id && (await getSetting("automation_pause").catch(() => null))?.paused) {
+  if (!id && pauseActive(await getSetting("automation_pause").catch(() => null))) {
     console.log(`${label}Everything is paused (Settings → Pause everything). Nothing was run.`);
     return 0;
   }
