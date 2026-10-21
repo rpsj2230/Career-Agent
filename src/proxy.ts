@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { cronBearerValid, decideAccess, isPublic } from "@/lib/access";
-import { getMember, getRole, loadProfileRefs } from "@/lib/owner";
+import { getAccess, loadProfileRefs } from "@/lib/owner";
 import { allowedProfiles, pickProfile, PROFILE_COOKIE } from "@/lib/profile-access";
 import { homeFor, roleAllows } from "@/lib/roles";
 
@@ -47,7 +47,8 @@ export async function proxy(request: NextRequest) {
   // getUser() asks Supabase to validate the token; it is never trusted from the cookie alone.
   const { data } = await supabase.auth.getUser();
 
-  const role = data.user ? await getRole(data.user.email) : null;
+  // who they are and which profiles exist are independent lookups: ask for both at once
+  const [{ role, member }, refs] = await Promise.all([getAccess(data.user?.email), data.user ? loadProfileRefs() : Promise.resolve([])]);
   const access = decideAccess({ user: data.user, allowlist: role && data.user?.email ? [data.user.email.toLowerCase()] : [], isApi });
   switch (access.kind) {
     case "allow": {
@@ -61,9 +62,7 @@ export async function proxy(request: NextRequest) {
       forwarded.delete("x-career-profile");
       forwarded.delete("x-career-profiles");
       // which profile this request works on: the one picked in the header, if this person may open it (none until the profiles migration is run)
-      const refs = await loadProfileRefs();
       if (refs.length) {
-        const member = role === "admin" ? null : await getMember(data.user?.email);
         const allowed = allowedProfiles(refs, role === "admin", member?.profiles);
         const picked = pickProfile(allowed, request.cookies.get(PROFILE_COOKIE)?.value);
         if (!picked) return isApi ? json(403, "No profile has been shared with this account") : text(403, "No profile has been shared with this account. Ask the super admin to share one.");

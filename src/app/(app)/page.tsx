@@ -1,3 +1,5 @@
+import { Suspense } from "react";
+import { CardSkeleton } from "@/components/app/card-skeleton";
 import Link from "next/link";
 import { PipelineStatus } from "@/components/app/pipeline-status";
 import { ActionButton } from "@/components/app/action-button";
@@ -96,7 +98,7 @@ export default async function Dashboard({ searchParams }: { searchParams: SP }) 
 
       <BackgroundBanner />
       <AutomationBanner />
-      <PipelineStrip />
+      <Suspense fallback={<CardSkeleton />}><PipelineStrip /></Suspense>
 
       {!ready && (
         <Card className="border-amber-500">
@@ -109,7 +111,7 @@ export default async function Dashboard({ searchParams }: { searchParams: SP }) 
         </Card>
       )}
 
-      <PipelineStatus />
+      <Suspense fallback={<CardSkeleton height="h-64" />}><PipelineStatus /></Suspense>
 
       <form method="get" action="/" className="flex flex-wrap items-end gap-2">
         <label className="grid gap-1 text-xs text-muted-foreground">Period
