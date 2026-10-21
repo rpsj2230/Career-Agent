@@ -3,6 +3,7 @@
  * It only submits when the application was explicitly approved in the dashboard, never touches CAPTCHAs,
  * checkpoints or consent checkboxes, and hands the application back to you whenever it is unsure.
  */
+import { pauseActive } from "../src/lib/pause-rules";
 import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -264,7 +265,7 @@ async function main() {
       const key = r.profile_id ?? "-";
       if (!pausedIn.has(key)) {
         const row = await sb.from("settings").select("value").eq("key", "automation_pause").maybeSingle();
-        const paused = !!(row.data?.value as { paused?: boolean } | null)?.paused;
+        const paused = pauseActive(row.data?.value as { paused?: boolean; until?: string } | null);
         if (paused) console.log("Everything is paused for this profile (Settings → Pause everything). Its applications were not sent.");
         pausedIn.set(key, paused);
       }

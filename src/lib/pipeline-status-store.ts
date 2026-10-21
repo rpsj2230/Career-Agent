@@ -9,6 +9,7 @@ import { modelReadiness } from "@/lib/llm/registry";
 import { explainPipeline, type PipelineInput } from "@/lib/pipeline-status";
 import { listSchedules } from "@/lib/schedule-store";
 import { getSetting } from "@/lib/settings";
+import { pauseActive } from "@/lib/pause-rules";
 
 /** Reads every fact the explanation needs. Each read is defensive: a failing read shows as "unknown", never as a broken page. */
 export async function loadPipelineStatus(now = new Date()) {
@@ -27,7 +28,7 @@ export async function loadPipelineStatus(now = new Date()) {
     safe(() => getSetting("auto_prepare"), { enabled: true, per_run: 15, concurrency: 3 } as { enabled: boolean; per_run: number; concurrency?: number }),
     safe(() => getSetting("autoapply"), { enabled: false }),
     safe(() => getSetting("caps"), { daily_total: 15, local_auto_enabled: false } as { daily_total: number; local_auto_enabled?: boolean }),
-    safe(() => getSetting("automation_pause"), { paused: false, since: "", note: "" }),
+    safe(() => getSetting("automation_pause"), { paused: false, since: "", until: "", note: "" }),
     safe(() => listSchedules(), { rows: [], missing: false }),
     safe(() => lastTick(), null),
     safe(async () => (await db().from("automation_runs").select("status,started_at,error").eq("kind", "pipeline").order("started_at", { ascending: false }).limit(1)).data?.[0] ?? null, null),
@@ -66,7 +67,7 @@ export async function loadPipelineStatus(now = new Date()) {
   const input: PipelineInput = {
     now, jobs, apps, oldestSending: oldest,
     models: { usable: readiness.stored.length + readiness.envOnly.length > 0 ? usableLabels.length : 0, message: readiness.message, allFailing, allAtLimit, lastError },
-    paused: !!pause.paused, autoApply: !!autoapply.enabled,
+    paused: pauseActive(pause), autoApply: !!autoapply.enabled,
     autoPrepare: { enabled: !!autoPrepare.enabled, per_run: autoPrepare.per_run ?? 0, concurrency: autoPrepare.concurrency ?? 3 },
     caps: { daily_total: caps.daily_total ?? 15, local_auto_enabled: !!caps.local_auto_enabled },
     automatedToday: capState.automatedToday,
