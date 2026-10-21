@@ -1,0 +1,34 @@
+import { describe, expect, it } from "vitest";
+import { workersOverview, type WorkersInput } from "@/lib/workers-overview";
+
+const now = new Date("2026-10-21T12:00:00Z");
+const ago = (min: number) => ({ at: new Date(now.getTime() - min * 60_000).toISOString() });
+const base: WorkersInput = { now, computer: ago(1), oracle: { ...ago(2), portals: ["linkedin", "indeed", "naukri"] }, github: ago(30), cloud: { enabled: true, fallback_minutes: 90 }, started24h: { github: 12, oracle: 30, computer: 4 }, declined24h: { oracle: 3 } };
+const row = (i: WorkersInput, id: string) => workersOverview(i).find((r) => r.id === id)!;
+
+describe("workersOverview", () => {
+  it("shows each worker's state from how recently it reported in", () => {
+    expect(row(base, "computer").state).toBe("working");
+    expect(row(base, "oracle").state).toBe("working");
+    expect(row(base, "github").state).toBe("working"); // hourly, so 30 minutes is fine
+    expect(row({ ...base, computer: ago(10) }, "computer").state).toBe("quiet");
+    expect(row({ ...base, oracle: ago(30) }, "oracle").state).toBe("quiet");
+    expect(row({ ...base, github: null }, "github").state).toBe("never");
+  });
+  it("shows the counts of the last 24 hours", () => {
+    expect(row(base, "oracle")).toMatchObject({ started: 30, passedOn: 3 });
+    expect(row(base, "computer").started).toBe(4);
+  });
+  it("tells the computer to leave the three portals to the always-on machine only while it reports in", () => {
+    expect(row(base, "computer").handles.join(" ")).toMatch(/only if the always-on machine passes them on or stops/);
+    const down = row({ ...base, oracle: ago(60) }, "computer").handles;
+    expect(down).toEqual(expect.arrayContaining(["LinkedIn", "Indeed", "Naukri"]));
+  });
+  it("names the wait after which the computer takes employers' pages, and says the cloud workers are off when they are", () => {
+    expect(row(base, "computer").handles.join(" ")).toContain("more than 90 minutes");
+    const off = { ...base, cloud: { enabled: false, fallback_minutes: 90 } };
+    expect(row(off, "github").state).toBe("off");
+    expect(row(off, "github").handles[0]).toMatch(/Nothing while cloud workers are off/);
+    expect(row(off, "computer").handles).toContain("Employers' own pages");
+  });
+});
