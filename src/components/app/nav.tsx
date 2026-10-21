@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
+import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Briefcase, CalendarClock, Cpu, FileStack, FileText, Globe, History, Inbox, Plug, Server, Settings, User, Users } from "lucide-react";
+import { Loader2, BarChart3, Briefcase, CalendarClock, Cpu, FileStack, FileText, Globe, History, Inbox, Plug, Server, Settings, User, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { navHrefsFor, type Role } from "@/lib/roles";
 
@@ -39,6 +39,12 @@ const GROUPS = [
   },
 ] as const;
 
+/** Inside a Link: shows a small spinner the moment that link is clicked, until its page arrives. */
+function Pending({ children }: { children: React.ReactNode }) {
+  const { pending } = useLinkStatus();
+  return <>{children}{pending && <Loader2 className="ml-auto size-3.5 animate-spin" aria-label="Loading" />}</>;
+}
+
 export function Nav({ role = "admin" }: { role?: Role }) {
   const path = usePathname();
   const only = navHrefsFor(role);
@@ -59,8 +65,10 @@ export function Nav({ role = "admin" }: { role?: Role }) {
                   active && "bg-accent text-accent-foreground",
                 )}
               >
-                <Icon className="size-4" />
-                {label}
+                <Pending>
+                  <Icon className="size-4" />
+                  {label}
+                </Pending>
               </Link>
             );
           })}

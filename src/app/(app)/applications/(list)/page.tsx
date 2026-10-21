@@ -1,3 +1,5 @@
+import { Suspense } from "react";
+import { CardSkeleton } from "@/components/app/card-skeleton";
 import Link from "next/link";
 import { SourceBadge, StatusBadge } from "@/components/app/badges";
 import { ListToolbar } from "@/components/app/list-toolbar";
@@ -53,9 +55,9 @@ export default async function ApplicationsPage({ searchParams }: { searchParams:
         Greenhouse, Lever, Ashby and Workable are sent from the cloud; LinkedIn, Naukri, Indeed and every employer&apos;s own page are filled and submitted by the <b>assistant on your computer</b>
         (they queue below until it is running). Only a CAPTCHA, a sign-in you do not have, or a question your profile cannot truthfully answer is handed back to you, with the reason.
       </p>
-      {isAdmin && <AutopilotCard />}
-      {isAdmin && <PipelineStatus />}
-      {isAdmin && <PipelineStrip />}
+      {isAdmin && <Suspense fallback={<CardSkeleton />}><AutopilotCard /></Suspense>}
+      {isAdmin && <Suspense fallback={<CardSkeleton height="h-64" />}><PipelineStatus /></Suspense>}
+      {isAdmin && <Suspense fallback={<CardSkeleton />}><PipelineStrip /></Suspense>}
       {panel && <AssistantPanel {...panel} />}
       <ListToolbar
         kind="apps" action="/applications"

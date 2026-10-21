@@ -65,6 +65,15 @@ export async function getRole(email: string | null | undefined, fresh = false): 
   return (await getTeam()).find((m) => m.email === e)?.role ?? null;
 }
 
+/** Role and team entry in one go (one lookup of the team, not two). Same rules as getRole and getMember. */
+export async function getAccess(email: string | null | undefined): Promise<{ role: Role | null; member: TeamMember | null }> {
+  const e = email?.trim().toLowerCase();
+  if (!e) return { role: null, member: null };
+  if ((await getAllowedEmails()).includes(e)) return { role: "admin", member: null };
+  const member = (await getTeam()).find((m) => m.email === e) ?? null;
+  return { role: member?.role ?? null, member };
+}
+
 /** The team entry for an email (its profiles, if the super admin named some). */
 export async function getMember(email: string | null | undefined): Promise<TeamMember | null> {
   const e = email?.trim().toLowerCase();

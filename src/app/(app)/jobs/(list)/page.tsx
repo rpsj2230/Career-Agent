@@ -1,3 +1,5 @@
+import { Suspense } from "react";
+import { CardSkeleton } from "@/components/app/card-skeleton";
 import Link from "next/link";
 import { AddJob } from "@/components/app/add-job";
 import { PipelineStatus } from "@/components/app/pipeline-status";
@@ -51,10 +53,10 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
           <ActionButton variant="outline" method="POST" endpoint="/api/run/score" success="Started" title="Rates every job that is still 'Found, not scored' from 0 to 100 against your profile. Jobs at or above your threshold move to the matched list.">Score unscored jobs</ActionButton>
       </div>
       </div>
-      {isAdmin && <PipelineStatus />}
+      {isAdmin && <Suspense fallback={<CardSkeleton height="h-64" />}><PipelineStatus /></Suspense>}
       {isAdmin && <BackgroundBanner />}
-      {isAdmin && <BacklogCard />}
-      {isAdmin && <PipelineStrip />}
+      {isAdmin && <Suspense fallback={<CardSkeleton />}><BacklogCard /></Suspense>}
+      {isAdmin && <Suspense fallback={<CardSkeleton />}><PipelineStrip /></Suspense>}
       <SearchSummary />
       {!(q.stages.length === 1 && q.stages[0] === "unscored") && c.fresh > 0 && (
         <Alert><AlertDescription>
