@@ -38,7 +38,7 @@ import { resolveCredentials } from "../src/lib/integrations/credentials";
 import { summariseAttempts, type RouteAttempt } from "../src/lib/apply/route-chain";
 import { contactEmailsFor } from "../src/lib/apply/contact-email";
 import { loadDraft } from "../src/lib/apply/email-store";
-import { applyButtonsSeen, finalStepVisible, leaveJobBoard, nextStep, openApplyForm, parseLinkedinState, passSafetyReminder, waitForLinkedinApply } from "./assist-lib";
+import { applyButtonsSeen, EASY_APPLY_SCOPE, finalStepVisible, leaveJobBoard, linkedinOpenApply, nextStep, openApplyForm, parseLinkedinState, waitForLinkedinApply } from "./assist-lib";
 import { requestPending, type AssistantRequest } from "../src/lib/apply/assistant-request";
 import { autoDecision, humanPause, withinHours, type AutoCaps, type AutoState } from "./assist-policy";
 import { answerPending } from "./ai-answers";
@@ -232,6 +232,8 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
   let steps = 0;
   let page = await context.newPage();
   const before = new Set(context.pages());
+  let formScope: string | undefined; // LinkedIn's Easy Apply window: only the controls inside it belong to the application
+  let openNote = "";
   const fileInfo = (role: "resume" | "cover_letter", f: { path: string; storage_path: string }) => ({ role, name: basename(f.path), bytes: statSync(f.path).size, sha256: sha256(f.path), storage_path: f.storage_path });
   const record = (outcome: SubmissionRecord["outcome"], method: "assisted" | "automated", confirmation: SubmissionRecord["confirmation"], error: string | null, note: string): SubmissionRecord => ({
     version: 1, method, outcome, started_at: startedAt, finished_at: new Date().toISOString(), target_url: job.url, final_url: page.isClosed() ? null : page.url(),
@@ -354,9 +356,16 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
       }
       if (st.closed) throw new Handback("LinkedIn says this role is no longer accepting applications");
     }
-    const opened = await openApplyForm(page);
-    // an external "Apply" on LinkedIn first shows "Job search safety reminders": continue past it so the company's page opens
-    if (onLinkedin && opened === "clicked" && (await passSafetyReminder(page))) await sleep(1500);
+    let opened: "already" | "clicked" | "none";
+    if (onLinkedin) {
+      stepNow(sb, "opening the application on LinkedIn");
+      const r = await linkedinOpenApply(context, page);
+      openNote = r.note;
+      say(`  LinkedIn: ${r.note}.`);
+      if (r.kind === "easy") { formScope = EASY_APPLY_SCOPE; opened = "clicked"; }
+      else if (r.kind === "external") { page = r.page; opened = "clicked"; await logAct(sb, { kind: "job.link_resolved", message: `LinkedIn sent the assistant to the company's own page for ${job.title} at ${job.company}`, application_id: app.id, job_id: job.id, company: job.company, portal: job.portal, detail: { how: r.note, assistant: true } }); }
+      else opened = "none";
+    } else opened = await openApplyForm(page);
     const fresh = context.pages().filter((p) => !before.has(p) && p !== page);
     if (fresh.length) page = fresh[fresh.length - 1]; // the apply button opened a new tab
     await page.waitForLoadState("domcontentloaded").catch(() => undefined);
@@ -365,15 +374,15 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
 
     for (let step = 0; step < 8; step++) {
       stepNow(sb, `filling the form (page ${step + 1})`);
-      if (await looksLikeSearchForm(page)) break; // a job board's search box is not an application: nothing is typed into it
-      let r = await fillForm(page, fctx);
+      if (!formScope && (await looksLikeSearchForm(page))) break; // a job board's search box is not an application: nothing is typed into it
+      let r = await fillForm(page, fctx, formScope);
       if (r.pending.length) {
         // questions the rules and the answer bank could not answer are answered from the profile by a model, never by guessing
         const extra = await answerPending({ profile, bank: fctx.answers, job: { title: job.title, company: job.company, description: job.description }, pending: r.pending, jobId: job.id });
         if (extra.length) {
           fctx.answers = [...fctx.answers, ...extra];
           const ai = new Set(extra.map((e) => e.question));
-          const again = await fillForm(page, fctx);
+          const again = await fillForm(page, fctx, formScope);
           r = { filled: [...r.filled, ...again.filled], unanswered: again.unanswered, pending: again.pending, entries: [...r.entries, ...again.entries.filter((e) => e.kind !== "file").map((e) => (ai.has(e.label) ? { ...e, source: "ai" as const } : e))] };
           say(`  Answered ${extra.length} question(s) from your profile.`);
         }
@@ -409,7 +418,7 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
   if (auto) {
     let problem: string | null = null;
     if (unanswered.length) problem = `Needs you: ${unanswered.join("; ")}`;
-    else if (await looksLikeSearchForm(page)) problem = "The link opens a job board's listing or search page, not an application form; apply on the employer's own site";
+    else if (!formScope && (await looksLikeSearchForm(page))) problem = "The link opens a job board's listing or search page, not an application form; apply on the employer's own site";
     else if (entered.length === 0) {
       if (String(job.portal ?? "").toLowerCase() === "linkedin" && (await linkedinSignedOutView(page))) {
         const reason = "LinkedIn shows its signed-out page in the assistant's browser (its saved sign-in is missing or has expired): run  npm run assist:login , sign in to LinkedIn, close the window";
@@ -419,8 +428,13 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
         return "later";
       }
       if (String(job.portal ?? "").toLowerCase() === "linkedin") {
-        const seen = await applyButtonsSeen(page);
-        problem = `LinkedIn shows no application form for this job (the apply button may be missing, or the role closed); apply from the job page. Buttons the page showed: ${seen.length ? seen.join(" | ") : "none that mention apply"}`;
+        if (!/linkedin\.com/i.test(page.url())) {
+          let host = ""; try { host = new URL(page.url()).hostname.replace(/^www\./, ""); } catch { /* keep blank */ }
+          problem = `LinkedIn sent the assistant to the company's page (${host || "its site"}), but no application form was found there (it may need an account or have another step); apply on that page`;
+        } else {
+          const seen = await applyButtonsSeen(page);
+          problem = `LinkedIn: ${openNote || "no application form found"}. Buttons the page showed: ${seen.length ? seen.join(" | ") : "none that mention apply"}`;
+        }
       } else problem = "No application form was found on this page (it may need a sign-in, or the role may be closed); apply on the employer's site";
     }
     else if (!(await finalStepVisible(page))) problem = "Could not reach the final step of the form";
