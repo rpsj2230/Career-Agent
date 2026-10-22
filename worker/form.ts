@@ -1,5 +1,5 @@
 import { basename } from "node:path";
-import type { Page } from "playwright";
+import type { Locator, Page } from "playwright";
 import type { FieldEntry } from "../src/lib/apply/submission";
 import { matchAnswer, standardValue, type Answer, type Applicant } from "./match";
 
@@ -76,6 +76,15 @@ async function scan(page: Page): Promise<Field[]> {
   });
 }
 
+/** Tick a box. Many sites hide the real checkbox behind a styled one, so a plain check() times out: then force it, and as a last resort click it in the page. */
+async function tick(box: Locator): Promise<void> {
+  const done = () => box.isChecked().catch(() => false);
+  try { await box.check({ timeout: 4000 }); if (await done()) return; } catch { /* styled or covered checkbox */ }
+  try { await box.check({ force: true, timeout: 3000 }); if (await done()) return; } catch { /* hidden checkbox */ }
+  await box.evaluate((el) => { const c = el as HTMLInputElement; if (!c.checked) c.click(); });
+  if (!(await done())) throw new Error("the box could not be ticked");
+}
+
 const clean = (s: string) => s.replace(/[*✱]/g, "").replace(/\s+/g, " ").trim();
 const yesNo = (answer: string) => (/^\s*(yes|y|true)\b/i.test(answer) ? "yes" : /^\s*(no|n|false)\b/i.test(answer) ? "no" : null);
 
@@ -123,7 +132,7 @@ export async function fillForm(page: Page, ctx: FillContext): Promise<FillResult
       }
       if (f.type === "checkbox") {
         if (f.required && !f.hasValue) {
-          if (CONSENT_BOX.test(label)) { await at(f.idx).check(); filled.push(label); entries.push({ label, value: "ticked", kind: "checkbox", source: "profile" }); }
+          if (CONSENT_BOX.test(label)) { await tick(at(f.idx)); filled.push(label); entries.push({ label, value: "ticked", kind: "checkbox", source: "profile" }); }
           else unanswered.push(`${label} (a required box that is not a plain agreement)`);
         }
         continue;

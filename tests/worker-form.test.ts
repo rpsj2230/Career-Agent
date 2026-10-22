@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { chromium, type Browser } from "playwright";
 import { clickSubmit, fillForm, looksLikeSearchForm } from "../worker/form";
+import { leaveJobBoard } from "../worker/assist-lib";
 import { CONFIRMATION } from "../worker/match";
 
 const executablePath = process.env.CHROMIUM_PATH ?? (process.env.PLAYWRIGHT_BROWSERS_PATH ? `${process.env.PLAYWRIGHT_BROWSERS_PATH}/chromium` : undefined);
@@ -174,6 +175,61 @@ describe.skipIf(!executablePath)("looksLikeSearchForm", () => {
     const page = await browser.newPage();
     await page.setContent("<h1>Closed</h1>");
     expect(await looksLikeSearchForm(page)).toBe(false);
+    await page.close();
+  });
+});
+
+const isBoard = (url: string) => /board-/.test(url);
+
+describe.skipIf(!executablePath)("leaveJobBoard", { timeout: 45_000 }, () => {
+  it("closes the pop-up and follows the Apply link to the employer's page", async () => {
+    if (!browser) throw new Error("Chromium failed to launch");
+    const page = await browser.newPage();
+    await page.goto(fixture("", "board-listing"));
+    const r = await leaveJobBoard(page, isBoard);
+    expect(r.left).toBe(true);
+    expect(r.page.url()).toContain("employer.html");
+    expect(await looksLikeSearchForm(r.page)).toBe(false);
+    await page.close();
+  });
+  it("follows an Apply button that opens the employer in a new tab", async () => {
+    if (!browser) throw new Error("Chromium failed to launch");
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto(fixture("", "board-popup-button"));
+    const r = await leaveJobBoard(page, isBoard);
+    expect(r.left).toBe(true);
+    expect(r.page.url()).toContain("employer.html");
+    await context.close();
+  });
+  it("says so when the page never leaves the job board", async () => {
+    if (!browser) throw new Error("Chromium failed to launch");
+    const page = await browser.newPage();
+    await page.setContent("<h1>Listing</h1><p>No way to apply here.</p>");
+    await page.goto(fixture("", "board-popup-button"));
+    await page.evaluate(() => document.getElementById("go")?.remove());
+    const r = await leaveJobBoard(page, isBoard);
+    expect(r.left).toBe(false);
+    await page.close();
+  });
+  it("does nothing on a page that is not a job board", async () => {
+    if (!browser) throw new Error("Chromium failed to launch");
+    const page = await browser.newPage();
+    await page.goto(fixture());
+    const r = await leaveJobBoard(page, isBoard);
+    expect(r).toEqual({ page, left: true });
+    await page.close();
+  });
+});
+
+describe.skipIf(!executablePath)("consent boxes hidden behind a styled box", { timeout: 30_000 }, () => {
+  it("are still ticked", async () => {
+    if (!browser) throw new Error("Chromium failed to launch");
+    const page = await browser.newPage();
+    await page.goto(fixture("", "consent-hidden"));
+    const r = await fillForm(page, ctx);
+    expect(await page.isChecked("#c")).toBe(true);
+    expect(r.unanswered).toEqual([]);
     await page.close();
   });
 });

@@ -29,7 +29,8 @@ import { pauseActive } from "../src/lib/pause-rules";
 import { chromium, type BrowserContext, type Page } from "playwright";
 import { confirmationSnippet, type FieldEntry, type SubmissionRecord } from "../src/lib/apply/submission";
 import { MasterProfile } from "../src/lib/types";
-import { finalStepVisible, nextStep, openApplyForm } from "./assist-lib";
+import { isRedirector } from "../src/lib/jobs/redirectors";
+import { finalStepVisible, leaveJobBoard, nextStep, openApplyForm } from "./assist-lib";
 import { requestPending, type AssistantRequest } from "../src/lib/apply/assistant-request";
 import { autoDecision, humanPause, withinHours, type AutoCaps, type AutoState } from "./assist-policy";
 import { answerPending } from "./ai-answers";
@@ -200,6 +201,10 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
       if (auto) throw new Handback(b === "login" ? "The portal asked for a sign-in: open the assistant once without hands-free mode and sign in" : b === "captcha" ? "The page shows a CAPTCHA; please do this one yourself" : "The portal shows a security check; automatic applying was stopped for safety", b === "checkpoint", b);
       await waitForHuman(page, b === "login" ? "This portal wants you to sign in." : b === "captcha" ? "There is a CAPTCHA." : "The portal shows a security check.");
     }
+    // a job board's listing page has no form: follow its Apply link to the employer's own site first
+    const board = await leaveJobBoard(page, isRedirector);
+    page = board.page;
+    if (!board.left && auto) throw new Handback("The link stays on the job board (its Apply link did not lead to the employer's own page); apply on the employer's own site");
     const opened = await openApplyForm(page);
     const fresh = context.pages().filter((p) => !before.has(p) && p !== page);
     if (fresh.length) page = fresh[fresh.length - 1]; // the apply button opened a new tab
@@ -398,15 +403,21 @@ async function batch(sb: SupabaseClient, who: Who | null): Promise<number> {
   });
   await context.addInitScript({ content: "window.__name = window.__name || function (t) { return t; };" });
   if (await applyStorageState(context, process.env.ASSIST_STORAGE_STATE, profileDir)) say("Sign-ins loaded from the exported file.");
-  let done = 0;
+  let done = 0, attempted = false;
+  // a cloud run must end inside its runner time limit: no new application is started after this many minutes (the rest waits for the next run)
+  const stopAt = Number(process.env.ASSIST_MAX_MINUTES) > 0 ? Date.now() + Number(process.env.ASSIST_MAX_MINUTES) * 60_000 : Infinity;
   current = { at: new Date().toISOString(), submitted: 0, handedBack: 0, left: {} };
   try {
     for (const [i, app] of apps.entries()) {
-      if (i > 0) await sleep(auto ? Number(process.env.ASSIST_AUTO_PAUSE_MS ?? humanPause()) : Number(process.env.ASSIST_PAUSE_MS ?? 4000 + Math.random() * 6000));
+      if (Date.now() > stopAt) { say("  The time budget of this run is used up; the rest waits for the next run."); break; }
+      // the pause protects the portal from a burst of applications, so it follows an application that was really attempted, not one skipped because another worker had it
+      if (i > 0 && attempted) await sleep(auto ? Number(process.env.ASSIST_AUTO_PAUSE_MS ?? humanPause()) : Number(process.env.ASSIST_PAUSE_MS ?? 4000 + Math.random() * 6000));
       // a pause starts at once, not at the next round
       if (AUTO && i > 0 && pauseActive((await sb.from("settings").select("value").eq("key", "automation_pause").maybeSingle()).data?.value as { paused?: boolean; until?: string } | null)) { say("Paused (Settings → Pause everything): stopping after the application in progress."); break; }
       // take the application before touching it: only one worker can, so two assistants never submit the same one
+      attempted = false;
       if (!(await claim(sb, app.id))) { say(`  [${i + 1}/${apps.length}] taken by another assistant; skipped.`); continue; }
+      attempted = true;
       let r: Outcome;
       try { r = await assistOne(sb, context, app, i + 1, apps.length, auto); }
       catch (e) {

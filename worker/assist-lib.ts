@@ -52,3 +52,40 @@ export async function finalStepVisible(page: Page): Promise<boolean> {
   if (await byRole.isVisible().catch(() => false)) return true;
   return page.locator('form input[type="submit"], form button[type="submit"]').first().isVisible().catch(() => false);
 }
+
+/** Overlays that sit on top of a job board's page (cookie notices, sign-up or alert pop-ups) and swallow clicks. Closed quietly; none is required. */
+async function dismissOverlays(page: Page): Promise<void> {
+  await page.keyboard.press("Escape").catch(() => undefined);
+  const closers = [page.locator(".mfp-close, [data-dismiss], button[aria-label*='close' i], button[title*='close' i]"), page.getByRole("button", { name: /^\s*(accept( all)?|i agree|agree|got it|no,? thanks|not now|close|dismiss)\s*$/i })];
+  for (const c of closers) {
+    const el = c.first();
+    if (await el.isVisible().catch(() => false)) await el.click({ timeout: 1500 }).catch(() => undefined);
+  }
+}
+
+/**
+ * A job found through a job board (Adzuna, Jooble and the like) often opens the board's own listing page, which has no application form:
+ * the form is on the employer's site, behind the board's "Apply" link. Close any pop-up, follow that link, and return the page that now
+ * shows the employer's site. `left` is false when the page is still on the job board (the apply link was missing or led nowhere).
+ */
+export async function leaveJobBoard(page: Page, isBoard: (url: string) => boolean): Promise<{ page: Page; left: boolean }> {
+  if (!isBoard(page.url())) return { page, left: true };
+  await dismissOverlays(page);
+  const link = page.locator("a[href*='/land/ad/'], a[href*='/apply']").or(page.getByRole("link", { name: APPLY_ENTRY })).first();
+  const href = await link.getAttribute("href", { timeout: 3000 }).catch(() => null);
+  if (href && !href.startsWith("#") && !/^javascript:/i.test(href)) {
+    const target = new URL(href, page.url()).href;
+    await page.goto(target, { waitUntil: "domcontentloaded", timeout: 45_000 }).catch(() => undefined);
+    await page.waitForLoadState("networkidle", { timeout: 8000 }).catch(() => undefined);
+    if (!isBoard(page.url())) return { page, left: true };
+  }
+  // the link may open the employer's site in a new tab, or only act on a click
+  const btn = page.getByRole("button", { name: APPLY_ENTRY }).or(page.getByRole("link", { name: APPLY_ENTRY })).first();
+  if (!(await btn.isVisible().catch(() => false))) return { page, left: !isBoard(page.url()) };
+  const opened = page.waitForEvent("popup", { timeout: 8000 }).catch(() => null);
+  await btn.click({ timeout: 5000, force: true }).catch(() => undefined);
+  const next = (await opened) ?? page;
+  await next.waitForLoadState("domcontentloaded").catch(() => undefined);
+  await next.waitForLoadState("networkidle", { timeout: 8000 }).catch(() => undefined);
+  return { page: next, left: !isBoard(next.url()) };
+}
