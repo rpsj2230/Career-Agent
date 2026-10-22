@@ -1,6 +1,6 @@
 /** What the assistant is doing right now and what it did lately: reported with its heartbeat so the app can show it. Pure, so it is testable. */
 export type Recent = { at: string; title: string; company: string; portal: string; outcome: "submitted" | "handed_back" | "left"; note?: string };
-export type Live = { id: string; title: string; company: string; portal: string; step: string; since: string };
+export type Live = { id: string; title: string; company: string; portal: string; step: string; since: string; /** when the picture of what the assistant sees was last updated */ shotAt?: string };
 
 /** Newest first, at most `cap`, notes kept short (they are reasons, never answers or personal data). */
 export function pushRecent(list: Recent[], item: Recent, cap = 12): Recent[] {

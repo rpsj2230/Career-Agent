@@ -185,10 +185,10 @@ export async function matchingApplicationIds(q: AppQuery): Promise<string[]> {
   return sortApps(filterApps(light, q), q.sort, q.dir).map((r) => r.id);
 }
 
-export async function listApplicationsFiltered(q: AppQuery, paging: { page: number; size: number } = { page: 1, size: 25 }): Promise<AppsPage> {
+export async function listApplicationsFiltered(q: AppQuery, paging: { page: number; size: number } = { page: 1, size: 25 }, pinId: string | null = null): Promise<AppsPage> {
   const { light, portalUnavailable } = await loadAppsLight(q);
   const counts = appStageCounts(filterAppsExceptStage(light, q));
-  const matching = sortApps(filterApps(light, q), q.sort, q.dir);
+  const matching = sortApps(filterApps(light, q), q.sort, q.dir, pinId);
   const r = pageRange(matching.length, paging.page, paging.size);
   const ids = matching.slice(r.from, r.to + 1).map((x) => x.id);
   if (ids.length === 0) return { rows: [], total: matching.length, totalAll: await tableTotal("applications", light.length), page: r.page, pages: r.pages, shownFrom: r.shownFrom, shownTo: r.shownTo, portalUnavailable, stageCounts: counts };

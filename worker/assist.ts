@@ -38,7 +38,7 @@ import { resolveCredentials } from "../src/lib/integrations/credentials";
 import { summariseAttempts, type RouteAttempt } from "../src/lib/apply/route-chain";
 import { contactEmailsFor } from "../src/lib/apply/contact-email";
 import { loadDraft } from "../src/lib/apply/email-store";
-import { applyButtonsSeen, EASY_APPLY_SCOPE, finalStepVisible, leaveJobBoard, linkedinOpenApply, nextStep, openApplyForm, parseLinkedinState, waitForLinkedinApply } from "./assist-lib";
+import { accountGatedVendor, applyButtonsSeen, EASY_APPLY_SCOPE, finalStepVisible, leaveJobBoard, linkedinOpenApply, nextStep, openApplyForm, parseLinkedinState, waitForLinkedinApply } from "./assist-lib";
 import { requestPending, type AssistantRequest } from "../src/lib/apply/assistant-request";
 import { autoDecision, humanPause, withinHours, type AutoCaps, type AutoState } from "./assist-policy";
 import { answerPending } from "./ai-answers";
@@ -85,6 +85,22 @@ let live: Live | null = null;
 let recent: Recent[] = [];
 let lastBeat = 0;
 const noteRecent = (r: Omit<Recent, "at">) => { recent = pushRecent(recent, { ...r, at: new Date().toISOString() }); };
+
+/** The browser window the assistant works in: a picture of what it shows is saved every few seconds so the app can show it, wherever the window is on your screen. */
+let liveContext: BrowserContext | null = null;
+let shooting = false;
+async function snap(sb: SupabaseClient): Promise<void> {
+  if (!live || !liveContext || shooting) return;
+  shooting = true;
+  try {
+    const pages = liveContext.pages().filter((p) => !p.isClosed());
+    const p = pages[pages.length - 1];
+    if (!p) return;
+    const buf = await p.screenshot({ type: "jpeg", quality: 55, timeout: 4000 });
+    const up = await sb.storage.from("documents").upload(`screenshots/${live.id}/live.jpg`, buf, { contentType: "image/jpeg", upsert: true });
+    if (!up.error && live) live = { ...live, shotAt: new Date().toISOString() };
+  } catch { /* a picture is a courtesy: never a reason to stop */ } finally { shooting = false; }
+}
 
 /** Say what the assistant is doing now (at most one extra beat every 4 seconds). Never throws. */
 const stepNow = (sb: SupabaseClient, text: string) => {
@@ -196,6 +212,8 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
   if (!job) { say("  (job missing, skipped)"); return "later"; }
   say(`\n[${i}/${total}] ${job.title} at ${job.company}  (${job.portal ?? job.source})\n  ${job.url}`);
   live = { id: app.id, title: job.title, company: job.company, portal: String(job.portal ?? job.source ?? ""), step: "starting", since: new Date().toISOString() };
+  // the live picture is served like any stored screenshot, so it must be the application's screenshot while it is being worked on
+  await sb.from("applications").update({ screenshot_path: `screenshots/${app.id}/live.jpg` }).eq("id", app.id).then(() => undefined, () => undefined);
   lastBeat = Date.now(); void heartbeat(sb);
 
   if (auto) {
@@ -362,7 +380,7 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
       const r = await linkedinOpenApply(context, page);
       openNote = r.note;
       say(`  LinkedIn: ${r.note}.`);
-      if (r.kind === "easy") { formScope = EASY_APPLY_SCOPE; opened = "clicked"; }
+      if (r.kind === "easy") { formScope = r.scope ?? EASY_APPLY_SCOPE; opened = "clicked"; }
       else if (r.kind === "external") { page = r.page; opened = "clicked"; await logAct(sb, { kind: "job.link_resolved", message: `LinkedIn sent the assistant to the company's own page for ${job.title} at ${job.company}`, application_id: app.id, job_id: job.id, company: job.company, portal: job.portal, detail: { how: r.note, assistant: true } }); }
       else opened = "none";
     } else opened = await openApplyForm(page);
@@ -430,7 +448,10 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
       if (String(job.portal ?? "").toLowerCase() === "linkedin") {
         if (!/linkedin\.com/i.test(page.url())) {
           let host = ""; try { host = new URL(page.url()).hostname.replace(/^www\./, ""); } catch { /* keep blank */ }
-          problem = `LinkedIn sent the assistant to the company's page (${host || "its site"}), but no application form was found there (it may need an account or have another step); apply on that page`;
+          const vendor = accountGatedVendor(host);
+          problem = vendor
+            ? `LinkedIn sent the assistant to the company's ${vendor} page (${host}). ${vendor} makes you create or sign in to an account for each employer, and the assistant does not create accounts: open the link and apply there`
+            : `LinkedIn sent the assistant to the company's page (${host || "its site"}), but no application form was found there (it may need an account or have another step); apply on that page`;
         } else {
           const seen = await applyButtonsSeen(page);
           problem = `LinkedIn: ${openNote || "no application form found"}. Buttons the page showed: ${seen.length ? seen.join(" | ") : "none that mention apply"}`;
@@ -583,6 +604,7 @@ async function batch(sb: SupabaseClient, who: Who | null): Promise<number> {
     headless: process.env.ASSIST_HEADLESS === "1", viewport: null, executablePath: choice.executablePath, channel: choice.channel, ...LEAN_BROWSER,
   });
   await context.addInitScript({ content: "window.__name = window.__name || function (t) { return t; };" });
+  liveContext = context;
   if (await applyStorageState(context, process.env.ASSIST_STORAGE_STATE, profileDir)) say("Sign-ins loaded from the exported file.");
   // is the assistant's browser signed in to LinkedIn? Without it every LinkedIn job is the public, signed-out page with no Easy Apply button
   portalOff.clear(); deniedCount.clear();
@@ -650,6 +672,7 @@ async function batch(sb: SupabaseClient, who: Who | null): Promise<number> {
       }
     }
   } finally {
+    liveContext = null;
     await context.close().catch(() => undefined);
     current.submitted = done;
     lastRound = current;
@@ -672,6 +695,7 @@ async function main(who: Who | null) {
     say(`Watching for approved applications every ${pollMs / 60_000} minute(s)${process.env.ASSIST_HOURS ? `, working hours ${process.env.ASSIST_HOURS}` : ""}. Press Ctrl+C to stop.`);
     let nextRound = 0;
     setInterval(() => { void heartbeat(sb); }, 30_000); // keeps beating while a long round is running
+    setInterval(() => { void snap(sb).then(() => { if (live?.shotAt) void heartbeat(sb); }); }, 8000); // what the assistant sees, for the app
     for (;;) {
       await heartbeat(sb);
       // the "Run assistant now" button leaves a request; answer it straight away, whatever the working hours

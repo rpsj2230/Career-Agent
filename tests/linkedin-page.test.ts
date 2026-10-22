@@ -111,3 +111,23 @@ describe("opening a LinkedIn application", () => {
     await context.close();
   }, 30_000);
 });
+
+import { accountGatedVendor } from "../worker/assist-lib";
+describe("other shapes of LinkedIn's Easy Apply window", () => {
+  for (const name of ["linkedin-easy-native", "linkedin-easy-ariamodal"]) {
+    live(`finds the window in ${name}`, async () => {
+      if (!browser) return;
+      const context = await browser.newContext();
+      const page = await context.newPage();
+      await page.goto(fixture(name));
+      const r = await linkedinOpenApply(context, page);
+      expect(r.kind).toBe("easy");
+      await context.close();
+    }, 30_000);
+  }
+  it("names the employer systems that need an account", () => {
+    expect(accountGatedVendor("nine.wd105.myworkdayjobs.com")).toBe("Workday");
+    expect(accountGatedVendor("acme.icims.com")).toBe("iCIMS");
+    expect(accountGatedVendor("boards.greenhouse.io")).toBeNull();
+  });
+});

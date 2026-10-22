@@ -12,7 +12,7 @@ export function SmartRefresh({ seconds }: { seconds: number }) {
   useEffect(() => {
     const id = setInterval(() => {
       if (document.visibilityState !== "visible") return;
-      if (document.querySelector('input[type="checkbox"]:checked, [role="checkbox"][aria-checked="true"]')) return;
+      if (document.querySelector('input[type="checkbox"][aria-label^="Select"]:checked')) return; // only a ticked row (or "select all") pauses it, not other switches on the page
       const el = document.activeElement;
       if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
       router.refresh();

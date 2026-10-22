@@ -15,6 +15,7 @@
     "assist": "NODE_OPTIONS=--conditions=react-server tsx --env-file-if-exists=.env.local worker/assist.ts",
     "assist:export": "NODE_OPTIONS=--conditions=react-server tsx --env-file-if-exists=.env.local worker/assist-export.ts",
     "assist:login": "NODE_OPTIONS=--conditions=react-server tsx --env-file-if-exists=.env.local worker/assist-login.ts",
+    "assist:probe": "NODE_OPTIONS=--conditions=react-server tsx --env-file-if-exists=.env.local worker/assist-probe.ts",
     "assist:check": "NODE_OPTIONS=--conditions=react-server tsx --env-file-if-exists=.env.local worker/assist-check.ts",
     "assist:auto": "NODE_OPTIONS=--conditions=react-server ASSIST_MODE=auto tsx --env-file-if-exists=.env.local worker/assist.ts",
     "canary": "tsx --env-file-if-exists=.env.local worker/canary.ts",

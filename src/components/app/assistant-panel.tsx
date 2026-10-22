@@ -17,7 +17,17 @@ export function AssistantPanel({ online, pending, text, live, recent }: { online
         <CardDescription>{text}</CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3">
-        {live && <p className="rounded-md border border-green-600/40 p-2 text-sm"><b>Working on it now:</b> {live.title} at {live.company} ({live.portal}): {live.step}. <span className="text-muted-foreground">Started {ago(live.since)}.</span></p>}
+        {live && (
+          <div className="grid gap-2 rounded-md border border-green-600/40 p-2 text-sm">
+            <p><b>Working on it now:</b> {live.title} at {live.company} ({live.portal}): {live.step}. <span className="text-muted-foreground">Started {ago(live.since)}.</span></p>
+            {live.shotAt && (
+              <details open><summary className="cursor-pointer text-xs text-muted-foreground">What the assistant sees right now (updates every few seconds, so you do not need its window)</summary>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={`/api/files?path=${encodeURIComponent(`screenshots/${live.id}/live.jpg`)}&v=${encodeURIComponent(live.shotAt)}`} alt="What the assistant's browser shows now" className="mt-1 max-h-80 rounded-md border" />
+              </details>
+            )}
+          </div>
+        )}
         {recent && recent.length > 0 && (
           <div className="text-sm"><b>Latest results</b>
             <ul className="mt-1 grid gap-1">{recent.map((r, i) => <li key={i} className="flex flex-wrap gap-x-2"><Badge variant={r.outcome === "submitted" ? "default" : "secondary"} className={r.outcome === "submitted" ? "bg-green-600 text-white" : ""}>{MARK[r.outcome]}</Badge><span>{r.title} at {r.company}</span><span className="text-muted-foreground">{ago(r.at)}{r.note ? ` · ${r.note}` : ""}</span></li>)}</ul>

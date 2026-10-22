@@ -217,13 +217,18 @@ export function appStageCounts(rows: AppLight[]): Record<StageKey, number> {
   for (const r of rows) { const s = appStage(r.status); if (s) out[s]++; }
   return out;
 }
-export function sortApps(rows: AppLight[], sort: AppSortKey, dir: "asc" | "desc"): AppLight[] {
+export function sortApps(rows: AppLight[], sort: AppSortKey, dir: "asc" | "desc", pinId: string | null = null): AppLight[] {
   const sign = dir === "asc" ? 1 : -1;
   const time = (iso: string | null) => (iso ? Date.parse(iso) : null);
   const num = (a: number | null, b: number | null) => (a === null && b === null ? 0 : a === null ? 1 : b === null ? -1 : (a - b) * sign);
   return [...rows].sort((a, b) => {
     let c = 0;
-    if (sort === "queue") { const group = (x: AppLight) => (x.status === "submitted" ? 1 : 0); c = group(a) - group(b) || num(a.score ?? null, b.score ?? null); } // still to apply first, best score first, applied last
+    if (sort === "queue") {
+      // 0: being worked on right now (the assistant's current application, or one being sent), 1: waiting for the assistant or the cloud worker,
+      // 2: everything else still to apply, 3: applied. Within a group the best score first.
+      const group = (x: AppLight) => (x.id === pinId || x.status === "submitting" ? 0 : x.status === "assisted_pending" || x.status === "approved" ? 1 : x.status === "submitted" ? 3 : 2);
+      c = group(a) - group(b) || num(a.score ?? null, b.score ?? null);
+    }
     else if (sort === "company") c = cmpText(a.company, b.company) * sign;
     else if (sort === "title") c = cmpText(a.title, b.title) * sign;
     else if (sort === "country") c = a.country === null ? (b.country === null ? 0 : 1) : b.country === null ? -1 : cmpText(a.country, b.country) * sign;
