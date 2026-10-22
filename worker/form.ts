@@ -172,3 +172,23 @@ export async function clickSubmit(page: Page): Promise<boolean> {
   }
   return false;
 }
+
+/**
+ * True when the page shows a search box (a job board's "what / where" form) and no application form. Such a page is a listing or search
+ * result, not an application: nothing must be typed into it and its button must not be pressed.
+ */
+export async function looksLikeSearchForm(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const visible = (el: Element) => { const r = (el as HTMLElement).getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(el as HTMLElement).visibility !== "hidden"; };
+    const searchy = (f: Element) => {
+      const btn = f.querySelector<HTMLElement>('button[type="submit"], input[type="submit"], button:not([type])');
+      const btnText = ((btn as HTMLInputElement | null)?.value || btn?.textContent || "").trim();
+      return f.getAttribute("role") === "search" || /search/i.test(`${f.id} ${f.className} ${f.getAttribute("action") ?? ""}`) || !!f.querySelector('input[type="search"]')
+        || /search/i.test(btn?.id ?? "") || /^(search|find)\b/i.test(btnText);
+    };
+    const forms = [...document.querySelectorAll("form")].filter(visible);
+    const application = forms.some((f) => !searchy(f) && (!!f.querySelector('input[type="file"]') || [...f.querySelectorAll("input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=checkbox]):not([type=radio]), textarea, select")].filter(visible).length >= 3));
+    if (application) return false;
+    return forms.some(searchy) || [...document.querySelectorAll('input[type="search"]')].some(visible);
+  });
+}
