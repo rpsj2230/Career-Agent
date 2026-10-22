@@ -16,7 +16,10 @@ type Scoring = { threshold: number; min_evidence: number; batch_size: number; ro
 type Caps = { daily_total: number; daily_linkedin: number; weekly_linkedin: number; linkedin_automation_enabled: boolean; local_auto_enabled?: boolean; company_cooldown_days?: number };
 const csv = (s: string) => s.split(",").map((x) => x.trim()).filter(Boolean);
 
-export function SettingsForm({ searching, discovery, scoring, caps, tailoring, blocklist, replies, roles }: { searching: { names: string[]; configured: boolean }; discovery: Discovery; scoring: Scoring; caps: Caps; blocklist: { companies: string[]; keywords: string[]; skip_agencies: boolean }; replies: { enabled: boolean }; tailoring: { reuse_enabled: boolean; reuse_similarity: number; adapt_similarity: number }; roles: string[] }) {
+export type SettingsSectionId = "find" | "score-match" | "prepare" | "send" | "after";
+
+/** The settings cards of one step of the pipeline. Each step is rendered on its own place on the Settings page; the page passes the same props to each. */
+export function SettingsForm({ section, searching, discovery, scoring, caps, tailoring, blocklist, replies, roles }: { section: SettingsSectionId; searching: { names: string[]; configured: boolean }; discovery: Discovery; scoring: Scoring; caps: Caps; blocklist: { companies: string[]; keywords: string[]; skip_agencies: boolean }; replies: { enabled: boolean }; tailoring: { reuse_enabled: boolean; reuse_similarity: number; adapt_similarity: number }; roles: string[] }) {
   const router = useRouter();
   const [d, setD] = useState({ ...discovery, countries: discovery.countries.join(", "), roles: discovery.roles.join(", "), greenhouse_boards: discovery.greenhouse_boards.join(", "), lever_companies: discovery.lever_companies.join(", "), ashby_orgs: (discovery.ashby_orgs ?? []).join(", "), workable_accounts: (discovery.workable_accounts ?? []).join(", "), recruitee_companies: (discovery.recruitee_companies ?? []).join(", ") });
   const [t, setT] = useState(scoring.threshold);
@@ -37,8 +40,10 @@ export function SettingsForm({ searching, discovery, scoring, caps, tailoring, b
 
   return (
     <div className="grid gap-4">
+      {section === "find" && (
+        <>
       <Card>
-        <CardHeader><CardTitle>Job discovery</CardTitle><CardDescription>Greenhouse board tokens and Lever company slugs come from the careers-page URL (boards.greenhouse.io/<b>token</b>, jobs.lever.co/<b>slug</b>).</CardDescription></CardHeader>
+        <CardHeader><CardTitle>Where to search and how far back</CardTitle><CardDescription>Greenhouse board tokens and Lever company slugs come from the careers-page URL (boards.greenhouse.io/<b>token</b>, jobs.lever.co/<b>slug</b>).</CardDescription></CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-2">
           <div className="grid gap-2">
             <Label>Countries</Label>
@@ -66,30 +71,7 @@ export function SettingsForm({ searching, discovery, scoring, caps, tailoring, b
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>Fit threshold</CardTitle><CardDescription>Jobs scoring below this are skipped (with the reason kept) and never reach your queue.</CardDescription></CardHeader>
-        <CardContent className="flex items-end gap-3"><div className="grid gap-1"><Label htmlFor="th">Minimum score (0-100)</Label>{num(t, setT, "th")}</div><div className="grid gap-1"><Label htmlFor="me">Free pre-check minimum (0-60)</Label>{num(me, setMe, "me")}</div><Button onClick={saveScoring}>Save</Button></CardContent>
-        <CardContent className="grid gap-3 border-t pt-4 md:grid-cols-2">
-          <div className="grid gap-1"><Label htmlFor="bs">Jobs scored per model call (1-8)</Label>{num(sc.batch_size, (n) => setSc({ ...sc, batch_size: n }), "bs")}<span className="text-xs text-muted-foreground">Several jobs share one call, so your profile is sent once instead of once per job. 1 = one job per call.</span></div>
-          <div className="grid gap-2 text-sm">
-            <label className="flex items-center gap-2"><Switch checked={sc.routing} onCheckedChange={(v) => setSc({ ...sc, routing: v })} /> Fast models for scoring, stronger models for writing</label>
-            <label className="flex items-center gap-2"><Switch checked={sc.escalate_borderline} onCheckedChange={(v) => setSc({ ...sc, escalate_borderline: v })} /> Re-check scores close to the threshold with a stronger model</label>
-            <label className="flex items-center gap-2"><Switch checked={sc.learning} onCheckedChange={(v) => setSc({ ...sc, learning: v })} /> Learn from my skips, interviews and rejections</label>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader><CardTitle>Reply tracking</CardTitle><CardDescription>Uses the job-alert mailbox you connected on the Portals page. When an employer writes back, the application is marked as interview, rejected or offer for you, and you are told about interviews and offers. Mail is read read-only and in memory; only the result and the subject line are kept. Off until you turn it on.</CardDescription></CardHeader>
-        <CardContent className="flex items-center gap-3"><label className="flex items-center gap-2 text-sm"><Switch checked={rp} onCheckedChange={async (v) => { setRp(v); await call("/api/settings", "PUT", { key: "replies", value: { enabled: v } }, v ? "Reply tracking is on" : "Reply tracking is off"); }} /> Update my applications from employers&apos; replies</label></CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader><CardTitle>Approve from your phone</CardTitle><CardDescription>New prepared applications are sent to your Telegram with Approve and Skip buttons. Needs TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID on the deployed app and APP_URL set to its https address. Only button presses from your own chat are accepted.</CardDescription></CardHeader>
-        <CardContent><Button variant="outline" onClick={async () => { await call("/api/telegram/setup", "POST", {}, "Telegram buttons are connected"); }}>Connect Telegram buttons</Button></CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader><CardTitle>Blocklist</CardTitle><CardDescription>Jobs matching any of these are skipped for free, before anything else, with the reason kept.</CardDescription></CardHeader>
+        <CardHeader><CardTitle>Skip list: companies and words to ignore</CardTitle><CardDescription>Jobs matching any of these are skipped for free, before anything else, with the reason kept.</CardDescription></CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-2">
           <div className="grid gap-1"><Label htmlFor="blc">Companies (part of the name is enough)</Label><Input id="blc" value={bl.companies} placeholder="acme staffing, globex" onChange={(e) => setBl({ ...bl, companies: e.target.value })} /></div>
           <div className="grid gap-1"><Label htmlFor="blk">Words in the title or description</Label><Input id="blk" value={bl.keywords} placeholder="unpaid, commission only, internship" onChange={(e) => setBl({ ...bl, keywords: e.target.value })} /></div>
@@ -97,9 +79,35 @@ export function SettingsForm({ searching, discovery, scoring, caps, tailoring, b
           <div className="md:col-span-2"><Button onClick={saveBlocklist}>Save blocklist</Button></div>
         </CardContent>
       </Card>
+        </>
+      )}
+
+      {section === "score-match" && (
+        <>
+      <Card>
+        <CardHeader><CardTitle>Score: how each job is rated</CardTitle><CardDescription>Every job found is scored against your profile, about 60 per pass and up to 8 passes per run. There is no daily limit of its own; the free AI models&apos; daily allowance is the ceiling.</CardDescription></CardHeader>
+        <CardContent className="grid gap-3 md:grid-cols-2">
+          <div className="grid gap-1"><Label htmlFor="bs">Jobs scored per model call (1-8)</Label>{num(sc.batch_size, (n) => setSc({ ...sc, batch_size: n }), "bs")}<span className="text-xs text-muted-foreground">Several jobs share one call, so your profile is sent once instead of once per job. 1 = one job per call.</span></div>
+          <div className="grid gap-2 text-sm">
+            <label className="flex items-center gap-2"><Switch checked={sc.routing} onCheckedChange={(v) => setSc({ ...sc, routing: v })} /> Fast models for scoring, stronger models for writing</label>
+            <label className="flex items-center gap-2"><Switch checked={sc.escalate_borderline} onCheckedChange={(v) => setSc({ ...sc, escalate_borderline: v })} /> Re-check scores close to the threshold with a stronger model</label>
+            <label className="flex items-center gap-2"><Switch checked={sc.learning} onCheckedChange={(v) => setSc({ ...sc, learning: v })} /> Learn from my skips, interviews and rejections</label>
+          </div>
+          <div className="md:col-span-2"><Button onClick={saveScoring}>Save</Button></div>
+        </CardContent>
+      </Card>
 
       <Card>
-        <CardHeader><CardTitle>Resume memory</CardTitle><CardDescription>Reuse or lightly adapt a resume the agent already wrote and verified for a very similar job, instead of writing a new one. This saves model usage; every resume is still re-checked against your profile.</CardDescription></CardHeader>
+        <CardHeader><CardTitle>Match: the minimum score</CardTitle><CardDescription>A job whose fit score is at least this is a match and goes on to get a resume. Jobs below it are skipped (with the reason kept) and never reach your queue. There is no limit on how many jobs can match; the score decides.</CardDescription></CardHeader>
+        <CardContent className="flex flex-wrap items-end gap-3"><div className="grid gap-1"><Label htmlFor="th">Minimum score (0-100)</Label>{num(t, setT, "th")}</div><div className="grid gap-1"><Label htmlFor="me">Free pre-check minimum (0-60)</Label>{num(me, setMe, "me")}<span className="text-xs text-muted-foreground">Jobs the free rules rate below this are dropped without using an AI model.</span></div><Button onClick={saveScoring}>Save</Button></CardContent>
+      </Card>
+        </>
+      )}
+
+      {section === "prepare" && (
+        <>
+      <Card>
+        <CardHeader><CardTitle>Resume memory: reuse past resumes</CardTitle><CardDescription>Reuse or lightly adapt a resume the agent already wrote and verified for a very similar job, instead of writing a new one. This saves model usage; every resume is still re-checked against your profile.</CardDescription></CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-3">
           <label className="flex items-center gap-2 text-sm md:col-span-3"><Switch checked={tl.reuse_enabled} onCheckedChange={(v) => setTl({ ...tl, reuse_enabled: v })} /> Reuse and adapt past resumes</label>
           <div className="grid gap-1"><Label htmlFor="ru">Reuse as is above (similarity 0-1)</Label>{num(tl.reuse_similarity, (n) => setTl({ ...tl, reuse_similarity: n }), "ru")}</div>
@@ -107,9 +115,13 @@ export function SettingsForm({ searching, discovery, scoring, caps, tailoring, b
           <div className="md:col-span-3"><Button onClick={saveTailoring}>Save</Button></div>
         </CardContent>
       </Card>
+        </>
+      )}
 
+      {section === "send" && (
+        <>
       <Card>
-        <CardHeader><CardTitle>Application limits</CardTitle><CardDescription>Caps apply to automated submissions only. When a cap is reached the package is prepared for you to submit by hand; nothing is dropped.</CardDescription></CardHeader>
+        <CardHeader><CardTitle>Sending limits: per day, LinkedIn, same company, hands-free</CardTitle><CardDescription>Caps apply to automated submissions only. When a cap is reached the package is prepared for you to submit by hand; nothing is dropped.</CardDescription></CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-3">
           <div className="grid gap-1"><Label htmlFor="dt">Automated per day (all sites)</Label>{num(c.daily_total, (n) => setC({ ...c, daily_total: n }), "dt")}</div>
           <div className="grid gap-1"><Label htmlFor="dl">LinkedIn per day</Label>{num(c.daily_linkedin, (n) => setC({ ...c, daily_linkedin: n }), "dl")}</div>
@@ -132,6 +144,22 @@ export function SettingsForm({ searching, discovery, scoring, caps, tailoring, b
           <div className="md:col-span-3"><Button onClick={saveCaps}>Save limits</Button></div>
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader><CardTitle>Approve from your phone</CardTitle><CardDescription>New prepared applications are sent to your Telegram with Approve and Skip buttons. Needs TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID on the deployed app and APP_URL set to its https address. Only button presses from your own chat are accepted.</CardDescription></CardHeader>
+        <CardContent><Button variant="outline" onClick={async () => { await call("/api/telegram/setup", "POST", {}, "Telegram buttons are connected"); }}>Connect Telegram buttons</Button></CardContent>
+      </Card>
+        </>
+      )}
+
+      {section === "after" && (
+        <>
+      <Card>
+        <CardHeader><CardTitle>Reply tracking: employers&apos; answers</CardTitle><CardDescription>Uses the job-alert mailbox you connected on the Portals page. When an employer writes back, the application is marked as interview, rejected or offer for you, and you are told about interviews and offers. Mail is read read-only and in memory; only the result and the subject line are kept. Off until you turn it on.</CardDescription></CardHeader>
+        <CardContent className="flex items-center gap-3"><label className="flex items-center gap-2 text-sm"><Switch checked={rp} onCheckedChange={async (v) => { setRp(v); await call("/api/settings", "PUT", { key: "replies", value: { enabled: v } }, v ? "Reply tracking is on" : "Reply tracking is off"); }} /> Update my applications from employers&apos; replies</label></CardContent>
+      </Card>
+        </>
+      )}
     </div>
   );
 }

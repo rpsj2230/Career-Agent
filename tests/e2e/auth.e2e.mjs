@@ -394,7 +394,7 @@ r = await call("/logs?page=2"); check("pagination works and offers a way back", 
 
 r = await call("/logs/runs"); check("Runs page lists runs with outcomes and totals per source", r.status === 200 && r.text.includes("Jobs found per source") && r.text.includes("succeeded") && r.text.includes("partial") && r.text.includes("Adzuna"), `${r.status}`);
 const scanRun = mock.rowsOf("automation_runs").find((x) => x.kind === "scan" && x.stats?.inserted === 1);
-r = await call(`/logs/runs/${scanRun.id}`); check("a run page shows its counters, scans and log entries", r.status === 200 && r.text.includes("Scans in this run") && r.text.includes("already known") && r.text.includes("scan.finished"), `${r.status}`);
+r = await call(`/logs/runs/${scanRun.id}`); check("a run page shows its steps, sources, AI models, jobs, searches and log entries", r.status === 200 && r.text.includes("What this run did, step by step") && r.text.includes("Where the jobs came from") && r.text.includes("AI models used") && r.text.includes("Jobs found in this run") && r.text.includes("Every search in this run") && r.text.includes("already known") && r.text.includes("scan.finished"), `${r.status}`);
 const badRun = mock.rowsOf("automation_runs").find((x) => x.status === "partial");
 r = await call(`/logs/runs/${badRun.id}`); check("a partial run explains what went wrong", r.text.includes("What went wrong") && /scans failed|quota/.test(r.text), "reason missing");
 r = await call("/logs/runs/not-a-uuid"); check("an invalid run id is a 404", r.status === 404, r.status);
@@ -1058,7 +1058,7 @@ r = await call("/api/models/test", { method: "POST", body: { label: "e2e-model" 
   r = await call("/jobs?view=all&size=100"); check("the Jobs page has select-all, bulk preparing, resume links and clear apply labels", /Select all on this page/.test(strip(r.text)) && /Prepare resumes for selected/.test(strip(r.text)) && /View resume/.test(strip(r.text)) && /(Automatic · |Assistant · your computer|Manual · you submit)/.test(strip(r.text)) && !/Run full cycle now/.test(strip(r.text)), r.status);
   check("the Jobs page explains where to run the whole schedule", /Run this schedule now/.test(strip(r.text)), "hint missing");
   r = await call("/applications?size=100"); check("the Applications page has select-all with Approve and apply selected and Skip selected", /Approve and apply selected/.test(strip(r.text)) && /Skip selected/.test(strip(r.text)) && /View resume/.test(strip(r.text)), r.status);
-  r = await call("/schedules"); check("the Schedules page shows what is waiting and says it clears by itself", /Waiting to be processed/.test(strip(r.text)), r.status);
+  r = await call("/schedules"); check("the Schedules page shows the pipeline table (last 24 hours, waiting now, limits) and the recent runs", /The pipeline at a glance/.test(strip(r.text)) && /Last 24 hours/.test(strip(r.text)) && /Waiting now/.test(strip(r.text)) && /Recent runs/.test(strip(r.text)), r.status);
   r = await call("/jobs?view=all&size=100"); check("the Jobs page shows Where everything stands with counts, percentages and the five steps", /Where everything stands/.test(strip(r.text)) && /% done/.test(strip(r.text)) && /Scoring/.test(strip(r.text)) && /Resume and cover letter/.test(strip(r.text)) && /Approval/.test(strip(r.text)) && /Sending/.test(strip(r.text)), "missing");
   r = await call("/models"); check("the Models page says which model works and why one does not", /Models by provider/.test(strip(r.text)) && /(Working|Not used yet|Unstable|Not working|No key)/.test(strip(r.text)), r.status);
   {
@@ -1070,7 +1070,7 @@ r = await call("/api/models/test", { method: "POST", body: { label: "e2e-model" 
     jar.clear(); for (const [k, v] of adminJar) jar.set(k, v);
     r = await call("/api/team?email=stranger%40x.com", { method: "DELETE" }); check("the view-only person is removed again", r.status === 200, r.status);
   }
-  r = await call("/settings"); check("Settings has automatic preparing", /Automatic preparing and backlog clearing/.test(strip(r.text)), r.status);
+  r = await call("/settings"); check("Settings has the prepare step with its resume limits, and a limits table", /Step 4 · Prepare resumes and cover letters/.test(strip(r.text)) && /Prepare: resumes written automatically/.test(strip(r.text)) && /Your limits at a glance/.test(strip(r.text)), r.status);
   r = await call("/logs"); check("the logs page names its link as run history", /Run history/.test(strip(r.text)), r.status);
 
   const due = await fetch(`${BASE}/api/cron/due`, { headers: { Authorization: `Bearer ${SECRET}` } }).then(async (x) => ({ status: x.status, json: await x.json().catch(() => null) }));

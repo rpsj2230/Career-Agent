@@ -2,7 +2,6 @@ import Link from "next/link";
 import { PageSizeBar, Pagination } from "@/components/app/pagination";
 import { pageRange, parsePaging } from "@/lib/pagination";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -11,13 +10,13 @@ import { portalLabel } from "@/lib/jobs/portal";
 import { applyLogs, listRuns, recentScans } from "@/lib/log-queries";
 import { ApplyReportCard } from "@/components/app/apply-report-card";
 import { applyReport, windowLabel } from "@/lib/run-report";
+import { RunsTable } from "@/components/app/runs-table";
 import { summarizeScans } from "@/lib/scan-summary";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { appTimezone, fmtDateTime, fmtDuration } from "@/lib/time";
+import { appTimezone, fmtDateTime } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
 
-const STATUS_STYLE: Record<string, string> = { succeeded: "bg-green-600 text-white", partial: "bg-amber-500 text-white", failed: "bg-destructive text-white", running: "bg-blue-600 text-white", cancelled: "bg-muted text-muted-foreground" };
 const sel = "h-9 rounded-md border border-input bg-transparent px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
 const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 const date = (v?: string) => (v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : undefined);
@@ -77,21 +76,7 @@ export default async function RunsPage({ searchParams }: { searchParams: Promise
         <CardContent>
           <PageSizeBar basePath="/logs/runs" sp={sp} size={paging.size} total={total} shownFrom={rng.shownFrom} shownTo={rng.shownTo} />
           {rows.length === 0 ? <p className="text-sm text-muted-foreground">No runs in this period.</p> : (
-            <Table>
-              <TableHeader><TableRow><TableHead>Started</TableHead><TableHead>Kind</TableHead><TableHead>Trigger</TableHead><TableHead>Outcome</TableHead><TableHead>Took</TableHead><TableHead>Counters</TableHead><TableHead /></TableRow></TableHeader>
-              <TableBody>
-                {rows.map((r) => (
-                  <TableRow key={r.id}>
-                    <TableCell className="whitespace-nowrap text-xs">{fmtDateTime(r.started_at)}</TableCell>
-                    <TableCell>{r.kind}</TableCell><TableCell>{r.trigger}</TableCell>
-                    <TableCell className="whitespace-normal"><Badge className={STATUS_STYLE[r.status] ?? ""}>{r.status}</Badge>{r.error && <div className="mt-1 max-w-xs text-xs text-muted-foreground">{r.error}</div>}</TableCell>
-                    <TableCell className="text-xs">{fmtDuration(r.started_at, r.finished_at) ?? (r.status === "running" ? "running" : "-")}</TableCell>
-                    <TableCell className="whitespace-normal text-xs">{Object.entries(r.stats ?? {}).map(([k, v]) => `${k} ${v}`).join(" · ") || "-"}</TableCell>
-                    <TableCell><Link className="underline text-sm" href={`/logs/runs/${r.id}`}>Open</Link></TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            <div className="overflow-x-auto"><RunsTable runs={rows} /></div>
           )}
         <Pagination basePath="/logs/runs" sp={sp} page={rng.page} pages={rng.pages} size={paging.size} />
         </CardContent>

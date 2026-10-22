@@ -25,7 +25,7 @@ export function AutoPrepareCard({ initial }: { initial: AutoPrepare }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Automatic preparing and backlog clearing</CardTitle>
+        <CardTitle>Prepare: resumes written automatically, per round and at once</CardTitle>
         <CardDescription>
           Every hour the app scores any jobs that are waiting and writes the resume, cover letter (and employer email) for good matches, following the rules of your active schedule, so applications are ready for you to approve without pressing Prepare.
           The batch is limited so the free AI quotas last.
