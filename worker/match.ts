@@ -1,4 +1,5 @@
 /** Pure helpers for the apply worker: no browser, no network, fully unit-tested. */
+import { yearsSkill } from "../src/lib/apply/skill-years";
 
 export type Answer = { question: string; answer: string };
 export type Applicant = { name: string; email: string; phone: string; location: string; links: string[]; currentCompany?: string };
@@ -47,6 +48,9 @@ export function matchAnswer(label: string, answers: Answer[]): string | null {
     // a visa or sponsorship question with no matching saved answer is NEVER guessed from a loosely similar one
     if (fam === "visa" || fam === "sponsorship") return null;
   }
+  // "years of experience with X": an answer saved for X serves every wording of the question, and never serves a question about another tool
+  const skill = yearsSkill(label);
+  if (skill) return answers.find((a) => a.answer.trim() && yearsSkill(a.question) === skill)?.answer ?? null;
   const lw = words(label);
   if (lw.size === 0) return null;
   let best: { score: number; answer: string } | null = null;

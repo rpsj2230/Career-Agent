@@ -44,3 +44,12 @@ export function withAnswer(answers: { question: string; answer: string; source: 
 
 /** The question as it is stored when the answer is only for one country: the worker answers it only on that country's forms. */
 export const scopedQuestion = (question: string, countryName: string | null) => (countryName && !new RegExp(`\\b${countryName}\\b`, "i").test(question) ? `${question} (${countryName})` : question);
+
+/**
+ * Where an application goes once its question is answered. One that the assistant on your computer handed back, and that you had already
+ * approved, goes straight back to the assistant's queue (it was cleared to send; only the answer was missing). Anything else returns to
+ * "prepared", to be approved as usual.
+ */
+export function requeueStatus(row: { approved_at: string | null }, lastHandback: { assistant?: boolean } | null): "assisted_pending" | "prepared" {
+  return row.approved_at && lastHandback?.assistant === true ? "assisted_pending" : "prepared";
+}

@@ -47,6 +47,47 @@ export async function nextStep(page: Page, scope?: string): Promise<boolean> {
   return true;
 }
 
+/**
+ * LinkedIn's resume step lists resumes saved from earlier applications, one of them already selected, plus an "Upload resume" button.
+ * The résumé written for THIS job must be the one sent, so it is uploaded through that button. Returns the file name when it was
+ * uploaded, null when this page has no such button (every other step) or the upload did not go through.
+ */
+export async function uploadEasyApplyResume(page: Page, scope: string, resumePath: string): Promise<string | null> {
+  const root = page.locator(`${scope} >> visible=true`).first();
+  const btn = root.getByRole("button", { name: /^\s*upload (a )?(resume|cv)\s*$/i }).first();
+  if (!(await btn.isVisible().catch(() => false))) return null;
+  const chooser = page.waitForEvent("filechooser", { timeout: 6000 }).catch(() => null);
+  await btn.click({ timeout: 4000 }).catch(() => undefined);
+  const fc = await chooser;
+  if (!fc) return null;
+  await fc.setFiles(resumePath).catch(() => undefined);
+  const name = resumePath.split(/[\\/]/).pop() ?? resumePath;
+  // the page shows the file's name once it has taken it
+  const stem = name.replace(/\.[^.]+$/, "").slice(0, 20);
+  const shown = await root.getByText(stem, { exact: false }).first().waitFor({ state: "visible", timeout: 12_000 }).then(() => true, () => false);
+  return shown ? name : null;
+}
+
+/**
+ * The questions a form refused: controls the page itself marks invalid ("Invalid input", "Please enter a valid answer").
+ * Used after pressing Next to tell a question we answered wrongly, or could not answer, from a page that simply did not move on.
+ */
+export async function refusedFields(page: Page, scope?: string): Promise<string[]> {
+  return page.evaluate((scopeSel) => {
+    const shown = (el: Element) => { const r = (el as HTMLElement).getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(el as HTMLElement).visibility !== "hidden"; };
+    const root: ParentNode = scopeSel ? [...document.querySelectorAll(scopeSel)].find(shown) ?? document : document;
+    const text = (el: Element | null) => (el?.textContent ?? "").replace(/\s+/g, " ").trim();
+    const out: string[] = [];
+    for (const el of root.querySelectorAll<HTMLElement>('input[aria-invalid="true"], select[aria-invalid="true"], textarea[aria-invalid="true"], fieldset[aria-invalid="true"]')) {
+      if (!shown(el)) continue;
+      const by = el.getAttribute("aria-labelledby");
+      const label = el.getAttribute("aria-label") || (by ? by.split(/\s+/).map((id) => text(document.getElementById(id))).join(" ") : "") || (el.id ? text(document.querySelector(`label[for="${CSS.escape(el.id)}"]`)) : "") || text(el.querySelector("legend")) || (el as HTMLInputElement).name || "";
+      if (label && !out.includes(label)) out.push(label);
+    }
+    return out;
+  }, scope);
+}
+
 /** True when the page offers the control that sends the application (so you can review and press it yourself). */
 export async function finalStepVisible(page: Page, scope?: string): Promise<boolean> {
   const byRole = (scope ? page.locator(`${scope} >> visible=true`).first().getByRole("button", { name: SENDS_APPLICATION }) : page.getByRole("button", { name: SENDS_APPLICATION })).first();
@@ -225,9 +266,17 @@ export async function describePage(page: Page, scope: string): Promise<unknown> 
  */
 export async function walkEasyApply(page: Page, scope: string, maxPages = 6): Promise<{ pages: unknown[]; stoppedAt: string }> {
   const pages: unknown[] = [];
+  let last = "";
   for (let i = 0; i < maxPages; i++) {
     await page.waitForTimeout(1800).catch(() => undefined);
-    pages.push(await describePage(page, scope));
+    const d = await describePage(page, scope);
+    const sig = JSON.stringify(d);
+    if (sig === last) {
+      const refused = await refusedFields(page, scope).catch(() => [] as string[]);
+      return { pages, stoppedAt: `a question needs an answer before LinkedIn lets the form go on${refused.length ? ` (${refused.join("; ")})` : ""}; the probe fills nothing, the assistant answers these from your profile and answer bank` };
+    }
+    last = sig;
+    pages.push(d);
     const root = page.locator(`${scope} >> visible=true`).first();
     if (await root.getByRole("button", { name: /submit( application)?|send application/i }).first().isVisible().catch(() => false)) return { pages, stoppedAt: "the Submit button, which was not pressed" };
     const next = root.getByRole("button", { name: NEXT_STEP }).first();

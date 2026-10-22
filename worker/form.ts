@@ -1,9 +1,14 @@
 import { basename } from "node:path";
 import type { Locator, Page } from "playwright";
 import type { FieldEntry } from "../src/lib/apply/submission";
+import { asCount, wantsNumber, yearsSkill } from "../src/lib/apply/skill-years";
 import { matchAnswer, standardValue, type Answer, type Applicant } from "./match";
 
-export type FillContext = { applicant: Applicant; answers: Answer[]; resumePath: string; coverPath?: string };
+export type FillContext = {
+  applicant: Applicant; answers: Answer[]; resumePath: string; coverPath?: string;
+  /** years of work with a named tool, when the profile itself shows it (never a guess); asked after the saved answers */
+  skillYears?: (skill: string) => string | null;
+};
 /** A question the rules could not answer, with what is needed to answer it from the profile. */
 export type Pending = { label: string; type: "text" | "textarea" | "select" | "radio" | "number"; options: string[]; required: boolean };
 export type FillResult = { filled: string[]; unanswered: string[]; entries: FieldEntry[]; pending: Pending[] };
@@ -90,7 +95,12 @@ async function tick(box: Locator): Promise<void> {
   if (!(await done())) throw new Error("the box could not be ticked");
 }
 
-const clean = (s: string) => s.replace(/[*✱]/g, "").replace(/\s+/g, " ").trim();
+/** A label without its required star, and without the doubling some sites produce (a visible label plus the same words again for screen readers). */
+export const clean = (s: string) => {
+  const t = s.replace(/[*✱]/g, "").replace(/\s+/g, " ").trim();
+  for (let n = Math.floor(t.length / 2); n >= 6; n--) { if (t.length === 2 * n || t.length === 2 * n + 1) { const a = t.slice(0, n).trim(), b = t.slice(t.length - n).trim(); if (a === b) return a; } }
+  return t;
+};
 const yesNo = (answer: string) => (/^\s*(yes|y|true)\b/i.test(answer) ? "yes" : /^\s*(no|n|false)\b/i.test(answer) ? "no" : null);
 
 function pickOption(options: { text: string }[], answer: string): number {
@@ -116,7 +126,7 @@ export async function fillForm(page: Page, ctx: FillContext, scope?: string): Pr
   const ask = (f: Field, label: string) => {
     if (!f.required) return;
     unanswered.push(label);
-    const t = f.type === "textarea" ? "textarea" : f.type === "select" ? "select" : f.type === "radio" ? "radio" : f.type === "number" ? "number" : "text";
+    const t = f.type === "textarea" ? "textarea" : f.type === "select" ? "select" : f.type === "radio" ? "radio" : f.type === "number" || wantsNumber(label) ? "number" : "text";
     pending.push({ label, type: t, options: f.options.map((o) => o.text), required: true });
   };
   const at = (i: number) => page.locator(`[data-ca-i="${i}"]`);
@@ -145,8 +155,13 @@ export async function fillForm(page: Page, ctx: FillContext, scope?: string): Pr
       if (f.hasValue) continue;
       // the visible label decides first (a field named "_systemfield_name" labelled "Name"); the field's own name is the fallback
       const std = standardValue(label, ctx.applicant) ?? standardValue(probe, ctx.applicant);
-      const value = std ?? matchAnswer(label, ctx.answers);
-      const source: FieldEntry["source"] = std != null ? "profile" : "answers";
+      const banked = std ?? matchAnswer(label, ctx.answers);
+      const skill = banked == null ? yearsSkill(label) : null;
+      const derived = skill ? ctx.skillYears?.(skill) ?? null : null;
+      const raw = banked ?? derived;
+      // a count asked for in a box is written as a number: "3 years" would be refused
+      const value = raw != null && f.type !== "select" && wantsNumber(label) ? asCount(raw) : raw;
+      const source: FieldEntry["source"] = std != null || derived != null ? "profile" : "answers";
 
       if (f.type === "radio") {
         const answer = matchAnswer(f.label, ctx.answers);

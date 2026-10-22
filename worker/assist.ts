@@ -30,6 +30,7 @@ import { pauseActive } from "../src/lib/pause-rules";
 import { chromium, type BrowserContext, type Page } from "playwright";
 import { confirmationSnippet, type FieldEntry, type SubmissionRecord } from "../src/lib/apply/submission";
 import { MasterProfile } from "../src/lib/types";
+import { skillYears } from "../src/lib/apply/skill-years";
 import { isRedirector } from "../src/lib/jobs/redirectors";
 import { atsLinksIn, findOnEmployerBoards } from "../src/lib/jobs/alt-routes";
 import { careersSiteRoutes, googleJobsRoutes, type Found, type RouteId } from "../src/lib/jobs/more-routes";
@@ -38,12 +39,12 @@ import { resolveCredentials } from "../src/lib/integrations/credentials";
 import { summariseAttempts, type RouteAttempt } from "../src/lib/apply/route-chain";
 import { contactEmailsFor } from "../src/lib/apply/contact-email";
 import { loadDraft } from "../src/lib/apply/email-store";
-import { accountGatedVendor, applyButtonsSeen, EASY_APPLY_SCOPE, finalStepVisible, leaveJobBoard, linkedinOpenApply, nextStep, openApplyForm, parseLinkedinState, waitForLinkedinApply } from "./assist-lib";
+import { accountGatedVendor, applyButtonsSeen, EASY_APPLY_SCOPE, finalStepVisible, leaveJobBoard, linkedinOpenApply, nextStep, openApplyForm, parseLinkedinState, refusedFields, uploadEasyApplyResume, waitForLinkedinApply } from "./assist-lib";
 import { requestPending, type AssistantRequest } from "../src/lib/apply/assistant-request";
 import { autoDecision, humanPause, withinHours, type AutoCaps, type AutoState } from "./assist-policy";
 import { answerPending } from "./ai-answers";
 import { acquireWatcherLock, lockPathFor } from "./assist-lock";
-import { clickSubmit, fillForm, looksLikeSearchForm } from "./form";
+import { clean, clickSubmit, fillForm, looksLikeSearchForm } from "./form";
 import { orderQueue } from "../src/lib/apply/queue-order";
 import { NO_FORM, pushRecent, staleLinkedinNoForm, type Live, type Recent } from "../src/lib/apply/assistant-live";
 import { boardDenied, CONFIRMATION, detectBlock, linkedinSignedIn, type Answer } from "./match";
@@ -242,6 +243,7 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
   const fctx = {
     applicant: { name: profile.basics.name, email: profile.basics.email, phone: profile.basics.phone, location: profile.basics.location, links: profile.basics.links, currentCompany: profile.experience[0]?.company },
     answers: app.answers ?? [], resumePath: files.resume.path, coverPath: files.cover?.path,
+    skillYears: (skill: string) => skillYears(profile, skill),
   };
 
   const startedAt = new Date().toISOString();
@@ -279,7 +281,7 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
     const patch = { status: "needs_input", error: message, screenshot_path: shot };
     const { error } = await sb.from("applications").update({ ...patch, submission: record("needs_input", "automated", null, message, "The apply assistant stopped and handed this back to you.") }).eq("id", app.id);
     if (error) await sb.from("applications").update(patch).eq("id", app.id);
-    await sb.from("apply_events").insert({ application_id: app.id, kind: "needs_input", detail: { message } });
+    await sb.from("apply_events").insert({ application_id: app.id, kind: "needs_input", detail: { message, assistant: true } });
     await logAct(sb, { kind: "application.needs_input", level: "warn", message: `Needs you: ${message}`, status: "needs_input", application_id: app.id, job_id: job.id, company: job.company, country: job.country, portal: job.portal, detail: { assistant: true, message } });
     say(`  Handed back to you: ${message}`);
     noteRecent({ title: job.title, company: job.company, portal: String(job.portal ?? ""), outcome: "handed_back", note: message });
@@ -390,9 +392,14 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
     await sleep(1200);
     if (opened === "none" && !auto) say("  No apply button found on this page. The form may be on the employer's site: use the open window.");
 
+    let resumeSent = false;
     for (let step = 0; step < 8; step++) {
       stepNow(sb, `filling the form (page ${step + 1})`);
       if (!formScope && (await looksLikeSearchForm(page))) break; // a job board's search box is not an application: nothing is typed into it
+      if (formScope && !resumeSent) {
+        const sent = await uploadEasyApplyResume(page, formScope, files.resume.path).catch(() => null);
+        if (sent) { resumeSent = true; entered.push({ label: "Resume", value: sent, kind: "file", source: "upload" }); say(`  Uploaded the resume written for this job (${sent}).`); }
+      }
       let r = await fillForm(page, fctx, formScope);
       if (r.pending.length) {
         // questions the rules and the answer bank could not answer are answered from the profile by a model, never by guessing
@@ -410,6 +417,11 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
       if (await finalStepVisible(page, formScope)) break;
       if (!(await nextStep(page, formScope))) break;
       await sleep(900);
+      if (formScope) {
+        // LinkedIn keeps the same page and marks the question it refused: that question is the one to hand back, answered from the app next time
+        const refused = (await refusedFields(page, formScope)).map(clean).filter(Boolean);
+        if (refused.length) { for (const q of refused) if (!unanswered.includes(q)) unanswered.push(q); say(`  The form did not accept: ${refused.join("; ")}.`); break; }
+      }
     }
   } catch (e) {
     if (e instanceof Handback) {
@@ -658,7 +670,7 @@ async function batch(sb: SupabaseClient, who: Who | null): Promise<number> {
         const message = `The assistant could not finish this one (${e instanceof Error ? e.message.split("\n")[0] : String(e)})`;
         say(`  Handed back to you: ${message}`);
         await sb.from("applications").update({ status: "needs_input", error: message }).eq("id", app.id).eq("status", "submitting");
-        await sb.from("apply_events").insert({ application_id: app.id, kind: "needs_input", detail: { message, worker: WORKER } });
+        await sb.from("apply_events").insert({ application_id: app.id, kind: "needs_input", detail: { message, worker: WORKER, assistant: true } });
         current.handedBack++;
       }
       finally { live = null; await release(sb, app.id); } // anything not finished or handed back goes back to the queue for the next round, or for another worker
