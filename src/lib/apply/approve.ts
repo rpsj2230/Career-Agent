@@ -95,7 +95,7 @@ export async function approveApplication(id: string, o: { override?: boolean; ac
   }
   if (!automated && draft?.mode !== "only") await requestAssistantRun("An application was queued for the assistant on your computer: asked it to run").catch(() => undefined);
   if (automated && o.dispatch) {
-    warning = await dispatchApply(id);
+    warning = await dispatchApply();
     if (warning) { await logEvent(id, "dispatch_failed", { error: warning }); await log({ kind: "application.failed", level: "error", message: `Could not start the apply worker: ${warning}`, status: "approved", detail: { error: warning } }); }
   }
   return { ok: true, mode: decision.mode, note: [decision.reason, emailNote].filter(Boolean).join(". ") || null, warning };

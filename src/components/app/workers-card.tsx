@@ -31,6 +31,7 @@ export async function WorkersCard() {
                 <span className="ml-auto text-xs text-muted-foreground">started {w.started}{w.passedOn ? ` · passed on ${w.passedOn}` : ""}</span>
               </div>
               <div className="text-xs text-muted-foreground">{w.where}</div>
+              {w.version && <div className={`text-xs ${w.version.state === "current" ? "text-green-700 dark:text-green-500" : "text-amber-600"}`}>{w.version.text}</div>}
               <ul className="mt-1 list-disc pl-5">{w.handles.map((h) => <li key={h}>{h}</li>)}</ul>
             </div>
           ))}

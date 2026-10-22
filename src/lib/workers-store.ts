@@ -18,5 +18,5 @@ export async function loadWorkers(now = new Date()) {
       (e.kind === "worker_started" ? started : declined)[w] = ((e.kind === "worker_started" ? started : declined)[w] ?? 0) + 1;
     }
   } catch { /* the counts are a courtesy */ }
-  return { rows: workersOverview({ now, computer, oracle, github, cloud: { enabled: !!cloud.enabled, fallback_minutes: cloud.fallback_minutes ?? 90 }, started24h: started, declined24h: declined }), cloud: { enabled: !!cloud.enabled, fallback_minutes: cloud.fallback_minutes ?? 90 } };
+  return { rows: workersOverview({ now, computer, oracle, github, cloud: { enabled: !!cloud.enabled, fallback_minutes: cloud.fallback_minutes ?? 90 }, started24h: started, declined24h: declined, latest: process.env.VERCEL_GIT_COMMIT_SHA }), cloud: { enabled: !!cloud.enabled, fallback_minutes: cloud.fallback_minutes ?? 90 } };
 }

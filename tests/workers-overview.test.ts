@@ -36,3 +36,16 @@ describe("workersOverview", () => {
     expect(row(off, "computer").handles).toContain("Employers' own pages");
   });
 });
+
+describe("worker versions", () => {
+  const base = { now: new Date("2026-10-22T10:00:00Z"), computer: null, oracle: null, github: null, cloud: { enabled: true, fallback_minutes: 90 }, started24h: {}, declined24h: {} } as WorkersInput;
+  const at = "2026-10-22T09:59:00Z";
+  it("says current, outdated or not reported, and nothing for a worker that was never seen", () => {
+    const rows = (computer: WorkersInput["computer"], latest?: string) => workersOverview({ ...base, computer, latest }).find((r) => r.id === "computer")!.version;
+    expect(rows({ at, version: "abc1234def" }, "abc1234def5678")).toMatchObject({ state: "current" });
+    expect(rows({ at, version: "abc1234def" }, "fff0000")).toMatchObject({ state: "outdated", text: expect.stringContaining("update it") });
+    expect(rows({ at }, "fff0000")).toMatchObject({ state: "unknown", text: expect.stringContaining("older than the version check") });
+    expect(rows({ at, version: "abc1234def" }, undefined)).toMatchObject({ state: "unknown" });
+    expect(rows(null, "fff0000")).toBeNull();
+  });
+});

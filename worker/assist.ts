@@ -14,6 +14,7 @@
  * the background): it also presses Submit itself, but only within your daily limits, only when every required question was
  * answered, only after a pause that looks like a person, and it stops at the first CAPTCHA or security check.
  */
+import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -64,6 +65,12 @@ let current: Round = { at: new Date().toISOString(), submitted: 0, handedBack: 0
 let lastRound: Round | null = null;
 const leftFor = (reason: string) => { current.left[reason] = (current.left[reason] ?? 0) + 1; };
 
+/** The code this worker runs (a commit), so the app can say whether it is up to date. */
+const VERSION = (() => {
+  if (process.env.GITHUB_SHA) return process.env.GITHUB_SHA;
+  try { return execSync("git rev-parse HEAD", { stdio: ["ignore", "pipe", "ignore"] }).toString().trim(); } catch { return ""; }
+})();
+
 /** Tell the app this assistant is alive, so it can warn you if applications are waiting and it has gone quiet. Never throws. */
 async function heartbeat(sb: SupabaseClient) {
   if (process.env.ASSIST_NO_HEARTBEAT === "1") {
@@ -71,12 +78,12 @@ async function heartbeat(sb: SupabaseClient) {
     const name = process.env.ASSIST_WORKER?.trim();
     if (name && name !== "computer") {
       const portals = (process.env.ASSIST_PORTALS ?? "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
-      try { await sb.from("settings").upsert({ key: `worker_heartbeat:${name}`, value: { at: new Date().toISOString(), portals }, updated_at: new Date().toISOString() }); } catch { /* a courtesy */ }
+      try { await sb.from("settings").upsert({ key: `worker_heartbeat:${name}`, value: { at: new Date().toISOString(), portals, version: VERSION }, updated_at: new Date().toISOString() }); } catch { /* a courtesy */ }
     }
     return;
   }
   try {
-    await sb.from("settings").upsert({ key: "assistant_heartbeat", value: { at: new Date().toISOString(), mode: AUTO ? "hands-free" : "assist", watching: WATCH, hours: process.env.ASSIST_HOURS ?? "", tz: Intl.DateTimeFormat().resolvedOptions().timeZone, ...(lastRound ? { round: lastRound } : {}) }, updated_at: new Date().toISOString() });
+    await sb.from("settings").upsert({ key: "assistant_heartbeat", value: { at: new Date().toISOString(), version: VERSION, mode: AUTO ? "hands-free" : "assist", watching: WATCH, hours: process.env.ASSIST_HOURS ?? "", tz: Intl.DateTimeFormat().resolvedOptions().timeZone, ...(lastRound ? { round: lastRound } : {}) }, updated_at: new Date().toISOString() });
   } catch { /* the heartbeat is a courtesy, never a reason to stop */ }
 }
 

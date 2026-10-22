@@ -128,16 +128,45 @@ async function apifyDetail(res: { json(): Promise<unknown> }): Promise<string> {
   } catch { return ""; }
 }
 
+export type ApifyDiagnosis = { tokenOk: boolean; usageUsd?: number; limitUsd?: number; resets?: string };
+
 /**
- * HTTP 403 is not always a bad token: the token can be perfectly valid while Apify refuses this actor (a paid rental that has ended, a usage
- * limit reached, a token without permission for it). Say which, in Apify's own words, so the right thing gets fixed.
+ * Ask Apify itself what is wrong, instead of guessing from the status code: is the token accepted, and has the monthly usage limit been reached?
+ * (GET /v2/users/me answers 401 for a token it does not know; GET /v2/users/me/limits reports `current.monthlyUsageUsd` against
+ * `limits.maxMonthlyUsageUsd` and when the cycle ends.) Returns null when Apify cannot be asked.
  */
-export async function explainForbidden(res: { json(): Promise<unknown> }, id: string): Promise<string> {
+export async function diagnoseApify(token: string, fetchImpl: ApifyFetch = fetch as unknown as ApifyFetch): Promise<ApifyDiagnosis | null> {
+  const get = (path: string) => fetchImpl(`https://api.apify.com/v2/${path}`, { method: "GET", headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000) });
+  try {
+    const me = await get("users/me");
+    if (me.status === 401) return { tokenOk: false };
+    if (!me.ok) return null;
+    const lim = await get("users/me/limits");
+    if (!lim.ok) return { tokenOk: true };
+    const d = ((await lim.json()) as { data?: { limits?: { maxMonthlyUsageUsd?: number }; current?: { monthlyUsageUsd?: number }; monthlyUsageCycle?: { endAt?: string } } })?.data;
+    return { tokenOk: true, usageUsd: d?.current?.monthlyUsageUsd, limitUsd: d?.limits?.maxMonthlyUsageUsd, resets: d?.monthlyUsageCycle?.endAt };
+  } catch { return null; }
+}
+
+const usd = (n: number) => `$${n.toFixed(n < 10 ? 2 : 0)}`;
+
+/**
+ * HTTP 401 and 403 are told apart by asking Apify. A bad token is called a bad token; a reached monthly limit is called a limit (with the
+ * amount and when it resets); a valid token that Apify still refuses is called that, in Apify's own words (a rental that ended, no permission).
+ */
+export async function explainRefusal(status: 401 | 403, res: { json(): Promise<unknown> }, id: string, token: string, fetchImpl?: ApifyFetch): Promise<string> {
   const detail = await apifyDetail(res);
-  if (/rent|trial|subscri/i.test(detail)) return `Apify refused (forbidden): the actor "${id}" is a paid rental and its rental or trial is not active${detail}. Rent it again in the Apify Store, or choose another actor.`;
-  if (/limit|usage|credit|budget|quota/i.test(detail)) return `Apify refused (forbidden): your usage limit is reached${detail}. Raise the limit under Apify > Billing, or wait for the monthly reset.`;
+  const d = await diagnoseApify(token, fetchImpl);
+  if (d && !d.tokenOk) return `Apify rejected the token${detail}. Copy it again from Apify > Settings > Integrations.`;
+  if (d?.limitUsd !== undefined && d.usageUsd !== undefined && d.usageUsd >= d.limitUsd - 0.01) {
+    return `Apify usage limit reached: ${usd(d.usageUsd)} of ${usd(d.limitUsd)} used this month${d.resets ? `, resets ${d.resets.slice(0, 10)}` : ""}. The token is fine. Raise the limit under Apify > Billing, or wait for the reset.`;
+  }
+  if (/limit|usage|credit|budget|quota/i.test(detail)) return `Apify usage limit reached${detail}. The token is fine. Raise the limit under Apify > Billing, or wait for the reset.`;
+  if (/rent|trial|subscri/i.test(detail)) return `Apify refused (forbidden): the actor "${id}" is a paid rental and its rental or trial is not active${detail}. The token is fine. Rent it again in the Apify Store, or choose another actor.`;
   if (/permission|scope|access/i.test(detail)) return `Apify refused (forbidden): this token has no permission to run "${id}"${detail}. Create a token with full access under Apify > Settings > Integrations.`;
-  return `Apify refused (forbidden, HTTP 403) to run "${id}" with this token${detail}. The token itself may be fine: check the actor's rental, your usage limits and the token's permissions on Apify.`;
+  return status === 401
+    ? `Apify rejected the token${detail}. Copy it again from Apify > Settings > Integrations.`
+    : `Apify refused (forbidden, HTTP 403) to run "${id}"${d?.tokenOk ? ". The token works" : ""}${detail}. Check the actor's rental, your usage limits and the token's permissions on Apify.`;
 }
 
 export type ApifyFetch = (url: string, init: { method: string; headers: Record<string, string>; body?: string; signal: AbortSignal }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
@@ -155,8 +184,7 @@ export async function runActor(token: string, actor: ApifyActor, vars: TemplateV
   } catch (e) {
     throw new Error(`Could not reach Apify: ${e instanceof Error ? e.message : String(e)}`);
   }
-  if (res.status === 401) throw new Error(`Apify rejected the token${await apifyDetail(res)}. Copy it again from Apify > Settings > Integrations.`);
-  if (res.status === 403) throw new Error(await explainForbidden(res, id));
+  if (res.status === 401 || res.status === 403) throw new Error(await explainRefusal(res.status, res, id, token, fetchImpl));
   if (res.status === 404) throw new Error(`Apify has no actor "${id}". Check the id in the Apify Store.`);
   if (res.status === 402) throw new Error("Apify says the account is out of credit for this run. Check your Apify usage limits.");
   if (res.status === 400) throw new Error(`Apify rejected the input for "${id}". Compare the input with the actor's documentation.`);

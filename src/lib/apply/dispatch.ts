@@ -33,7 +33,11 @@ export async function dispatchWorkflow(file: string, inputs: Record<string, stri
   return res.ok ? null : `GitHub dispatch failed: ${res.status} ${(await res.text()).slice(0, 200)}`;
 }
 
-/** Start the Playwright worker for one approved application. */
-export const dispatchApply = (applicationId: string) => dispatchWorkflow("apply.yml", { application_id: applicationId });
+/**
+ * Start the Playwright worker. It always sends EVERY approved automatic application, not just the one that was approved: GitHub keeps only
+ * one waiting run per workflow and cancels older waiting ones, so a run tied to one application id could be cancelled and that application
+ * would never be sent. An empty id cannot lose anything, because the run that survives sends them all.
+ */
+export const dispatchApply = () => dispatchWorkflow("apply.yml", { application_id: "" });
 
 export const workerConfigured = () => !!process.env.GITHUB_REPO && !!process.env.GITHUB_DISPATCH_TOKEN;
