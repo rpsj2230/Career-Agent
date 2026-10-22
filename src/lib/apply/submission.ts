@@ -6,7 +6,7 @@ export const FieldEntry = z.object({
   value: z.string(),
   kind: z.enum(["text", "select", "radio", "file", "checkbox"]),
   /** "ai": the answer was written from your profile for a question that was not in your answer bank */
-  source: z.enum(["profile", "answers", "upload", "ai"]),
+  source: z.enum(["profile", "answers", "upload", "ai", "rule"]),
 });
 export type FieldEntry = z.infer<typeof FieldEntry>;
 

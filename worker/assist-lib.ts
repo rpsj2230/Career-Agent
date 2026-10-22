@@ -260,6 +260,16 @@ export async function linkedinSessionAlive(context: BrowserContext): Promise<boo
   } catch { return null; } finally { await page.close().catch(() => undefined); }
 }
 
+/**
+ * Cancel every download any tab of this browser starts, and say which file it was. The assistant takes no files from a page and installs nothing:
+ * a page that offers a program or an archive is a trap, and the application it belonged to is handed back instead.
+ */
+export function guardDownloads(context: BrowserContext, onBlocked: (name: string) => void): void {
+  const watch = (p: Page) => p.on("download", (d) => { onBlocked(d.suggestedFilename() || "a file"); void d.cancel().catch(() => undefined); });
+  context.pages().forEach(watch);
+  context.on("page", watch);
+}
+
 /** Employer systems that make you create or sign in to an account for each company: the assistant does not create accounts, so these are handed back with that reason. */
 export function accountGatedVendor(host: string): string | null {
   const h = host.toLowerCase();

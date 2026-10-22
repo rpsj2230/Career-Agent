@@ -1,4 +1,5 @@
 import type { MasterProfile } from "@/lib/types";
+import { estimateYears } from "./answers";
 
 /**
  * "How many years of work experience do you have with Microsoft Azure?" asks about one tool. This reads which tool a question is about
@@ -63,3 +64,18 @@ export function asCount(value: string): string {
 
 /** Is this a question whose answer is a number? */
 export const wantsNumber = (label: string): boolean => yearsSkill(label) !== null || /^\s*(how many|number of|total (years|number))\b/i.test(label.replace(/^[^a-z]+/i, ""));
+
+/** Tools and fields of AI: a newer field, so a short history is the believable one. */
+const AI_TOOL = /\b(ai|a\.i\.|genai|gen ai|generative ai|artificial intelligence|llms?|large language models?|gpt|chatgpt|openai|copilot|claude|gemini|anthropic|langchain|rag|prompt engineering|machine learning|ml|nlp|agentic|ai agents?|mcp|vector databases?|hugging ?face|diffusion|computer vision|deep learning|neural networks?)\b/i;
+export const AI_TOOL_YEARS = 3;
+export const GENERIC_TOOL_YEARS = 12;
+
+/**
+ * The owner's standing rule for a "years with X" question the profile cannot back: a general tool or field gets 10 to 15 years (12, and never more
+ * than the career itself), a tool of AI gets 3. It is only a default: a saved answer for that tool, and years the profile itself shows, both come first.
+ */
+export function defaultToolYears(p: MasterProfile, skill: string, nowYear = new Date().getFullYear()): string {
+  if (AI_TOOL.test(skill)) return String(AI_TOOL_YEARS);
+  const career = estimateYears(p.experience, nowYear);
+  return String(career === null ? 10 : Math.max(1, Math.min(GENERIC_TOOL_YEARS, career)));
+}

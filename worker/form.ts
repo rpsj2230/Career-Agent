@@ -2,16 +2,21 @@ import { basename } from "node:path";
 import type { Locator, Page } from "playwright";
 import type { FieldEntry } from "../src/lib/apply/submission";
 import { asCount, wantsNumber, yearsSkill } from "../src/lib/apply/skill-years";
+import { sensitiveKind, type Sensitive } from "../src/lib/apply/safety";
 import { matchAnswer, standardValue, type Answer, type Applicant } from "./match";
 
 export type FillContext = {
   applicant: Applicant; answers: Answer[]; resumePath: string; coverPath?: string;
   /** years of work with a named tool, when the profile itself shows it (never a guess); asked after the saved answers */
   skillYears?: (skill: string) => string | null;
+  /** the owner's default for a tool the profile cannot back; used only when nothing else answers */
+  defaultYears?: (skill: string) => string | null;
 };
 /** A question the rules could not answer, with what is needed to answer it from the profile. */
 export type Pending = { label: string; type: "text" | "textarea" | "select" | "radio" | "number"; options: string[]; required: boolean };
-export type FillResult = { filled: string[]; unanswered: string[]; entries: FieldEntry[]; pending: Pending[] };
+/** A field that asks for a secret (a password, payment or identity number, a code): never filled and never offered as a question. */
+export type Blocked = { kind: Sensitive; label: string };
+export type FillResult = { filled: string[]; unanswered: string[]; entries: FieldEntry[]; pending: Pending[]; blocked: Blocked[] };
 
 /** Required boxes that only agree to the site's terms, privacy policy or data use, or confirm the application is true. They are ticked, because submitting is the point. */
 export const CONSENT_BOX = /\b(i\s+(have\s+read|agree|accept|consent|acknowledge|understand|confirm|certify|authori[sz]e)|terms|privacy|consent|data\s+(protection|processing)|gdpr|agree|acknowledg|accurate|true\s+and\s+(correct|complete)|declaration)\b/i;
@@ -52,6 +57,8 @@ async function scan(page: Page, scope?: string): Promise<Field[]> {
       if (legend) return text(legend);
       const grp = el.closest("[role=radiogroup],[role=group]");
       if (grp?.getAttribute("aria-label")) return grp.getAttribute("aria-label")!;
+      const gby = grp?.getAttribute("aria-labelledby");
+      if (gby) { const t = gby.split(/\s+/).map((id) => text(document.getElementById(id))).join(" ").trim(); if (t) return t; }
       const prev = el.closest("div")?.parentElement?.querySelector("label,legend,p,span");
       return text(prev ?? null);
     };
@@ -61,10 +68,36 @@ async function scan(page: Page, scope?: string): Promise<Field[]> {
     });
     const out: Field[] = [];
     const radios = new Map<string, Field>();
+    // boxes under one question ("Are you eligible to work here?" with a Yes box and a No box) are one question, answered by choosing one of them
+    const agreement = /\b(i\s+(have\s+read|agree|accept|consent|acknowledge|understand|confirm|certify|authori[sz]e)|terms|privacy|consent|data\s+(protection|processing)|gdpr|agree|acknowledg|accurate|true\s+and\s+(correct|complete)|declaration)\b/i;
+    const boxGroups = new Map<Element, HTMLInputElement[]>();
+    for (const el of els) {
+      if ((el.type || "").toLowerCase() !== "checkbox") continue;
+      const holder = el.closest("fieldset, [role=group], [role=radiogroup]");
+      if (holder) boxGroups.set(holder, [...(boxGroups.get(holder) ?? []), el]);
+    }
+    const grouped = new Map<HTMLInputElement, Element>();
+    for (const [holder, boxes] of boxGroups) {
+      if (boxes.length < 2 || boxes.every((b) => agreement.test(labelOf(b))) || !groupLabel(boxes[0])) continue;
+      boxes.forEach((b) => grouped.set(b, holder));
+    }
+    const boxFields = new Map<Element, Field>();
     els.forEach((el, n) => {
       el.setAttribute("data-ca-i", String(n));
       const type = el.tagName === "SELECT" ? "select" : el.tagName === "TEXTAREA" ? "textarea" : (el.type || "text").toLowerCase();
       const req = el.required || el.getAttribute("aria-required") === "true" || /[*✱]/.test(labelOf(el));
+      const holder = grouped.get(el);
+      if (holder) {
+        let g = boxFields.get(holder);
+        if (!g) {
+          g = { idx: n, tag: "checkboxgroup", type: "checkboxgroup", label: groupLabel(el), name: el.name, required: req, options: [], hasValue: false };
+          boxFields.set(holder, g); out.push(g);
+        }
+        g.options.push({ text: labelOf(el), value: el.value, idx: n });
+        g.required ||= req;
+        g.hasValue ||= el.checked;
+        return;
+      }
       if (type === "radio") {
         const key = el.name || `r${n}`;
         let g = radios.get(key);
@@ -123,6 +156,7 @@ export async function fillForm(page: Page, ctx: FillContext, scope?: string): Pr
   const unanswered: string[] = [];
   const entries: FieldEntry[] = [];
   const pending: Pending[] = [];
+  const blocked: Blocked[] = [];
   const ask = (f: Field, label: string) => {
     if (!f.required) return;
     unanswered.push(label);
@@ -135,6 +169,8 @@ export async function fillForm(page: Page, ctx: FillContext, scope?: string): Pr
   for (const f of fields) {
     const label = clean(f.label || f.name);
     const probe = `${label} ${f.name}`;
+    const secret = f.type === "file" || f.type === "checkbox" ? null : sensitiveKind(label || f.name, f.type);
+    if (secret) { blocked.push({ kind: secret, label: label || f.name }); continue; }
     try {
       if (f.type === "file") {
         const wantsCover = /cover/i.test(probe);
@@ -143,6 +179,14 @@ export async function fillForm(page: Page, ctx: FillContext, scope?: string): Pr
         fileCount++;
         if (path) { await at(f.idx).setInputFiles(path); filled.push(`${label || "file"} (upload)`); entries.push({ label: label || "file", value: basename(path), kind: "file", source: "upload" }); }
         else if (f.required) unanswered.push(label || "file upload");
+        continue;
+      }
+      if (f.type === "checkboxgroup") {
+        if (f.hasValue) continue;
+        const answer = matchAnswer(f.label, ctx.answers);
+        const i = answer ? pickOption(f.options, answer) : -1;
+        if (i >= 0) { await tick(at(f.options[i].idx)); filled.push(label); entries.push({ label, value: f.options[i].text, kind: "checkbox", source: "answers" }); }
+        else ask({ ...f, type: "radio" }, label);
         continue;
       }
       if (f.type === "checkbox") {
@@ -158,10 +202,11 @@ export async function fillForm(page: Page, ctx: FillContext, scope?: string): Pr
       const banked = std ?? matchAnswer(label, ctx.answers);
       const skill = banked == null ? yearsSkill(label) : null;
       const derived = skill ? ctx.skillYears?.(skill) ?? null : null;
-      const raw = banked ?? derived;
+      const standing = skill && derived == null ? ctx.defaultYears?.(skill) ?? null : null;
+      const raw = banked ?? derived ?? standing;
       // a count asked for in a box is written as a number: "3 years" would be refused
       const value = raw != null && f.type !== "select" && wantsNumber(label) ? asCount(raw) : raw;
-      const source: FieldEntry["source"] = std != null || derived != null ? "profile" : "answers";
+      const source: FieldEntry["source"] = std != null || derived != null ? "profile" : standing != null ? "rule" : "answers";
 
       if (f.type === "radio") {
         const answer = matchAnswer(f.label, ctx.answers);
@@ -182,7 +227,7 @@ export async function fillForm(page: Page, ctx: FillContext, scope?: string): Pr
       if (f.required) unanswered.push(`${label} (${e instanceof Error ? e.message.split("\n")[0] : "error"})`);
     }
   }
-  return { filled, unanswered, entries, pending };
+  return { filled, unanswered, entries, pending, blocked };
 }
 
 /**

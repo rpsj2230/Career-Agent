@@ -3,6 +3,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ActionButton } from "./action-button";
+import { LiveShot } from "./live-shot";
 import { SETUP_GUIDE_URL } from "@/lib/apply/assistant-request";
 import type { Live, Recent } from "@/lib/apply/assistant-live";
 
@@ -22,8 +23,7 @@ export function AssistantPanel({ online, pending, text, live, recent }: { online
             <p><b>Working on it now:</b> {live.title} at {live.company} ({live.portal}): {live.step}. <span className="text-muted-foreground">Started {ago(live.since)}.</span></p>
             {live.shotAt && (
               <details open><summary className="cursor-pointer text-xs text-muted-foreground">What the assistant sees right now (updates every few seconds, so you do not need its window)</summary>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={`/api/files?path=${encodeURIComponent(`screenshots/${live.id}/live.jpg`)}&v=${encodeURIComponent(live.shotAt)}`} alt="What the assistant's browser shows now" className="mt-1 max-h-80 rounded-md border" />
+                <LiveShot id={live.id} at={live.shotAt} />
               </details>
             )}
           </div>

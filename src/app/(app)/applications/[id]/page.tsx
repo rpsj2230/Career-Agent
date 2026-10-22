@@ -308,7 +308,7 @@ export default async function ApplicationPage({ params }: { params: Promise<{ id
                   {r.fields.length > 0 && (
                     <div><h4 className="mb-1 text-sm font-medium">Values entered ({r.fields.length})</h4>
                       <Table><TableHeader><TableRow><TableHead>Field</TableHead><TableHead>Value</TableHead><TableHead>From</TableHead></TableRow></TableHeader>
-                        <TableBody>{r.fields.map((f, i) => <TableRow key={i}><TableCell className="whitespace-normal">{f.label}</TableCell><TableCell className="whitespace-normal">{f.value}</TableCell><TableCell><Badge variant="outline">{f.source === "profile" ? "profile" : f.source === "answers" ? "answer bank" : "upload"}</Badge></TableCell></TableRow>)}</TableBody></Table></div>
+                        <TableBody>{r.fields.map((f, i) => <TableRow key={i}><TableCell className="whitespace-normal">{f.label}</TableCell><TableCell className="whitespace-normal">{f.value}</TableCell><TableCell><Badge variant="outline">{f.source === "profile" ? "profile" : f.source === "answers" ? "answer bank" : f.source === "ai" ? "AI, from your profile" : f.source === "rule" ? "your default rule" : "upload"}</Badge></TableCell></TableRow>)}</TableBody></Table></div>
                   )}
                   {r.files.length > 0 && (
                     <div><h4 className="mb-1 text-sm font-medium">Files attached</h4>

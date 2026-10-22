@@ -30,23 +30,24 @@ import { pauseActive } from "../src/lib/pause-rules";
 import { chromium, type BrowserContext, type Page } from "playwright";
 import { confirmationSnippet, type FieldEntry, type SubmissionRecord } from "../src/lib/apply/submission";
 import { MasterProfile } from "../src/lib/types";
-import { skillYears } from "../src/lib/apply/skill-years";
+import { defaultToolYears, skillYears } from "../src/lib/apply/skill-years";
+import { destinationTrust, sensitiveReason } from "../src/lib/apply/safety";
 import { isRedirector } from "../src/lib/jobs/redirectors";
 import { atsLinksIn, findOnEmployerBoards } from "../src/lib/jobs/alt-routes";
-import { careersSiteRoutes, googleJobsRoutes, type Found, type RouteId } from "../src/lib/jobs/more-routes";
+import { careersSiteRoutes, googleJobsRoutes, isJobBoardHost, type Found, type RouteId } from "../src/lib/jobs/more-routes";
 import { jsearchSearch, jsonFetcher } from "../src/lib/jobs/sources";
 import { resolveCredentials } from "../src/lib/integrations/credentials";
 import { summariseAttempts, type RouteAttempt } from "../src/lib/apply/route-chain";
 import { contactEmailsFor } from "../src/lib/apply/contact-email";
 import { loadDraft } from "../src/lib/apply/email-store";
-import { accountGatedVendor, applyButtonsSeen, buttonsShown, linkedinSessionAlive, linkedinSignedOutView, EASY_APPLY_SCOPE, finalStepVisible, leaveJobBoard, linkedinOpenApply, nextStep, openApplyForm, parseLinkedinState, refusedFields, uploadEasyApplyResume, waitForLinkedinApply } from "./assist-lib";
+import { accountGatedVendor, applyButtonsSeen, guardDownloads, buttonsShown, linkedinSessionAlive, linkedinSignedOutView, EASY_APPLY_SCOPE, finalStepVisible, leaveJobBoard, linkedinOpenApply, nextStep, openApplyForm, parseLinkedinState, refusedFields, uploadEasyApplyResume, waitForLinkedinApply } from "./assist-lib";
 import { requestPending, type AssistantRequest } from "../src/lib/apply/assistant-request";
 import { autoDecision, humanPause, withinHours, type AutoCaps, type AutoState } from "./assist-policy";
 import { answerPending } from "./ai-answers";
 import { acquireWatcherLock, lockPathFor } from "./assist-lock";
 import { clean, clickSubmit, fillForm, looksLikeSearchForm } from "./form";
 import { orderQueue } from "../src/lib/apply/queue-order";
-import { NO_FORM, pushRecent, staleLinkedinNoForm, type Live, type Recent } from "../src/lib/apply/assistant-live";
+import { NO_FORM, pushRecent, staleLinkedinNoForm, staleOldReading, type Live, type Recent } from "../src/lib/apply/assistant-live";
 import { boardDenied, CONFIRMATION, detectBlock, linkedinSignedIn, type Answer } from "./match";
 
 const need = (k: string) => { const v = process.env[k]; if (!v) throw new Error(`${k} is not set. Put it in .env.local (see the README, "Apply assistant").`); return v; };
@@ -113,6 +114,8 @@ const stepNow = (sb: SupabaseClient, text: string) => {
 /** Portals the assistant's browser held a sign-in for on its last round (null until the first round has looked). Reported with the heartbeat. */
 let signedIn: string[] | null = null;
 /** Portals this round gave up on (not signed in, or the site refuses this browser), with the plain reason, so the rest of that portal's queue is not tried one by one. */
+/** A file the page tried to download during this application (never accepted: the assistant takes no files and installs nothing). */
+let downloadBlocked: string | null = null;
 const portalOff = new Map<string, { reason: string; handBack: boolean }>();
 const deniedCount = new Map<string, number>();
 
@@ -237,6 +240,7 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
     applicant: { name: profile.basics.name, email: profile.basics.email, phone: profile.basics.phone, location: profile.basics.location, links: profile.basics.links, currentCompany: profile.experience[0]?.company },
     answers: app.answers ?? [], resumePath: files.resume.path, coverPath: files.cover?.path,
     skillYears: (skill: string) => skillYears(profile, skill),
+    defaultYears: (skill: string) => defaultToolYears(profile, skill),
   };
 
   const startedAt = new Date().toISOString();
@@ -244,6 +248,7 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
   const unanswered: string[] = [];
   let steps = 0;
   let page = await context.newPage();
+  downloadBlocked = null;
   const before = new Set(context.pages());
   let formScope: string | undefined; // LinkedIn's Easy Apply window: only the controls inside it belong to the application
   let openNote = "";
@@ -383,17 +388,44 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
     if (fresh.length) page = fresh[fresh.length - 1]; // the apply button opened a new tab
     await page.waitForLoadState("domcontentloaded").catch(() => undefined);
     await sleep(1200);
+    if (onLinkedin && !formScope && opened === "clicked") {
+      // LinkedIn sent us to the company's own page: an overview with its own Apply button (Ashby and many careers sites), pressed up to twice
+      for (let hop = 0; hop < 2; hop++) {
+        await page.waitForLoadState("networkidle", { timeout: 8000 }).catch(() => undefined);
+        if (/linkedin\.com/i.test(page.url())) break;
+        const o = await openApplyForm(page);
+        if (o !== "clicked") break;
+        const more = context.pages().filter((p) => !before.has(p) && p !== page && !p.isClosed());
+        if (more.length) page = more[more.length - 1];
+        await page.waitForLoadState("domcontentloaded").catch(() => undefined);
+        await sleep(1500);
+      }
+    }
     if (opened === "none" && !auto) say("  No apply button found on this page. The form may be on the employer's site: use the open window.");
 
     let resumeSent = false;
     for (let step = 0; step < 8; step++) {
       stepNow(sb, `filling the form (page ${step + 1})`);
+      if (downloadBlocked) throw new Handback(`The page tried to download a file ("${downloadBlocked}"). The assistant never downloads or installs anything: it stopped without touching the file. Check the page before going further`);
       if (!formScope && (await looksLikeSearchForm(page))) break; // a job board's search box is not an application: nothing is typed into it
+      if (!formScope) {
+        // the page must be the employer's: a known application system, or a page that names the company, and never one that reads like a scam
+        let host = ""; try { host = new URL(page.url()).hostname.replace(/^www\./, ""); } catch { /* keep blank */ }
+        if (host && !isJobBoardHost(host)) {
+          await page.waitForLoadState("load", { timeout: 8000 }).catch(() => undefined);
+          const trust = destinationTrust({ host, title: await page.title().catch(() => ""), body: await page.innerText("body").catch(() => ""), company: job.company });
+          if (!trust.ok) throw new Handback(`Did not touch this page: ${trust.why}. If it is the real application page, open it and apply there yourself`);
+        }
+      }
       if (formScope && !resumeSent) {
         const sent = await uploadEasyApplyResume(page, formScope, files.resume.path).catch(() => null);
         if (sent) { resumeSent = true; entered.push({ label: "Resume", value: sent, kind: "file", source: "upload" }); say(`  Uploaded the resume written for this job (${sent}).`); }
       }
       let r = await fillForm(page, fctx, formScope);
+      if (r.blocked.length) { // a password, a payment or identity number, a code: the assistant stops here, it does not offer these as questions
+        let host = ""; try { host = new URL(page.url()).hostname.replace(/^www\./, ""); } catch { /* keep blank */ }
+        throw new Handback(sensitiveReason(r.blocked[0].kind, host));
+      }
       if (r.pending.length) {
         // questions the rules and the answer bank could not answer are answered from the profile by a model, never by guessing
         const extra = await answerPending({ profile, bank: fctx.answers, job: { title: job.title, company: job.company, description: job.description }, pending: r.pending, jobId: job.id });
@@ -401,7 +433,7 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
           fctx.answers = [...fctx.answers, ...extra];
           const ai = new Set(extra.map((e) => e.question));
           const again = await fillForm(page, fctx, formScope);
-          r = { filled: [...r.filled, ...again.filled], unanswered: again.unanswered, pending: again.pending, entries: [...r.entries, ...again.entries.filter((e) => e.kind !== "file").map((e) => (ai.has(e.label) ? { ...e, source: "ai" as const } : e))] };
+          r = { filled: [...r.filled, ...again.filled], unanswered: again.unanswered, pending: again.pending, blocked: again.blocked, entries: [...r.entries, ...again.entries.filter((e) => e.kind !== "file").map((e) => (ai.has(e.label) ? { ...e, source: "ai" as const } : e))] };
           say(`  Answered ${extra.length} question(s) from your profile.`);
         }
       }
@@ -610,10 +642,12 @@ async function batch(sb: SupabaseClient, who: Who | null): Promise<number> {
   mkdirSync(profileDir, { recursive: true });
   const choice = browserFromMachine(); // the assistant's own Chromium unless you chose Brave, Chrome or Edge (worker/browser.ts)
   const context = await chromium.launchPersistentContext(profileDir, {
-    headless: process.env.ASSIST_HEADLESS === "1", viewport: null, executablePath: choice.executablePath, channel: choice.channel, ...LEAN_BROWSER,
+    headless: process.env.ASSIST_HEADLESS === "1", viewport: null, acceptDownloads: false, executablePath: choice.executablePath, channel: choice.channel, ...LEAN_BROWSER,
   });
   await context.addInitScript({ content: "window.__name = window.__name || function (t) { return t; };" });
   liveContext = context;
+  // nothing is ever downloaded: a page that offers a file or a program is noted, the download cancelled, and the application handed back
+  guardDownloads(context, (name) => { downloadBlocked = name; });
   if (await applyStorageState(context, process.env.ASSIST_STORAGE_STATE, profileDir)) say("Sign-ins loaded from the exported file.");
   // is the assistant's browser signed in to LinkedIn? Without it every LinkedIn job is the public, signed-out page with no Easy Apply button
   portalOff.clear(); deniedCount.clear();
@@ -644,6 +678,23 @@ async function batch(sb: SupabaseClient, who: Who | null): Promise<number> {
       }
     } catch { /* a courtesy: the rest of the round goes on */ }
   }
+  // hand-backs an older assistant could not read (a lone Yes or No box, a password offered as a question, no detail) get one more try with this version
+  try {
+    const rows = ((await sb.from("applications").select("id, error").eq("status", "needs_input").limit(300)).data ?? []) as { id: string; error: string | null }[];
+    const candidates = rows.filter((r) => staleOldReading([r], new Set()).length);
+    if (candidates.length) {
+      const retried = new Set((((await sb.from("apply_events").select("application_id").eq("kind", "auto_retry").in("application_id", candidates.map((r) => r.id))).data ?? []) as { application_id: string }[]).map((e) => e.application_id));
+      const ids = staleOldReading(candidates, retried);
+      if (ids.length) {
+        const upd = await sb.from("applications").update({ status: "assisted_pending", error: null }).in("id", ids).eq("status", "needs_input").select("id");
+        const back = ((upd.data ?? []) as { id: string }[]).map((r) => r.id);
+        if (back.length) {
+          await sb.from("apply_events").insert(back.map((id) => ({ application_id: id, kind: "auto_retry", detail: { reason: "an older assistant could not read this form; tried again with this version" } })));
+          say(`  Put ${back.length} application(s) back in the queue: an older version of the assistant could not read their forms.`);
+        }
+      }
+    }
+  } catch { /* a courtesy */ }
   let done = 0, attempted = false;
   // a cloud run must end inside its runner time limit: no new application is started after this many minutes (the rest waits for the next run)
   const stopAt = Number(process.env.ASSIST_MAX_MINUTES) > 0 ? Date.now() + Number(process.env.ASSIST_MAX_MINUTES) * 60_000 : Infinity;

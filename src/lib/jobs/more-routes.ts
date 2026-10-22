@@ -32,6 +32,8 @@ export type JobFacts = { title: string; company: string; location?: string | nul
 const NOT_EMPLOYER = /(^|\.)(linkedin|indeed|glassdoor|naukri|foundit|shine|monster|ziprecruiter|jooble|careerjet|jobrapido|adzuna|seek|jobstreet|jobsdb|bayt|naukrigulf|gulftalent|simplyhired|talent|lensa|learn4good|google|facebook|instagram|twitter|x|youtube|tiktok|wa|t|bit|goo|tinyurl|lnkd|gmail|yahoo|outlook|hotmail|icloud|proton|protonmail|aol|gstatic|googleapis|w3|schema|apple|microsoft|github|wikipedia)\.[a-z.]+$/i;
 const FREE_MAIL = /^(gmail|yahoo|outlook|hotmail|icloud|proton|protonmail|aol|live|msn|rediffmail|zoho)\./i;
 
+/** A job board, social network, mail or search site: never an employer's own. */
+export const isJobBoardHost = (h: string) => NOT_EMPLOYER.test(h);
 const hostOf = (u: string): string | null => { try { return new URL(u).hostname.toLowerCase().replace(/^www\./, ""); } catch { return null; } };
 /** The registrable-ish name of a host ("jobs.acme.co.uk" to "acme.co.uk"), good enough to compare two links of one employer. */
 const base = (h: string) => { const p = h.split("."); return p.length <= 2 ? h : /^(co|com|org|net|gov|ac)$/.test(p[p.length - 2]) && p[p.length - 1].length === 2 ? p.slice(-3).join(".") : p.slice(-2).join("."); };
