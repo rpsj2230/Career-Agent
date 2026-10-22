@@ -1,0 +1,7 @@
+<html><head><title>Manager | LinkedIn</title></head><body>
+<main><button aria-label="Easy Apply to this job" onclick="document.getElementById('d').showModal()">Easy Apply</button></main>
+<dialog id="d" style="position:relative"><h2>Apply to Acme</h2><h3>Additional questions</h3><label for="q">Anything else?</label><input id="q">
+<button type="button" id="rev" onclick="document.getElementById('d').insertAdjacentHTML('beforeend','<h3>Review your application</h3>'); this.hidden = true">Review</button>
+<button type="button" disabled id="dis">Submit application</button>
+<div id="toast" style="position:absolute; inset:0; z-index:99; background:transparent"></div></dialog>
+</body></html>

@@ -422,3 +422,31 @@ describe("the resume step", () => {
     await context.close();
   }, 40_000);
 });
+
+import { forceNext } from "../worker/assist-lib";
+describe("a forward button something lies over, and a disabled one", () => {
+  live("is pressed the hard way when a normal press does nothing", async () => {
+    if (!browser) return;
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto(fixture("linkedin-easy-covered"));
+    const r = await linkedinOpenApply(context, page, "https://www.linkedin.com/jobs/view/4480419562/");
+    const before = await fingerprint(page, r.scope!);
+    await nextStep(page, r.scope); // the invisible cover swallows this click
+    await page.waitForTimeout(400);
+    expect(await fingerprint(page, r.scope!)).toBe(before);
+    expect(await forceNext(page, r.scope!)).toBe(true);
+    await page.waitForTimeout(400);
+    expect(await fingerprint(page, r.scope!)).not.toBe(before);
+    await context.close();
+  }, 40_000);
+  live("names a disabled button as disabled in what the page shows", async () => {
+    if (!browser) return;
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto(fixture("linkedin-easy-covered"));
+    const r = await linkedinOpenApply(context, page, "https://www.linkedin.com/jobs/view/4480419562/");
+    expect(await buttonsShown(page, r.scope)).toContain("Submit application (disabled)");
+    await context.close();
+  }, 40_000);
+});

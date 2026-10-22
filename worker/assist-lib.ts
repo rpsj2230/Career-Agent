@@ -143,6 +143,19 @@ export async function windowText(page: Page, scope: string, max = 360): Promise<
   }, { sel: scope, n: max }).catch(() => "");
 }
 
+/**
+ * Press the forward button again by clicking the element itself (so anything lying over it is not hit), for a page that did not move on after the normal press. A toast or a
+ * floating panel can swallow a normal click. Returns false when there is no enabled forward button.
+ */
+export async function forceNext(page: Page, scope: string): Promise<boolean> {
+  const btn = page.locator(`${scope} >> visible=true`).first().getByRole("button", { name: NEXT_STEP }).first();
+  if (!(await btn.isVisible().catch(() => false)) || !(await btn.isEnabled().catch(() => false))) return false;
+  await btn.scrollIntoViewIfNeeded().catch(() => undefined);
+  // a click aimed at the button's position lands on whatever lies over it; clicking the element itself does not
+  await btn.evaluate((b) => (b as HTMLElement).click()).catch(() => undefined);
+  return true;
+}
+
 /** True when the page offers the control that sends the application (so you can review and press it yourself). */
 export async function finalStepVisible(page: Page, scope?: string): Promise<boolean> {
   const byRole = (scope ? page.locator(`${scope} >> visible=true`).first().getByRole("button", { name: SENDS_APPLICATION }) : page.getByRole("button", { name: SENDS_APPLICATION })).first();
@@ -330,8 +343,8 @@ export async function buttonsShown(page: Page, scope?: string): Promise<string[]
   const root = scope ? page.locator(`${scope} >> visible=true`).first() : page.locator("body");
   const names = await root.locator("button, [role=button], input[type=submit]").evaluateAll((els) => els
     .filter((e) => (e as HTMLElement).offsetParent !== null)
-    .map((e) => ((e.getAttribute("aria-label") || (e as HTMLInputElement).value || (e as HTMLElement).innerText || "").replace(/\s+/g, " ").trim()))
-    .filter((t) => t.length > 0 && t.length <= 40)).catch(() => [] as string[]);
+    .map((e) => { const t = ((e.getAttribute("aria-label") || (e as HTMLInputElement).value || (e as HTMLElement).innerText || "").replace(/\s+/g, " ").trim()); return t && ((e as HTMLButtonElement).disabled || e.getAttribute("aria-disabled") === "true") ? `${t} (disabled)` : t; })
+    .filter((t) => t.length > 0 && t.length <= 50)).catch(() => [] as string[]);
   return [...new Set(names)].slice(0, 8);
 }
 
