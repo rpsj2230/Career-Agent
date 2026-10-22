@@ -57,7 +57,19 @@ const APP_STATUS_STAGES: Record<string, StageKey[]> = {
   all: [], pending: ["awaiting_approval"], manual: ["waiting_assistant", "needs_input"], submitted: ["applied"], failed: ["failed"], inprogress: ["sending"],
 };
 export const APP_STAGES: StageKey[] = ["awaiting_approval", "sending", "waiting_assistant", "needs_input", "failed", "applied"];
-export const JOB_DEFAULT_STAGES = JOB_VIEW_STAGES.queue;
+/** The Jobs page opens on every job: found, scored, skipped, in progress and applied, so nothing seems to be missing. */
+export const JOB_DEFAULT_STAGES: StageKey[] = [];
+
+/** The Jobs page groups the ten pipeline stages into the few places a job can be, so the chips read as a journey. */
+export const JOB_GROUPS: { key: string; label: string; hint: string; stages: StageKey[] }[] = [
+  { key: "unscored", label: "Not scored yet", hint: "Found, waiting for a fit score", stages: ["unscored"] },
+  { key: "skipped", label: "Skipped (poor fit)", hint: "Scored below your threshold, or closed out by your rules, with the reason", stages: ["rejected"] },
+  { key: "matched", label: "Good fit, no resume yet", hint: "A good fit; its resume and cover letter are written automatically", stages: ["matched"] },
+  { key: "progress", label: "Being applied for", hint: "Resume ready, waiting for approval, or on its way", stages: ["awaiting_approval", "sending", "waiting_assistant"] },
+  { key: "attention", label: "Needs you", hint: "A worker could not finish: open it to see why", stages: ["needs_input", "failed"] },
+  { key: "applied", label: "Applied", hint: "Sent", stages: ["applied"] },
+  { key: "saved", label: "Saved for later", hint: "You saved it", stages: ["saved"] },
+];
 
 // ---------------------------------------------------------------- parsing the URL
 type SP = Record<string, string | string[] | undefined>;
@@ -93,7 +105,6 @@ export function parseJobQuery(sp: SP): JobQuery {
   let stages = uniq(all(sp.stage).map((s) => STAGE_ALIAS[s] ?? s).filter((s): s is StageKey => s in STAGES));
   const view = first(sp.view);
   if (stages.length === 0 && view && view in JOB_VIEW_STAGES) stages = JOB_VIEW_STAGES[view];
-  else if (stages.length === 0 && !all(sp.stage).length && !view) stages = JOB_DEFAULT_STAGES;
   const sort = (first(sp.sort) as JobSortKey | undefined) && (first(sp.sort) as string) in JOB_SORTS ? (first(sp.sort) as JobSortKey) : "score";
   const dir = first(sp.dir) === "asc" || first(sp.dir) === "desc" ? (first(sp.dir) as "asc" | "desc") : JOB_SORTS[sort].dir;
   const portal = all(sp.portal), country = all(sp.country);
@@ -234,9 +245,8 @@ export function queryString(params: Link): string {
 }
 
 export function jobQueryParams(q: JobQuery, over: Link = {}): Link {
-  const defaultStages = q.stages.length === JOB_DEFAULT_STAGES.length && JOB_DEFAULT_STAGES.every((s) => q.stages.includes(s));
   const base: Link = {
-    stage: q.stages.length === 0 ? "all" : defaultStages ? undefined : q.stages, portal: q.portals, via: q.vias, country: q.countries, method: q.methods,
+    stage: q.stages.length === 0 ? undefined : q.stages, portal: q.portals, via: q.vias, country: q.countries, method: q.methods,
     q: q.q, score_min: q.scoreMin, score_max: q.scoreMax, from: q.from, to: q.to,
     sort: q.sort === "score" ? undefined : q.sort, dir: q.dir === JOB_SORTS[q.sort].dir ? undefined : q.dir,
   };

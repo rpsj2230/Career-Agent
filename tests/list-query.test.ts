@@ -19,9 +19,10 @@ describe("jobStage", () => {
 });
 
 describe("parseJobQuery", () => {
-  it("defaults to the review queue and keeps the old ?view= links working", () => {
-    expect(parseJobQuery({}).stages).toContain("awaiting_approval");
-    expect(parseJobQuery({}).stages).not.toContain("unscored");
+  it("opens on every job (nothing seems missing) and keeps the old ?view= links working", () => {
+    expect(parseJobQuery({}).stages).toEqual([]);
+    expect(parseJobQuery({ view: "queue" }).stages).toContain("awaiting_approval");
+    expect(parseJobQuery({ view: "queue" }).stages).not.toContain("unscored");
     expect(parseJobQuery({ view: "new" }).stages).toEqual(["unscored"]);
     expect(parseJobQuery({ view: "all" }).stages).toEqual([]);
     expect(parseJobQuery({ stage: "all" }).stages).toEqual([]);
@@ -107,7 +108,8 @@ describe("links", () => {
     const back = parseJobQuery(Object.fromEntries(new URLSearchParams(qs).entries()) as never);
     expect(back.sort).toBe("company"); expect(back.dir).toBe("desc");
     expect(queryString(jobQueryParams(parseJobQuery({})))).toBe(""); // the default view has a clean URL
-    expect(queryString(jobQueryParams(parseJobQuery({ stage: "all" })))).toBe("?stage=all");
+    expect(queryString(jobQueryParams(parseJobQuery({ stage: "all" })))).toBe(""); // all jobs is the default
+    expect(queryString(jobQueryParams(parseJobQuery({ stage: "applied" })))).toBe("?stage=applied");
     expect(queryString(appQueryParams(parseAppQuery({ stage: "failed" }), { page: 2 }))).toBe("?stage=failed&page=2");
   });
 });
@@ -149,5 +151,12 @@ describe("found via", () => {
     const q = { ...parseJobQuery({ stage: "all", via: ["mailbox"] }) };
     expect(jobQueryParams(q)).toMatchObject({ via: ["mailbox"] });
     expect(activePills("jobs", q, { portal: (k) => k, via: (k) => `via ${k}`, country: (k) => k, stage: (k) => k }).map((p) => p.label)).toContain("Found via: via mailbox");
+  });
+});
+
+describe("job groups", () => {
+  it("cover every pipeline stage exactly once, so the group counts add up to all jobs", async () => {
+    const { JOB_GROUPS, STAGE_ORDER } = await import("@/lib/list-query");
+    expect(JOB_GROUPS.flatMap((g) => g.stages).sort()).toEqual([...STAGE_ORDER].sort());
   });
 });

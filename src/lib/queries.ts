@@ -23,7 +23,7 @@ const JOB_COLS = "id,title,company,country,location,url,apply_type,status,found_
 export const RANK_LIMIT = 50_000;
 
 export type AppListRow = {
-  id: string; status: string; method: string | null; lifecycle: string; submitted_at: string | null; created_at: string;
+  id: string; status: string; method: string | null; lifecycle: string; submitted_at: string | null; created_at: string; approved_at?: string | null; error?: string | null;
   job: { title: string; company: string; country: string | null; apply_type: string; source: string | null; url?: string | null; portal?: string | null } | null;
   resume: { version: number } | null;
 };
@@ -192,7 +192,7 @@ export async function listApplicationsFiltered(q: AppQuery, paging: { page: numb
   const ids = matching.slice(r.from, r.to + 1).map((x) => x.id);
   if (ids.length === 0) return { rows: [], total: matching.length, totalAll: await tableTotal("applications", light.length), page: r.page, pages: r.pages, shownFrom: r.shownFrom, shownTo: r.shownTo, portalUnavailable, stageCounts: counts };
   const jobCols = `title,company,country,apply_type,source,url${portalUnavailable ? "" : ",portal"}`;
-  const full = must<AppListRow[]>(await db().from("applications").select(`id,status,method,lifecycle,submitted_at,created_at, job:jobs!inner(${jobCols}), resume:documents!applications_resume_doc_id_fkey(version)`).in("id", ids), "list applications");
+  const full = must<AppListRow[]>(await db().from("applications").select(`id,status,method,lifecycle,submitted_at,created_at,approved_at,error, job:jobs!inner(${jobCols}), resume:documents!applications_resume_doc_id_fkey(version)`).in("id", ids), "list applications");
   const order = new Map(ids.map((id, i) => [id, i]));
   return { rows: full.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0)), total: matching.length, totalAll: await tableTotal("applications", light.length), page: r.page, pages: r.pages, shownFrom: r.shownFrom, shownTo: r.shownTo, portalUnavailable, stageCounts: counts };
 }
