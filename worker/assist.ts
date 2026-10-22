@@ -44,6 +44,7 @@ import { autoDecision, humanPause, withinHours, type AutoCaps, type AutoState } 
 import { answerPending } from "./ai-answers";
 import { acquireWatcherLock, lockPathFor } from "./assist-lock";
 import { clickSubmit, fillForm, looksLikeSearchForm } from "./form";
+import { orderQueue } from "../src/lib/apply/queue-order";
 import { NO_FORM, pushRecent, staleLinkedinNoForm, type Live, type Recent } from "../src/lib/apply/assistant-live";
 import { boardDenied, CONFIRMATION, detectBlock, linkedinSignedIn, type Answer } from "./match";
 
@@ -499,29 +500,28 @@ async function batch(sb: SupabaseClient, who: Who | null): Promise<number> {
     }
   }
   const deferMs = Math.max(1, Number(process.env.ASSIST_FALLBACK_MINUTES ?? cloud?.fallback_minutes ?? 90) || 90) * 60_000;
-  const filtered = skip.length > 0 || only.length > 0 || defer.length > 0 || FAILOVER || cloudOn;
   const one = process.env.APPLICATION_ID?.trim();
-  let q = sb.from("applications").select("id, job_id, resume_doc_id, cover_doc_id, answers, approved_at").eq("status", "assisted_pending").order("approved_at", { ascending: true }).limit(filtered ? 200 : limit);
+  let q = sb.from("applications").select("id, job_id, resume_doc_id, cover_doc_id, answers, approved_at").eq("status", "assisted_pending").order("approved_at", { ascending: true }).limit(200);
   if (one) q = q.eq("id", one);
   const { data, error } = await q;
   if (error) throw error;
   let apps = (data ?? []) as (AppRow & { approved_at?: string | null })[];
-  if (filtered && apps.length) {
-    const { data: jobs } = await sb.from("jobs").select("id, portal, source, apply_type").in("id", apps.map((a) => a.job_id));
-    type J = { id: string; portal?: string | null; source?: string | null; apply_type?: string | null };
+  if (apps.length) {
+    const { data: jobs } = await sb.from("jobs").select("id, portal, source, apply_type, url").in("id", apps.map((a) => a.job_id));
+    type J = { id: string; portal?: string | null; source?: string | null; apply_type?: string | null; url?: string | null };
     const byId = new Map(((jobs ?? []) as J[]).map((j) => [j.id, j]));
     // which workers already tried an application and passed it on (a sign-in page, a security check)
     const declined = new Map<string, string[]>();
     const ev = await sb.from("apply_events").select("application_id, detail").eq("kind", "worker_declined").in("application_id", apps.map((a) => a.id));
     for (const e of (ev.data ?? []) as { application_id: string; detail: { worker?: string } | null }[]) declined.set(e.application_id, [...(declined.get(e.application_id) ?? []), e.detail?.worker ?? "?"]);
     const now = Date.now();
-    apps = apps.filter((a) => {
+    apps = orderQueue(apps.filter((a) => {
       const j = byId.get(a.job_id);
       if (!j) return false;
       const until = blockedPortals.get(String(j.portal ?? "").toLowerCase());
       if (until && until > now) return false; // this worker met a block on that portal a short while ago
       return takeable(j, a.approved_at ?? null, { skip, only, defer, deferMs, now, me: WORKER, declined: declined.get(a.id) });
-    }).slice(0, limit);
+    }), (a) => byId.get(a.job_id)).slice(0, limit); // applicable jobs first: the round is limited, and a job board that refuses the browser must not use it up
   }
   if (!apps.length) { say(WATCH ? `${new Date().toLocaleTimeString()}  Nothing is waiting.` : "Nothing is waiting. Approve applications in the dashboard first (they appear here as \"assisted\")."); return 0; }
 
