@@ -1,7 +1,32 @@
 /** Questions that come up in most applications (India-heavy, with global ones). Answer once; reused everywhere. */
 export type StandardQuestion = { question: string; group: string; hint?: string };
 
+/** Interview-style questions answered in your own words. "Write the interview answers from my profile" drafts them from your profile; you can edit every one. */
+export const WRITTEN_GROUP = "Your own words (drafted from your profile, edit freely)";
+export const WRITTEN_QUESTIONS = [
+  "Why are you interested in this role?",
+  "Why do you want to work for our company?",
+  "Why are you looking to change jobs?",
+  "Why should we hire you?",
+  "What makes you a strong fit for this position?",
+  "What are your key strengths?",
+  "What is one area you are working to improve?",
+  "What is your most significant professional achievement?",
+  "Describe a project you delivered successfully.",
+  "Describe a challenging project and how you handled it.",
+  "Describe a time you resolved a conflict.",
+  "Describe a time you improved a process.",
+  "Describe a time you managed competing priorities.",
+  "Describe your leadership style.",
+  "How do you manage stakeholders and escalations?",
+  "How do you manage risks, budgets and delivery timelines?",
+  "How have you used AI or automation to improve outcomes?",
+  "What value would you bring in your first 90 days?",
+  "What are your career goals?",
+] as const;
+
 export const STANDARD_QUESTIONS: StandardQuestion[] = [
+  ...WRITTEN_QUESTIONS.map((question) => ({ group: WRITTEN_GROUP, question, hint: "A short paragraph in your own words" })),
   { group: "Pay and availability", question: "What is your current CTC?", hint: "e.g. 24 LPA" },
   { group: "Pay and availability", question: "What is your expected CTC?", hint: "e.g. 32 LPA" },
   { group: "Pay and availability", question: "What is your notice period?", hint: "e.g. 60 days" },

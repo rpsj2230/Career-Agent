@@ -82,7 +82,7 @@ export default async function ProfilePage() {
 
       <Card>
         <CardHeader><CardTitle>Answer bank</CardTitle><CardDescription>Standard questions that appear in most applications, pre-listed for you. Things already on your profile (experience, location, links, education) are filled in automatically when a form asks and you have not answered here.</CardDescription></CardHeader>
-        <CardContent><AnswerBankEditor initial={mergeStandard(bank)} /></CardContent>
+        <CardContent><AnswerBankEditor key={JSON.stringify(bank)} initial={mergeStandard(bank)} /></CardContent>
       </Card>
     </div>
   );
