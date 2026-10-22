@@ -40,7 +40,7 @@ import { resolveCredentials } from "../src/lib/integrations/credentials";
 import { summariseAttempts, type RouteAttempt } from "../src/lib/apply/route-chain";
 import { contactEmailsFor } from "../src/lib/apply/contact-email";
 import { loadDraft } from "../src/lib/apply/email-store";
-import { accountGatedVendor, applyButtonsSeen, onJobPage, guardDownloads, buttonsShown, fingerprint, stallProblems, windowText, linkedinSessionAlive, linkedinSignedOutView, EASY_APPLY_SCOPE, finalStepVisible, leaveJobBoard, linkedinOpenApply, nextStep, openApplyForm, parseLinkedinState, refusedFields, uploadEasyApplyResume, waitForLinkedinApply } from "./assist-lib";
+import { accountGatedVendor, applyButtonsSeen, onJobPage, guardDownloads, buttonsShown, fingerprint, forceNext, stallProblems, windowText, linkedinSessionAlive, linkedinSignedOutView, EASY_APPLY_SCOPE, finalStepVisible, leaveJobBoard, linkedinOpenApply, nextStep, openApplyForm, parseLinkedinState, refusedFields, uploadEasyApplyResume, waitForLinkedinApply } from "./assist-lib";
 import { requestPending, type AssistantRequest } from "../src/lib/apply/assistant-request";
 import { autoDecision, humanPause, withinHours, type AutoCaps, type AutoState } from "./assist-policy";
 import { answerPending } from "./ai-answers";
@@ -523,6 +523,10 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
         // the page must change (the next page, or an error): if pressing Next or Review changes nothing, the form is stuck and pressing it again will not help
         let afterPress = beforePress;
         for (let t = 0; t < 6 && afterPress === beforePress; t++) { await sleep(500); afterPress = await fingerprint(page, formScope); }
+        if (afterPress === beforePress && !(await finalStepVisible(page, formScope)) && (await forceNext(page, formScope))) {
+          // a toast or panel can swallow a normal click: once more, the hard way
+          for (let t = 0; t < 6 && afterPress === beforePress; t++) { await sleep(500); afterPress = await fingerprint(page, formScope); }
+        }
         if (afterPress === beforePress && !(await finalStepVisible(page, formScope))) {
           const probs = await stallProblems(page, formScope);
           const seen = await buttonsShown(page, formScope);
