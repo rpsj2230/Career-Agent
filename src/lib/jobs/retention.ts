@@ -2,7 +2,7 @@ import "server-only";
 import { db } from "@/lib/db";
 import { getSetting } from "@/lib/settings";
 
-export type Retention = { skipped_days: number; log_days: number };
+export type Retention = { skipped_days: number; log_days: number; screenshot_days?: number };
 
 /**
  * Keep the database small when thousands of postings are scanned. Nothing that matters is lost:
