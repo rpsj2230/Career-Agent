@@ -21,8 +21,8 @@ export type Pending = { label: string; type: "text" | "textarea" | "select" | "r
 export type Blocked = { kind: Sensitive; label: string };
 export type FillResult = { filled: string[]; unanswered: string[]; entries: FieldEntry[]; pending: Pending[]; blocked: Blocked[] };
 
-/** Required boxes that only agree to the site's terms, privacy policy or data use, or confirm the application is true. They are ticked, because submitting is the point. */
-export const CONSENT_BOX = /\b(i\s+(have\s+read|agree|accept|consent|acknowledge|understand|confirm|certify|authori[sz]e)|terms|privacy|consent|data\s+(protection|processing)|gdpr|agree|acknowledg|accurate|true\s+and\s+(correct|complete)|declaration)\b/i;
+export { CONSENT_BOX } from "../src/lib/apply/consent";
+import { CONSENT_BOX } from "../src/lib/apply/consent";
 
 type Field = {
   idx: number; tag: string; type: string; label: string; name: string; required: boolean;

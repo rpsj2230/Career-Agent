@@ -81,6 +81,11 @@ export default async function ProfilePage() {
       </Card>
 
       <Card>
+        <CardHeader><CardTitle>Browser extension (for sites the assistant cannot automate)</CardTitle><CardDescription>Workday and other employer systems that make an account per company, and job boards that refuse the assistant. The extension fills the form you have open from your own data; you press Submit. It never types a password. Setup: <code>extension/README.md</code>.</CardDescription></CardHeader>
+        <CardContent><a className="underline" href="/api/export/fill-data">Download fill data for the browser extension</a></CardContent>
+      </Card>
+
+      <Card>
         <CardHeader><CardTitle>Answer bank</CardTitle><CardDescription>Standard questions that appear in most applications, pre-listed for you. Things already on your profile (experience, location, links, education) are filled in automatically when a form asks and you have not answered here.</CardDescription></CardHeader>
         <CardContent><AnswerBankEditor key={JSON.stringify(bank)} initial={mergeStandard(bank)} /></CardContent>
       </Card>

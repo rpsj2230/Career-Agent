@@ -1,0 +1,8 @@
+{
+  "manifest_version": 3,
+  "name": "Career Agent: fill this form",
+  "version": "1.0.0",
+  "description": "Fills the application form on the page you are looking at from your own Career Agent data. It never submits and never types a password.",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "action": { "default_popup": "popup.html", "default_title": "Fill this form" }
+}

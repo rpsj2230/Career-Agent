@@ -1,0 +1,2 @@
+/** Required boxes that only agree to the site's terms, privacy policy or data use, or confirm the application is true. They are ticked, because submitting is the point. */
+export const CONSENT_BOX = /\b(i\s+(have\s+read|agree|accept|consent|acknowledge|understand|confirm|certify|authori[sz]e)|terms|privacy|consent|data\s+(protection|processing)|gdpr|agree|acknowledg|accurate|true\s+and\s+(correct|complete)|declaration)\b/i;
