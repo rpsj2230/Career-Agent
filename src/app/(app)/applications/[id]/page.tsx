@@ -84,6 +84,45 @@ export default async function ApplicationPage({ params }: { params: Promise<{ id
 
       {app.error && <Card className="border-destructive"><CardHeader><CardTitle className="text-destructive">Last error</CardTitle></CardHeader><CardContent className="text-sm">{app.error}{app.status === "failed" && <div className="mt-3"><ActionButton variant="outline" endpoint={`/api/applications/${id}`} body={{ action: "retry" }} success="Back in the queue">Return to queue</ActionButton></div>}</CardContent></Card>}
 
+      {["needs_input", "failed"].includes(app.status) && (() => {
+        const r = sub.kind === "record" ? sub.record : null;
+        const formUrl = r?.final_url && /^https?:/.test(r.final_url) ? r.final_url : job.url;
+        const answers = (app.answers as { question: string; answer: string }[]) ?? [];
+        return (
+          <Card id="finish">
+            <CardHeader>
+              <CardTitle>Finish this one yourself</CardTitle>
+              <CardDescription>
+                Employers do not keep a half-filled form, so there is no link to a form that is already part-filled: the link opens the form from the start.
+                Everything the assistant already knew is listed here to paste in, and the resume and cover letter are ready to upload. Press &ldquo;I have submitted it&rdquo; when done.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-3 text-sm">
+              <div className="flex flex-wrap items-center gap-2">
+                <Button asChild><a href={formUrl} target="_blank" rel="noreferrer">{r?.final_url && r.final_url !== job.url ? "Open the form where it stopped" : "Open the application form"}</a></Button>
+                {r?.final_url && r.final_url !== job.url && <Button variant="outline" asChild><a href={job.url} target="_blank" rel="noreferrer">Open the original job link</a></Button>}
+                {dl(resume?.storage_path, "Download resume")}{dl(cover?.storage_path, "Download cover letter")}
+                <ActionButton variant="outline" endpoint={`/api/applications/${id}`} body={{ action: "mark_submitted" }} success="Marked as submitted">I have submitted it</ActionButton>
+                <ActionButton variant="outline" endpoint={`/api/applications/${id}`} body={{ action: "skip" }} success="Skipped">Skip this job</ActionButton>
+              </div>
+              {app.error && <p><b>Why it stopped:</b> <span className="text-destructive">{app.error}</span></p>}
+              {r && r.unanswered.length > 0 && <div><b>Still needed from you:</b><ul className="list-disc pl-5">{r.unanswered.map((u, i) => <li key={i}>{u}</li>)}</ul></div>}
+              {r && r.fields.length > 0 && (
+                <details><summary className="cursor-pointer font-medium">Already filled in ({r.fields.filter((f) => f.kind !== "file").length}): copy from here if the form is blank</summary>
+                  <Table><TableBody>{r.fields.filter((f) => f.kind !== "file").map((f, i) => <TableRow key={i}><TableCell className="whitespace-normal font-medium">{f.label}</TableCell><TableCell className="whitespace-normal">{f.value}</TableCell></TableRow>)}</TableBody></Table>
+                </details>
+              )}
+              {answers.length > 0 && (
+                <details><summary className="cursor-pointer font-medium">Answers prepared for this job ({answers.length})</summary>
+                  <Table><TableBody>{answers.map((a, i) => <TableRow key={i}><TableCell className="whitespace-normal font-medium">{a.question}</TableCell><TableCell className="whitespace-normal">{a.answer}</TableCell></TableRow>)}</TableBody></Table>
+                </details>
+              )}
+              {app.screenshot_path && <details><summary className="cursor-pointer font-medium">What the page looked like when it stopped</summary><img src={`/api/files?path=${encodeURIComponent(app.screenshot_path)}`} alt="The employer's page where the assistant stopped" className="mt-2 max-h-[28rem] rounded-md border" /></details>}
+            </CardContent>
+          </Card>
+        );
+      })()}
+
       {["prepared", "needs_input", "failed"].includes(app.status) && (
         <Card>
           <CardHeader><CardTitle>What to do now</CardTitle><CardDescription>{route.detail}</CardDescription></CardHeader>

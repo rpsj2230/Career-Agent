@@ -12,7 +12,7 @@ import { sendTelegram } from "../src/lib/notify";
 import { forEachProfile, type Profile } from "../src/lib/profiles-store";
 import { profilesEnabled } from "../src/lib/scope";
 import { rawClient } from "../src/lib/raw-client";
-import { repairGarbledJobs } from "../src/lib/jobs/repair-store";
+import { repairGarbledJobs, settleReceiptJobs } from "../src/lib/jobs/repair-store";
 import { requeueFailed } from "../src/lib/apply/auto-retry-store";
 import { reapStuckApplications } from "../src/lib/apply/reaper";
 import { promptPrepared } from "../src/lib/telegram-prompts";
@@ -97,6 +97,8 @@ async function runProfile(p: Profile | null, id: string | undefined): Promise<nu
   }
   const repaired = await repairGarbledJobs().catch((e) => { console.error("could not clean up job text (not fatal):", e instanceof Error ? e.message : e); return 0; });
   if (repaired) console.log(`${label}Cleaned up the company or place of ${repaired} job(s).`);
+  const settled = await settleReceiptJobs().catch((e) => { console.error("could not settle receipt jobs (not fatal):", e instanceof Error ? e.message : e); return 0; });
+  if (settled) console.log(`${label}Marked ${settled} application(s) as applied: the portal's own receipt email says you already applied.`);
   const replies = await trackReplies();
   if (replies.updated.length) console.log(`${label}Replies: ${replies.updated.map((u) => `${u.company} (${u.reply})`).join(", ")}`);
   // a profile that has not been set up (no confirmed resume yet) has nothing to search with or score against: its schedules wait, they do not fail

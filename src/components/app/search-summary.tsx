@@ -16,7 +16,7 @@ export async function SearchSummary() {
   const [runRow, discovery] = await Promise.all([db().from("automation_runs").select("stats,started_at").in("kind", ["pipeline", "scan"]).order("started_at", { ascending: false }).limit(1).maybeSingle(), getSetting("discovery")]);
   const st = ((runRow.data?.stats ?? {}) as Record<string, number>);
   const notes = [
-    st.recently_searched ? `${st.recently_searched} search(es) were skipped in the last run because the same search had already run within ${discovery.min_rescan_hours ?? 6} hours (it would only find the same jobs; you can change this under Settings → Job discovery).` : "",
+    st.recently_searched ? `${st.recently_searched} search(es) were skipped in the last run because the same search had already run (or just failed, which is not repeated for 2 hours) within ${discovery.min_rescan_hours ?? 6} hours (it would only find the same jobs; you can change this under Settings → Job discovery).` : "",
     st.hosted_scrapers_deferred ? `${st.hosted_scrapers_deferred} hosted-scraper search(es) were left for the scheduled run (they take minutes, so buttons on the site do not run them).` : "",
     st.scans_blocked ? `${st.scans_blocked} search(es) were not tried because their service refused the key or login (see the red source below).` : "",
   ].filter(Boolean);

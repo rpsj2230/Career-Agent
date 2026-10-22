@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { contextOf, parseAlertEmail } from "@/lib/jobs/email-parse";
+import { contextOf, isApplicationReceipt, parseAlertEmail } from "@/lib/jobs/email-parse";
 import { decodeEntities, htmlToText, plainField } from "@/lib/jobs/normalize";
-import { looksGarbled, repairJobText } from "@/lib/jobs/repair";
+import { appliedOnDate, looksGarbled, repairJobText } from "@/lib/jobs/repair";
+import { failedRecently } from "@/lib/jobs/adaptive";
 
 describe("entities and cut-off tags", () => {
   it("decodes the character references emails use", () => {
@@ -50,5 +51,30 @@ describe("repairJobText (jobs saved by the older reader)", () => {
   });
   it("leaves clean jobs alone", () => {
     expect(repairJobText({ company: "Acme", location: "Pune" })).toBeNull();
+  });
+});
+
+describe("portal receipts are not new jobs", () => {
+  const html = `<a href="https://www.linkedin.com/comm/jobs/view/4000009">Head of AI</a><div>Cygnify</div><div>Applied on October 19, 2026</div>`;
+  it("ignores a 'your application was sent' email", () => {
+    expect(isApplicationReceipt("Your application was sent to Cygnify")).toBe(true);
+    expect(isApplicationReceipt("Thank you for applying to Hays")).toBe(true);
+    expect(isApplicationReceipt("5 new jobs for Head of AI")).toBe(false);
+    expect(parseAlertEmail({ from: "LinkedIn <jobs-noreply@linkedin.com>", subject: "Your application was sent to Cygnify", html })).toEqual([]);
+    expect(parseAlertEmail({ from: "LinkedIn <jobs-noreply@linkedin.com>", subject: "New jobs for you", html })).toHaveLength(1);
+  });
+  it("reads the day from a place saved by the older reader", () => {
+    expect(appliedOnDate("Applied on October 19, 2026")).toBe("2026-10-19");
+    expect(appliedOnDate("Singapore")).toBeNull();
+    expect(appliedOnDate(null)).toBeNull();
+  });
+});
+
+describe("a failed search is not retried straight away", () => {
+  const now = Date.parse("2026-10-22T12:00:00Z");
+  it("waits two hours", () => {
+    expect(failedRecently(new Date("2026-10-22T11:00:00Z"), now)).toBe(true);
+    expect(failedRecently(new Date("2026-10-22T09:00:00Z"), now)).toBe(false);
+    expect(failedRecently(undefined, now)).toBe(false);
   });
 });
