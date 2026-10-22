@@ -52,20 +52,21 @@ export async function nextStep(page: Page, scope?: string): Promise<boolean> {
  * The résumé written for THIS job must be the one sent, so it is uploaded through that button. Returns the file name when it was
  * uploaded, null when this page has no such button (every other step) or the upload did not go through.
  */
-export async function uploadEasyApplyResume(page: Page, scope: string, resumePath: string): Promise<string | null> {
+export type ResumeUpload = { status: "none" } | { status: "uploaded"; name: string } | { status: "failed" };
+export async function uploadEasyApplyResume(page: Page, scope: string, resumePath: string): Promise<ResumeUpload> {
   const root = page.locator(`${scope} >> visible=true`).first();
   const btn = root.getByRole("button", { name: /^\s*upload (a )?(resume|cv)\s*$/i }).first();
-  if (!(await btn.isVisible().catch(() => false))) return null;
+  if (!(await btn.isVisible().catch(() => false))) return { status: "none" };
   const chooser = page.waitForEvent("filechooser", { timeout: 6000 }).catch(() => null);
   await btn.click({ timeout: 4000 }).catch(() => undefined);
   const fc = await chooser;
-  if (!fc) return null;
+  if (!fc) return { status: "failed" };
   await fc.setFiles(resumePath).catch(() => undefined);
   const name = resumePath.split(/[\\/]/).pop() ?? resumePath;
   // the page shows the file's name once it has taken it
   const stem = name.replace(/\.[^.]+$/, "").slice(0, 20);
   const shown = await root.getByText(stem, { exact: false }).first().waitFor({ state: "visible", timeout: 12_000 }).then(() => true, () => false);
-  return shown ? name : null;
+  return shown ? { status: "uploaded", name } : { status: "failed" };
 }
 
 /**

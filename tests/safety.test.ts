@@ -251,3 +251,16 @@ describe("job portals and other places an employer publishes its openings", () =
     expect(readJobPostingLd(html).orgNames).toEqual(["Infopro Learning"]);
   });
 });
+
+describe("a suggestion box (typeahead)", () => {
+  live("has the matching suggestion pressed, because typed text alone is refused", async () => {
+    if (!browser) return;
+    const page = await browser.newPage();
+    await page.goto(pathToFileURL(join(process.cwd(), "tests/fixtures/typeahead.html")).href);
+    const r = await fillForm(page, { applicant: { name: "Asha Rao", email: "a@x.com", phone: "1", location: "Singapore", links: [] }, answers: [], resumePath: "/dev/null" });
+    expect(r.filled).toEqual(["City"]);
+    expect(await page.textContent("#chosen")).toBe("Singapore, Singapore");
+    expect(await page.inputValue("#city")).toBe("Singapore, Singapore");
+    await page.close();
+  });
+});

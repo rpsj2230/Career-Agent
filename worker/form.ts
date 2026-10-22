@@ -26,7 +26,7 @@ export const CONSENT_BOX = /\b(i\s+(have\s+read|agree|accept|consent|acknowledge
 
 type Field = {
   idx: number; tag: string; type: string; label: string; name: string; required: boolean;
-  options: { text: string; value: string; idx: number }[]; hasValue: boolean;
+  options: { text: string; value: string; idx: number }[]; hasValue: boolean; combo?: boolean;
 };
 
 /** Scan the page (or Easy Apply modal) for fillable controls, tagging each with data-ca-i. Radios are grouped by name. */
@@ -119,10 +119,24 @@ async function scan(page: Page, scope?: string): Promise<Field[]> {
       const options = all.filter((o) => !prompt(o));
       const chosen = type === "select" ? (el as unknown as HTMLSelectElement).selectedOptions[0] : null;
       const hasValue = type === "checkbox" ? el.checked : type === "select" ? !!chosen && !prompt({ text: chosen.text.trim(), value: chosen.value }) : !!el.value;
-      out.push({ idx: n, tag: el.tagName.toLowerCase(), type, label: labelOf(el), name: el.name, required: req, options, hasValue });
+      out.push({ idx: n, tag: el.tagName.toLowerCase(), type, label: labelOf(el), name: el.name, required: req, options, hasValue, combo: el.getAttribute("role") === "combobox" || !!el.getAttribute("aria-autocomplete") });
     });
     return out;
   }, scope);
+}
+
+/**
+ * A suggestion box ("typeahead") only accepts a choice from its list: text typed into it is refused ("Please enter a valid answer"). After typing, the matching
+ * suggestion is pressed. When no suggestion appears the text stays as typed.
+ */
+async function pickSuggestion(page: Page, input: Locator, value: string): Promise<void> {
+  const esc = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const options = page.locator('[role="option"]:visible');
+  const ready = await options.first().waitFor({ state: "visible", timeout: 1800 }).then(() => true, () => false);
+  if (!ready) return;
+  const best = options.filter({ hasText: new RegExp(esc, "i") }).first();
+  const pick = (await best.count().catch(() => 0)) ? best : options.first();
+  await pick.click({ timeout: 2000 }).catch(async () => { await input.press("ArrowDown").catch(() => undefined); await input.press("Enter").catch(() => undefined); });
 }
 
 /** Tick a box. Many sites hide the real checkbox behind a styled one, so a plain check() times out: then force it, and as a last resort click it in the page. */
@@ -228,7 +242,7 @@ export async function fillForm(page: Page, ctx: FillContext, scope?: string): Pr
         else ask(f, label);
         continue;
       }
-      if (value) { await at(f.idx).fill(value); filled.push(label); entries.push({ label, value, kind: "text", source }); }
+      if (value) { await at(f.idx).fill(value); if (f.combo) await pickSuggestion(page, at(f.idx), value); filled.push(label); entries.push({ label, value, kind: "text", source }); }
       else ask(f, label);
     } catch (e) {
       if (f.required) unanswered.push(`${label} (${e instanceof Error ? e.message.split("\n")[0] : "error"})`);
@@ -241,7 +255,16 @@ export async function fillForm(page: Page, ctx: FillContext, scope?: string): Pr
  * Click the form's submit control. The form's own submit button comes first, then a button that says submit/send, and only
  * as a last resort a bare "Apply" (which on many job pages is just a link down to the form). Returns false when none exists.
  */
-export async function clickSubmit(page: Page): Promise<boolean> {
+export async function clickSubmit(page: Page, scope?: string): Promise<boolean> {
+  // inside LinkedIn's Easy Apply window only that window's own button counts: the page around it has a search box and a messaging "Send" button that are not the application
+  if (scope) {
+    const root = page.locator(`${scope} >> visible=true`).first();
+    for (const c of [root.getByRole("button", { name: /submit application|send application/i }), root.locator('input[type="submit"], button[type="submit"]'), root.getByRole("button", { name: /^\s*(submit|send)\s*$/i })]) {
+      const first = c.first();
+      if (await first.isVisible().catch(() => false)) { await first.click(); return true; }
+    }
+    return false;
+  }
   const candidates = [
     page.locator('form input[type="submit"], form button[type="submit"]'),
     page.getByRole("button", { name: /submit application|send application|submit|send/i }),

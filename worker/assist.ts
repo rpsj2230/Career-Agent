@@ -427,7 +427,7 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
 
     let resumeSent = false;
     const askedModel = new Set<string>();
-    for (let step = 0; step < 8; step++) {
+    for (let step = 0; step < 12; step++) { // long Easy Apply forms have ten pages or more
       stepNow(sb, `filling the form (page ${step + 1})`);
       if (downloadBlocked) throw new Handback(`The page tried to download a file ("${downloadBlocked}"). The assistant never downloads or installs anything: it stopped without touching the file. Check the page before going further`);
       if (!formScope && (await looksLikeSearchForm(page))) break; // a job board's search box is not an application: nothing is typed into it
@@ -442,8 +442,10 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
         }
       }
       if (formScope && !resumeSent) {
-        const sent = await uploadEasyApplyResume(page, formScope, files.resume.path).catch(() => null);
-        if (sent) { resumeSent = true; entered.push({ label: "Resume", value: sent, kind: "file", source: "upload" }); say(`  Uploaded the resume written for this job (${sent}).`); }
+        const sent = await uploadEasyApplyResume(page, formScope, files.resume.path).catch(() => ({ status: "failed" } as const));
+        if (sent.status === "uploaded") { resumeSent = true; entered.push({ label: "Resume", value: sent.name, kind: "file", source: "upload" }); say(`  Uploaded the resume written for this job (${sent.name}).`); }
+        // the resume step offered an upload but it did not take: LinkedIn would send an older resume it already holds, so nothing is sent
+        else if (sent.status === "failed") throw new Handback("The resume written for this job could not be uploaded in LinkedIn's window, and LinkedIn would have sent an older resume instead, so nothing was sent");
       }
       let r = await fillForm(page, fctx, formScope);
       if (r.blocked.length) { // a password, a payment or identity number, a code: the assistant stops here, it does not offer these as questions
@@ -543,7 +545,7 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
     stepNow(sb, "pressing Submit");
     const baseline = CONFIRMATION.test(await page.innerText("body").catch(() => ""));
     let pressed = false;
-    try { pressed = await clickSubmit(page); }
+    try { pressed = await clickSubmit(page, formScope); }
     catch (e) { await handBack(`Could not press the submit button (${e instanceof Error ? e.message.split("\n")[0] : e})`); await page.close().catch(() => undefined); return "later"; }
     if (!pressed) { await handBack("Could not find the submit button"); await page.close().catch(() => undefined); return "later"; }
     stepNow(sb, "waiting for the employer's confirmation");
