@@ -223,3 +223,31 @@ describe("language questions in a form", () => {
     await page.close();
   });
 });
+
+import { parseTrustedSites } from "../worker/trusted-sites";
+import { readJobPostingLd } from "../src/lib/jobs/more-routes";
+describe("job portals and other places an employer publishes its openings", () => {
+  const base = { title: "Associate Product Manager | HR Tech", body: "Apply now", company: "Infopro Learning, Inc" };
+  it("accepts a well-known job portal even when its page does not name the employer", () => {
+    for (const host of ["www.bebee.com", "sg.jooble.org", "talent.com", "uk.indeed.com", "www.jobstreet.com", "jobs.workable.com"]) expect(destinationTrust({ ...base, host }).ok, host).toBe(true);
+  });
+  it("accepts a page whose own job-posting data names the employer", () => {
+    expect(destinationTrust({ ...base, host: "careers.some-new-portal.io", postingOrgs: ["Infopro Learning"] }).ok).toBe(true);
+    expect(destinationTrust({ ...base, host: "careers.some-new-portal.io", postingOrgs: ["Another Company"] }).ok).toBe(false);
+  });
+  it("accepts a site the owner chose to trust, and nothing else", () => {
+    expect(destinationTrust({ ...base, host: "jobs.my-recruiter.com", trusted: ["my-recruiter.com"] }).ok).toBe(true);
+    expect(destinationTrust({ ...base, host: "evil-my-recruiter.com", trusted: ["my-recruiter.com"] }).ok).toBe(false);
+    expect(destinationTrust({ ...base, host: "fast-jobs-now.xyz" }).ok).toBe(false);
+  });
+  it("still refuses a scam page on a trusted site's name", () => {
+    expect(destinationTrust({ ...base, host: "www.bebee.com", body: "Pay a registration fee to start" }).ok).toBe(false);
+  });
+  it("reads the trusted-sites file: domains only, comments and addresses tidied", () => {
+    expect(parseTrustedSites("# my sites\nbebee.com\nhttps://www.Jobs.Example.com/path?x=1  # recruiter\n\nnot a domain\nlocalhost\n")).toEqual(["bebee.com", "jobs.example.com"]);
+  });
+  it("reads the hiring organisation from a page's JobPosting data", () => {
+    const html = `<script type="application/ld+json">{"@type":"JobPosting","title":"APM","hiringOrganization":{"@type":"Organization","name":"Infopro Learning","sameAs":"https://www.infoprolearning.com"}}</script>`;
+    expect(readJobPostingLd(html).orgNames).toEqual(["Infopro Learning"]);
+  });
+});

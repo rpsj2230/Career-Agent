@@ -1,3 +1,4 @@
+import { manualOnlyReason } from "@/lib/apply/reachable";
 import { heartbeat, withRun, type RunCtx } from "@/lib/activity";
 import type { ActivityStore } from "@/lib/activity-store";
 import type { RunTrigger } from "@/lib/activity-types";
@@ -27,6 +28,8 @@ export type PipelineDeps = {
   loadCaps(): Promise<{ caps: Caps; state: CapState }>;
   /** the global Auto-Apply switch; absent means on (the per-schedule settings still apply) */
   autoApplyEnabled?(): Promise<boolean>;
+  /** is a Google for Jobs (JSearch) key set, so a job board's link can be traced to the employer's own page; absent means no */
+  hasJsearchKey?(): Promise<boolean>;
   now(): number;
   store?: ActivityStore;
 };
@@ -95,7 +98,15 @@ export async function runPipeline(
     if (schedule.mode === "scan") return;
 
     // 3. prepare applications for the best matches first
-    const candidates = (await deps.queuedJobs(schedule.countries)).sort((a, b) => rankScore(b.score, b.posted_at, deps.now()) - rankScore(a.score, a.posted_at, deps.now()));
+    const queued = await deps.queuedJobs(schedule.countries);
+    // a job that can never be applied for automatically is left for you to do by hand, and no resume (no model tokens) is spent on it
+    const keyed = deps.hasJsearchKey ? await deps.hasJsearchKey().catch(() => false) : false;
+    const byHand = queued.filter((j) => manualOnlyReason(j, { jsearchKey: keyed }));
+    if (byHand.length) {
+      ctx.stat("left_for_you_by_hand");
+      await ctx.log({ kind: "job.matched", level: "info", message: `${byHand.length} matching job(s) left for you to apply for by hand (no resume written): ${[...new Set(byHand.map((j) => manualOnlyReason(j, { jsearchKey: keyed })!.split(":")[0]))].join("; ")}`, status: "manual", detail: { jobs: byHand.slice(0, 20).map((j) => ({ id: j.id, title: j.title, company: j.company, portal: j.portal })) } });
+    }
+    const candidates = queued.filter((j) => !manualOnlyReason(j, { jsearchKey: keyed })).sort((a, b) => rankScore(b.score, b.posted_at, deps.now()) - rankScore(a.score, a.posted_at, deps.now()));
     const prepared: { applicationId: string; verified: boolean; job: QueuedJob }[] = [];
     // a few resumes are written at the same time (each waits mostly on the AI model), which cuts a round's time by about two thirds
     const concurrency = Math.max(1, o.prepareConcurrency ?? PREPARE_CONCURRENCY);

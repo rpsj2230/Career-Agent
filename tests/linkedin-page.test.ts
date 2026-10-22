@@ -152,7 +152,7 @@ describe("the probe's description of a page", () => {
   }, 30_000);
 });
 
-import { buttonsShown, fingerprint, stallProblems, linkedinSessionAlive, linkedinSignedOutView, finalStepVisible, nextStep, refusedFields, uploadEasyApplyResume, walkEasyApply } from "../worker/assist-lib";
+import { buttonsShown, fingerprint, stallProblems, windowText, linkedinSessionAlive, linkedinSignedOutView, finalStepVisible, nextStep, refusedFields, uploadEasyApplyResume, walkEasyApply } from "../worker/assist-lib";
 import { skillYears } from "../src/lib/apply/skill-years";
 import { MasterProfile } from "../src/lib/types";
 describe("a real-shaped Easy Apply window: native dialog, four pages", () => {
@@ -366,4 +366,17 @@ describe("a form that will not go on", () => {
     expect(probs.join(" | ")).toMatch(/Are you comfortable with occasional travel\?/);
     await context.close();
   }, 30_000);
+});
+
+describe("what a stuck form says, in the browser's own words", () => {
+  live("lists a control the browser calls invalid, with its message, and gives the window's text", async () => {
+    if (!browser) return;
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.setContent(`<dialog open id="d"><h2>Apply to Acme</h2><label for="n">Years of leadership*</label><input id="n" type="number" min="0" max="50" required value="75"><button>Back</button><button>Review</button></dialog>`);
+    const problems = await stallProblems(page, "dialog[open]");
+    expect(problems.join(" | ")).toMatch(/Years of leadership.*(50|less|smaller|valid)/i);
+    expect(await windowText(page, "dialog[open]")).toMatch(/Apply to Acme.*Years of leadership/);
+    await context.close();
+  });
 });

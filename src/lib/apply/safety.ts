@@ -35,6 +35,12 @@ export function sensitiveReason(kind: Sensitive, host: string): string {
 /** Applicant-tracking systems and recruiting platforms that employers use for their own application forms. */
 const KNOWN_ATS = /(^|\.)(greenhouse\.io|lever\.co|ashbyhq\.com|workable\.com|recruitee\.com|smartrecruiters\.com|bamboohr\.com|breezy\.hr|jobvite\.com|icims\.com|taleo\.net|myworkdayjobs\.com|myworkdaysite\.com|workday\.com|successfactors\.(com|eu)|teamtailor\.com|personio\.(de|com)|pinpointhq\.com|jazzhr\.com|applytojob\.com|rippling\.com|dayforcehcm\.com|paycomonline\.net|oraclecloud\.com|ultipro\.com|ukg\.com|eightfold\.ai|avature\.net|zohorecruit\.com|freshteam\.com|hirehive\.com|join\.com|comeet\.co|talentlyft\.com|manatal\.com|cezanneondemand\.com|hrmdirect\.com|csod\.com|phenompeople\.com|brassring\.com|kenexa\.com|ripplehire\.com|darwinbox\.in|keka\.com|zohorecruit\.in|naukri\.com|linkedin\.com)$/i;
 
+/**
+ * Job portals and aggregators. An employer often publishes an opening on one of these and sends applicants there, so a link that lands on one is not a scam.
+ * Whatever such a portal asks for is still limited by the other rules: it never gets a password, a payment or an identity number, and nothing is downloaded.
+ */
+const KNOWN_PORTALS = /(^|\.)(bebee\.com|jooble\.org|careerjet\.[a-z.]+|talent\.com|jobrapido\.com|adzuna\.[a-z.]+|ziprecruiter\.com|jobstreet\.com|jobsdb\.com|hiredly\.com|foundit\.[a-z.]+|monsterindia\.com|monster\.com|glassdoor\.[a-z.]+|indeed\.com|simplyhired\.com|learn4good\.com|jora\.com|seek\.com(\.au)?|workable\.com|wellfound\.com|angel\.co|hirist\.(com|tech)|instahyre\.com|cutshort\.io|apna\.co|internshala\.com|recruit\.net|lensa\.com|joblift\.[a-z.]+|jobisjob\.[a-z.]+|whatjobs\.com|dice\.com|builtin\.com|otta\.com|welcometothejungle\.com|himalayas\.app|remoteok\.com|weworkremotely\.com|jobted\.[a-z.]+|jobsoid\.com|jobsora\.com|trovit\.[a-z.]+|mycareersfuture\.gov\.sg|jobscentral\.com\.sg|efinancialcareers\.[a-z.]+|bayt\.com|naukrigulf\.com|gulftalent\.com|shine\.com|timesjobs\.com|freshersworld\.com|jobhai\.com|quikr\.com|hellowork\.com|stepstone\.[a-z.]+|reed\.co\.uk|totaljobs\.com|cwjobs\.co\.uk)$/i;
+
 /** Words that mark a page as a scam, an advert or a trap, whoever it says it is. */
 const SPAM = /(you('ve| have)\s+won|claim\s+your\s+(prize|reward|gift)|congratulations[^.]{0,40}(winner|selected\s+for\s+a\s+prize)|download\s+(and\s+install|the|our)\s+(app|extension|plugin|software|installer)|install\s+(the|our)\s+(app|extension|plugin|software)|enable\s+(push\s+)?notifications\s+to|update\s+your\s+(browser|flash|chrome)|(registration|processing|application|training|security)\s+(fee|deposit)|pay\s+(a\s+)?(fee|deposit)\s+to\s+(apply|start)|casino|betting|crypto\s+(giveaway|wallet\s+connect)|verify\s+you\s+are\s+human\s+by\s+(installing|downloading|running))/i;
 
@@ -49,14 +55,17 @@ export const mentionsCompany = (text: string, company: string) => {
  * Is this page where an application for `company` can safely be filled? Yes for a known applicant-tracking system, or a page that names the
  * company; never for a page that reads like a scam or asks for a program or a fee, however well it names the company.
  */
-export function destinationTrust(o: { host: string; title: string; body: string; company: string }): { ok: boolean; why: string } {
+export function destinationTrust(o: { host: string; title: string; body: string; company: string; /** hiring organisations named in the page's own JobPosting data */ postingOrgs?: string[]; /** sites the owner has said to trust (~/.career-agent/trusted-sites.txt) */ trusted?: string[] }): { ok: boolean; why: string } {
   const h = o.host.toLowerCase().replace(/^www\./, "");
   const text = `${o.title} ${o.body.slice(0, 4000)}`;
   const spam = text.match(SPAM);
   if (spam) return { ok: false, why: `the page on ${h || "this site"} reads like a scam or an advert ("${spam[0].slice(0, 40)}")` };
   if (KNOWN_ATS.test(h)) return { ok: true, why: "a known applicant-tracking system" };
+  if (KNOWN_PORTALS.test(h)) return { ok: true, why: "a well-known job portal" };
+  if ((o.trusted ?? []).some((t) => h === t || h.endsWith(`.${t}`))) return { ok: true, why: "a site you chose to trust" };
+  if ((o.postingOrgs ?? []).some((org) => mentionsCompany(org, o.company))) return { ok: true, why: `the page's own job-posting data names ${o.company}` };
   if (mentionsCompany(`${h} ${text}`, o.company)) return { ok: true, why: `the page names ${o.company}` };
-  return { ok: false, why: `the page on ${h || "this site"} does not mention ${o.company} and is not a known application system` };
+  return { ok: false, why: `the page on ${h || "this site"} does not mention ${o.company} and is not a known application system or job portal` };
 }
 
 /** File types that are programs or installers: a page offering one is never followed. */

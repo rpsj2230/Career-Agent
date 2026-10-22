@@ -34,17 +34,18 @@ import { defaultToolYears, skillYears } from "../src/lib/apply/skill-years";
 import { destinationTrust, mentionsCompany, sensitiveReason } from "../src/lib/apply/safety";
 import { isRedirector } from "../src/lib/jobs/redirectors";
 import { atsLinksIn, findOnEmployerBoards } from "../src/lib/jobs/alt-routes";
-import { careersSiteRoutes, googleJobsRoutes, isJobBoardHost, type Found, type RouteId } from "../src/lib/jobs/more-routes";
+import { careersSiteRoutes, googleJobsRoutes, isJobBoardHost, readJobPostingLd, type Found, type RouteId } from "../src/lib/jobs/more-routes";
 import { jsearchSearch, jsonFetcher } from "../src/lib/jobs/sources";
 import { resolveCredentials } from "../src/lib/integrations/credentials";
 import { summariseAttempts, type RouteAttempt } from "../src/lib/apply/route-chain";
 import { contactEmailsFor } from "../src/lib/apply/contact-email";
 import { loadDraft } from "../src/lib/apply/email-store";
-import { accountGatedVendor, applyButtonsSeen, onJobPage, guardDownloads, buttonsShown, fingerprint, stallProblems, linkedinSessionAlive, linkedinSignedOutView, EASY_APPLY_SCOPE, finalStepVisible, leaveJobBoard, linkedinOpenApply, nextStep, openApplyForm, parseLinkedinState, refusedFields, uploadEasyApplyResume, waitForLinkedinApply } from "./assist-lib";
+import { accountGatedVendor, applyButtonsSeen, onJobPage, guardDownloads, buttonsShown, fingerprint, stallProblems, windowText, linkedinSessionAlive, linkedinSignedOutView, EASY_APPLY_SCOPE, finalStepVisible, leaveJobBoard, linkedinOpenApply, nextStep, openApplyForm, parseLinkedinState, refusedFields, uploadEasyApplyResume, waitForLinkedinApply } from "./assist-lib";
 import { requestPending, type AssistantRequest } from "../src/lib/apply/assistant-request";
 import { autoDecision, humanPause, withinHours, type AutoCaps, type AutoState } from "./assist-policy";
 import { answerPending } from "./ai-answers";
 import { dropShots } from "./shots";
+import { trustedSites } from "./trusted-sites";
 import { newQuestions } from "./ai-answers-core";
 import { acquireWatcherLock, lockPathFor } from "./assist-lock";
 import { clean, clickSubmit, fillForm, looksLikeSearchForm } from "./form";
@@ -435,8 +436,9 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
         let host = ""; try { host = new URL(page.url()).hostname.replace(/^www\./, ""); } catch { /* keep blank */ }
         if (host && !isJobBoardHost(host)) {
           await page.waitForLoadState("load", { timeout: 8000 }).catch(() => undefined);
-          const trust = destinationTrust({ host, title: await page.title().catch(() => ""), body: await page.innerText("body").catch(() => ""), company: job.company });
-          if (!trust.ok) throw new Handback(`Did not touch this page: ${trust.why}. If it is the real application page, open it and apply there yourself`);
+          const postingOrgs = readJobPostingLd(await page.content().catch(() => "")).orgNames;
+          const trust = destinationTrust({ host, title: await page.title().catch(() => ""), body: await page.innerText("body").catch(() => ""), company: job.company, postingOrgs, trusted: trustedSites() });
+          if (!trust.ok) throw new Handback(`Did not touch this page: ${trust.why}. If it is the real application page, open it and apply there yourself; to let the assistant use ${host} from now on, add the line ${host} to ~/.career-agent/trusted-sites.txt`);
         }
       }
       if (formScope && !resumeSent) {
@@ -472,7 +474,8 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
         if (afterPress === beforePress && !(await finalStepVisible(page, formScope))) {
           const probs = await stallProblems(page, formScope);
           const seen = await buttonsShown(page, formScope);
-          stalledNote = `Could not reach the final step of the form: the page would not go on after pressing Next or Review (it says: ${probs.length ? probs.join("; ") : "no message"}; buttons: ${seen.length ? seen.join(" | ") : "none"})`;
+          const words = probs.length ? "" : `; the window shows: "${await windowText(page, formScope)}"`;
+          stalledNote = `Could not reach the final step of the form: the page would not go on after pressing Next or Review (it says: ${probs.length ? probs.join("; ") : "no message"}; buttons: ${seen.length ? seen.join(" | ") : "none"}${words})`;
           say(`  ${stalledNote}`);
           break;
         }

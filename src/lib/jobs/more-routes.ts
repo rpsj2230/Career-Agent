@@ -42,10 +42,10 @@ const wordsOf = (company: string) => company.toLowerCase().normalize("NFKD").rep
 /** Does this text plausibly belong to the company? True only when its first distinctive word appears. */
 export const mentionsCompany = (text: string, company: string): boolean => { const w = wordsOf(company); return w.length > 0 && text.toLowerCase().includes(w[0]); };
 
-export type LdPosting = { employerSites: string[]; applyUrls: string[]; directApply: boolean };
+export type LdPosting = { employerSites: string[]; applyUrls: string[]; directApply: boolean; /** the hiring organisation named by each JobPosting on the page */ orgNames: string[] };
 /** What a job page says about itself in its structured data (schema.org JobPosting): who the employer is and where to apply. */
 export function readJobPostingLd(html: string): LdPosting {
-  const out: LdPosting = { employerSites: [], applyUrls: [], directApply: false };
+  const out: LdPosting = { employerSites: [], applyUrls: [], directApply: false, orgNames: [] };
   for (const m of html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
     let data: unknown;
     try { data = JSON.parse(m[1].trim()); } catch { continue; }
@@ -64,6 +64,7 @@ export function readJobPostingLd(html: string): LdPosting {
       for (const one of ([] as unknown[]).concat(org ?? [])) {
         if (!one || typeof one !== "object") continue;
         const r = one as Record<string, unknown>;
+        if (typeof r.name === "string" && r.name.trim()) out.orgNames.push(r.name.trim());
         for (const u of ([] as unknown[]).concat(r.sameAs ?? [], r.url ?? [])) if (typeof u === "string" && /^https?:/.test(u)) out.employerSites.push(u);
       }
     }

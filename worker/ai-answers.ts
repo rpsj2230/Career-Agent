@@ -11,7 +11,7 @@ import type { Answer } from "./match";
 export async function answerPending(o: { profile: MasterProfile; bank: Answer[]; job: { title: string; company: string; description?: string | null }; pending: Pending[]; jobId?: string }): Promise<Answer[]> {
   if (o.pending.length === 0) return [];
   try {
-    const { output } = await runStructured({ task: "tailor", schema: AiAnswers, system: AI_SYSTEM, prompt: buildAiPrompt(o), jobId: o.jobId, prefer: "strong", budgetMs: 45_000, skipParked: true });
+    const { output } = await runStructured({ task: "tailor", schema: AiAnswers, system: AI_SYSTEM, prompt: buildAiPrompt(o), jobId: o.jobId, prefer: "strong", budgetMs: process.env.LOCAL_MODEL?.trim() ? 180_000 : 45_000, skipParked: true }); // a local model is slow: it gets minutes, hosted models seconds
     return usableAnswers(o.pending, output);
   } catch (e) {
     console.error(`  Could not write answers with a model (${(e instanceof Error ? e.message.split("\n")[0] : String(e)).slice(0, 400)}); those questions stay with you.`);

@@ -1,3 +1,4 @@
+import { resolveCredentials } from "@/lib/integrations/credentials";
 import "server-only";
 import { approveApplication } from "@/lib/apply/approve";
 import { prepareApplication } from "@/lib/apply/prepare";
@@ -60,6 +61,7 @@ export function liveDeps(): PipelineDeps {
     prepare: (jobId, runId) => prepareApplication(jobId, runId),
     approve: (applicationId, runId) => approveApplication(applicationId, { actor: "schedule", runId, dispatch: false }),
     autoApplyEnabled: async () => (await getSetting("autoapply")).enabled,
+    hasJsearchKey: async () => !!(await resolveCredentials().then((c) => c.creds.jsearch?.rapidapi_key).catch(() => null)),
     loadCaps: async () => ({ caps: await getSetting("caps"), state: await loadCapState() }),
     now: () => Date.now(),
   };
