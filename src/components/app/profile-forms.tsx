@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ROLE_PRESETS, rowsToSave, toggleCsv, type AnswerRow } from "@/lib/standard-questions";
 import { AutofillButton } from "./autofill-button";
+import { WriteAnswersButton } from "./write-answers-button";
 import { call } from "./api";
 
 export function ImportBox() {
@@ -162,6 +163,7 @@ export function AnswerBankEditor({ initial }: { initial: AnswerRow[] }) {
   );
   return (
     <div className="grid gap-4">
+      <div className="flex flex-wrap items-center gap-2"><WriteAnswersButton /><span className="text-xs text-muted-foreground">Drafts only the empty interview questions below, from your profile, and saves them here. Read and edit them: they are sent as you saved them.</span></div>
       <p className="text-sm text-muted-foreground">{answered} of {rows.length} answered. Fill what you are comfortable sharing; the agent only uses answers that exist here, and hands the application back to you for anything it cannot answer.</p>
       {groups.map((g) => (
         <section key={g} className="grid gap-2">
