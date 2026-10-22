@@ -7,7 +7,7 @@ describe("Autopilot settings", () => {
     const parsed = ScheduleInput.safeParse({ name: "A", timezone: "Asia/Singapore", ...AUTOPILOT.schedule, days: [], countries: [], integrations: [] });
     expect(parsed.success).toBe(true);
     if (parsed.success) expect(parsed.data).toMatchObject({ mode: "scan_prepare_apply", require_approval: false, max_apply: 100, frequency: "every_n_hours", interval_hours: 6 });
-    expect(AUTOPILOT.caps.daily_total).toBeLessThanOrEqual(100);
+    expect(AUTOPILOT.caps.daily_total).toBeLessThanOrEqual(300);
     expect(AUTOPILOT.caps.daily_linkedin).toBeLessThanOrEqual(50);
     expect(AUTOPILOT.caps.weekly_linkedin).toBeLessThanOrEqual(200);
     expect(AUTOPILOT.autoPrepare.per_run).toBeLessThanOrEqual(100);

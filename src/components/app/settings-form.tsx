@@ -33,7 +33,7 @@ export function SettingsForm({ searching, discovery, scoring, caps, tailoring, b
   const saveTailoring = async () => { if (await call("/api/settings", "PUT", { key: "tailoring", value: tl }, "Resume memory saved")) refresh(); };
   const saveScoring = async () => { if (await call("/api/settings", "PUT", { key: "scoring", value: { threshold: Number(t), min_evidence: Number(me), ...sc, batch_size: Number(sc.batch_size) } }, "Threshold saved")) refresh(); };
   const saveCaps = async () => { if (await call("/api/settings", "PUT", { key: "caps", value: { ...c, daily_total: Number(c.daily_total), daily_linkedin: Number(c.daily_linkedin), weekly_linkedin: Number(c.weekly_linkedin) } }, "Limits saved")) refresh(); };
-  const num = (v: number, set: (n: number) => void, id: string) => <Input id={id} type="number" value={v} onChange={(e) => set(Number(e.target.value))} />;
+  const num = (v: number, set: (n: number) => void, id: string) => <Input id={id} type="number" min={0} value={v} onChange={(e) => set(Number(e.target.value))} />;
 
   return (
     <div className="grid gap-4">
