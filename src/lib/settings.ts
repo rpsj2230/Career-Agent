@@ -22,7 +22,7 @@ export const DEFAULTS = {
   /** which parts of your resume the agent may change for each job; the rest always stays as in your master resume */
   tailoring_scope: { headline: true, summary: true, highlights: true, bullets: true, skills: true },
   /** keep the database small: clear the description of skipped jobs after N days; delete per-job rejection log lines after N days (0 = never) */
-  retention: { skipped_days: 30, log_days: 90 },
+  retention: { skipped_days: 30, log_days: 90, /** days the employer's confirmation picture is kept as proof after sending (0 = delete at once) */ screenshot_days: 14 },
   /** resume style per country code, e.g. { "de": "europe" }; countries not listed use the default for their region */
   resume_templates: {} as Record<string, string>,
   /** read your mailbox (read-only, in memory) to update applications when an employer replies; off until you turn it on */

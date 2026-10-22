@@ -44,6 +44,7 @@ import { accountGatedVendor, applyButtonsSeen, onJobPage, guardDownloads, button
 import { requestPending, type AssistantRequest } from "../src/lib/apply/assistant-request";
 import { autoDecision, humanPause, withinHours, type AutoCaps, type AutoState } from "./assist-policy";
 import { answerPending } from "./ai-answers";
+import { dropShots } from "./shots";
 import { newQuestions } from "./ai-answers-core";
 import { acquireWatcherLock, lockPathFor } from "./assist-lock";
 import { clean, clickSubmit, fillForm, looksLikeSearchForm } from "./form";
@@ -260,7 +261,7 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
     fields: entered, files: [fileInfo("resume", files.resume!), ...(files.cover ? [fileInfo("cover_letter", files.cover)] : [])], unanswered, confirmation, error, steps, note,
   });
   const screenshot = async (name: string) => {
-    try { const path = `screenshots/${app.id}/${name}.png`; await sb.storage.from("documents").upload(path, await page.screenshot({ fullPage: true }), { contentType: "image/png", upsert: true }); return path; } catch { return null; }
+    try { const path = `screenshots/${app.id}/${name}.png`; await sb.storage.from("documents").upload(path, await page.screenshot({ fullPage: false }), { contentType: "image/png", upsert: true }); return path; } catch { return null; }
   };
   const submitted = async (method: "assisted" | "automated", confirmed: boolean, note: string) => {
     const text = await page.innerText("body").catch(() => "");
@@ -271,6 +272,7 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
     const { error } = await sb.from("applications").update({ ...patch, submission: rec }).eq("id", app.id);
     if (error) await sb.from("applications").update(patch).eq("id", app.id);
     await sb.from("jobs").update({ status: "applied" }).eq("id", job.id);
+    await dropShots(sb, app.id, ["live", "last"]); // sent: the working pictures are no longer needed (the confirmation picture stays for a few days as proof)
     noteRecent({ title: job.title, company: job.company, portal: String(job.portal ?? ""), outcome: "submitted", note: "confirmed by the page" });
     await sb.from("apply_events").insert({ application_id: app.id, kind: method === "automated" ? "submitted_hands_free" : "submitted_with_assistant", detail: { fields: entered.length } });
     await logAct(sb, { kind: "application.submitted", message: `${method === "automated" ? "Submitted automatically by the apply assistant" : "Submitted by you with the apply assistant"}: ${job.title} at ${job.company}`, status: "submitted", application_id: app.id, job_id: job.id, company: job.company, country: job.country, portal: job.portal, detail: { method, assistant: true, fields: entered.length } });
@@ -365,8 +367,9 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
       const st = parseLinkedinState(await page.innerText("body").catch(() => ""));
       if (st.applied) {
         const now = new Date().toISOString();
-        await sb.from("applications").update({ status: "submitted", method: "assisted", lifecycle: "applied", submitted_at: now, error: null }).eq("id", app.id);
+        await sb.from("applications").update({ status: "submitted", method: "assisted", lifecycle: "applied", submitted_at: now, error: null, screenshot_path: null }).eq("id", app.id);
         await sb.from("jobs").update({ status: "applied" }).eq("id", job.id);
+        await dropShots(sb, app.id, ["live", "last"]); // nothing was sent by us: no picture is worth keeping
         await sb.from("apply_events").insert({ application_id: app.id, kind: "marked_submitted", detail: { why: `LinkedIn's own page says "${st.applied}"` } });
         await logAct(sb, { kind: "application.submitted", message: `Already applied (LinkedIn shows "${st.applied}"): ${job.title} at ${job.company}`, status: "submitted", application_id: app.id, job_id: job.id, company: job.company, country: job.country, portal: job.portal, detail: { method: "assisted", assistant: true, linkedin_says: st.applied } });
         noteRecent({ title: job.title, company: job.company, portal: "linkedin", outcome: "submitted", note: `LinkedIn already shows "${st.applied}"` });
@@ -374,7 +377,11 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
         await page.close().catch(() => undefined);
         return "later";
       }
-      if (st.closed) throw new Handback("LinkedIn says this role is no longer accepting applications");
+      if (st.closed) {
+        // a closed role is closed out: its pictures are removed by the next cleanup, and it is not offered again
+        await sb.from("jobs").update({ status: "skipped", skip_reason: "LinkedIn says this role is no longer accepting applications" }).eq("id", job.id);
+        throw new Handback("LinkedIn says this role is no longer accepting applications");
+      }
       if (!onJobPage(page.url(), job.url)) throw new Handback(`LinkedIn moved the assistant from this job to its search results before anything was pressed, so nothing was pressed; the job may still be open: open it and apply`);
     }
     let opened: "already" | "clicked" | "none";
@@ -749,7 +756,7 @@ async function batch(sb: SupabaseClient, who: Who | null): Promise<number> {
         await sb.from("apply_events").insert({ application_id: app.id, kind: "needs_input", detail: { message, worker: WORKER, assistant: true } });
         current.handedBack++;
       }
-      finally { live = null; await release(sb, app.id); } // anything not finished or handed back goes back to the queue for the next round, or for another worker
+      finally { live = null; await dropShots(sb, app.id, ["live"]); await release(sb, app.id); } // anything not finished or handed back goes back to the queue for the next round, or for another worker
       if (r === "done") done++;
       if (r === "quit") break;
       if (r === "stop") {

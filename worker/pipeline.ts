@@ -18,6 +18,7 @@ import { reapStuckApplications } from "../src/lib/apply/reaper";
 import { promptPrepared } from "../src/lib/telegram-prompts";
 import { trackReplies } from "../src/lib/mail/track";
 import { applyRetention } from "../src/lib/jobs/retention";
+import { sweepScreenshots } from "../src/lib/apply/screenshot-store";
 import { modelReadiness } from "../src/lib/llm/registry";
 import { liveDeps } from "../src/lib/pipeline/deps";
 import { pipelineSummaryText, runPipeline, type PipelineSummary } from "../src/lib/pipeline/run";
@@ -121,6 +122,7 @@ async function runProfile(p: Profile | null, id: string | undefined): Promise<nu
   const prompted = await promptPrepared();
   if (prompted) console.log(`${label}Sent ${prompted} application(s) to Telegram for one-tap approval.`);
   await applyRetention().then((r) => { if (r.trimmed || r.logsDeleted) console.log(`${label}Housekeeping: cleared ${r.trimmed} old skipped description(s), deleted ${r.logsDeleted} old rejection log line(s).`); }).catch((e) => console.error("housekeeping failed (not fatal):", e instanceof Error ? e.message : e));
+  await sweepScreenshots().then((r) => { if (r.removed) console.log(`${label}Housekeeping: deleted ${r.removed} picture(s) of ${r.applications} finished application(s).`); }).catch((e) => console.error("picture cleanup failed (not fatal):", e instanceof Error ? e.message : e));
   return ready;
 }
 

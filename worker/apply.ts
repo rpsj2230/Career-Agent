@@ -19,6 +19,7 @@ import { profilesEnabled } from "../src/lib/scope";
 import { notifyProfile } from "../src/lib/notify-profile";
 import { clickSubmit, fillForm } from "./form";
 import { sensitiveReason } from "../src/lib/apply/safety";
+import { dropShots } from "./shots";
 import { CONFIRMATION, detectBlock, type Answer } from "./match";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -196,7 +197,8 @@ async function processInner(sb: SupabaseClient, appId: string) {
       .catch(() => { throw new Handback("needs_input", "Pressed submit, but no confirmation message was detected; check your email or the employer site before retrying"); });
 
     const shot = `screenshots/${appId}/confirmation.png`;
-    await sb.storage.from("documents").upload(shot, await page.screenshot({ fullPage: true }), { contentType: "image/png", upsert: true });
+    await sb.storage.from("documents").upload(shot, await page.screenshot({ fullPage: false }), { contentType: "image/png", upsert: true });
+    await dropShots(sb, appId, ["last"]); // an earlier stopped attempt left a picture of where it stopped: it is not needed now
     const now = new Date().toISOString();
     const confirmation = { text: confirmationSnippet(await page.innerText("body").catch(() => ""), CONFIRMATION), screenshot: shot };
     await updateApplication(sb, appId, { status: "submitted", submitted_at: now, lifecycle: "applied", screenshot_path: shot }, record("submitted", { finalUrl: page.url(), confirmation, error: null }));
@@ -210,7 +212,7 @@ async function processInner(sb: SupabaseClient, appId: string) {
     let shot: string | undefined;
     if (page) {
       shot = `screenshots/${appId}/last-state.png`;
-      await sb.storage.from("documents").upload(shot, await page.screenshot({ fullPage: true }).catch(() => Buffer.alloc(0)), { contentType: "image/png", upsert: true }).catch(() => undefined);
+      await sb.storage.from("documents").upload(shot, await page.screenshot({ fullPage: false }).catch(() => Buffer.alloc(0)), { contentType: "image/png", upsert: true }).catch(() => undefined);
     }
     await updateApplication(sb, appId, { status: h.kind, error: h.message, screenshot_path: shot ?? null }, record(h.kind, { finalUrl: page?.url() ?? null, confirmation: null, error: h.message })).catch((err) => console.error("could not save the submission record:", err));
     await event(h.kind, { message: h.message });
