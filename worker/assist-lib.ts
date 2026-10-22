@@ -166,7 +166,7 @@ async function waitForEasyApplyWindow(page: Page, timeoutMs = 9000): Promise<{ s
     await page.waitForTimeout(400).catch(() => undefined);
   }
   const count = async (sel: string) => page.locator(sel).count().catch(() => 0);
-  const why = `no application window found (address ${page.url().replace(/[?#].*$/, "")}; role=dialog ${await count('[role="dialog"]')}, native dialog ${await count("dialog")}, aria-modal ${await count('[aria-modal="true"]')}, form fields outside the header ${await controlsOutsideNav(page)})`;
+  const why = `no application window found (address ${page.url().replace(/[?#].*$/, "")}${page.url().match(/currentJobId=\d+/)?.[0] ? ` showing ${page.url().match(/currentJobId=\d+/)![0]}` : ""}; role=dialog ${await count('[role="dialog"]')}, native dialog ${await count("dialog")}, aria-modal ${await count('[aria-modal="true"]')}, form fields outside the header ${await controlsOutsideNav(page)})`;
   return { scope: null, why };
 }
 
