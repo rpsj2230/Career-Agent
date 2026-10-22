@@ -1,0 +1,7 @@
+<html><head><title>PM | Beta | LinkedIn</title></head><body>
+<nav id="global-nav"><a href="/feed">Home</a></nav>
+<main><h1>PM</h1><div id="late"></div></main>
+<script>
+  // LinkedIn builds the apply button after the first load
+  setTimeout(() => { document.getElementById("late").innerHTML = '<button aria-label="Easy Apply to this job" id="easy">Easy Apply</button><div id="modal" hidden><label>Email <input name="e"></label><label>Phone <input name="p"></label></div>'; document.getElementById("easy").onclick = () => { document.getElementById("modal").hidden = false; }; }, 1500);
+</script></body></html>

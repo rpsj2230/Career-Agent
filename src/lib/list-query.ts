@@ -166,6 +166,7 @@ export function sortJobs(rows: JobLight[], sort: JobSortKey, dir: "asc" | "desc"
 export const LIFECYCLES = ["none", "applied", "interview", "offer", "rejected", "withdrawn"] as const;
 export const LIFECYCLE_LABEL: Record<string, string> = { none: "No outcome yet", applied: "Applied", interview: "Interview", offer: "Offer", rejected: "Rejected", withdrawn: "Withdrawn" };
 export const APP_SORTS = {
+  queue: { label: "Next to apply (best score first, applied last)", dir: "desc" as const },
   created: { label: "Date prepared", dir: "desc" as const },
   submitted: { label: "Date submitted", dir: "desc" as const },
   company: { label: "Company", dir: "asc" as const },
@@ -183,7 +184,7 @@ export function parseAppQuery(sp: SP): AppQuery {
   let stages = uniq(all(sp.stage).map((s) => STAGE_ALIAS[s] ?? s).filter((s): s is StageKey => APP_STAGES.includes(s as StageKey)));
   const status = first(sp.status);
   if (stages.length === 0 && status && status in APP_STATUS_STAGES) stages = APP_STATUS_STAGES[status];
-  const sort = (first(sp.sort) as string) in APP_SORTS ? (first(sp.sort) as AppSortKey) : "created";
+  const sort = (first(sp.sort) as string) in APP_SORTS ? (first(sp.sort) as AppSortKey) : "queue";
   const dir = first(sp.dir) === "asc" || first(sp.dir) === "desc" ? (first(sp.dir) as "asc" | "desc") : APP_SORTS[sort].dir;
   const q = safeSearch(first(sp.q));
   return {
@@ -196,7 +197,7 @@ export function parseAppQuery(sp: SP): AppQuery {
 
 export type AppLight = {
   id: string; status: string; method: string | null; lifecycle: string; submitted_at: string | null; created_at: string;
-  title: string; company: string; country: string | null; portal: string | null; apply_type: string; url: string;
+  title: string; company: string; country: string | null; portal: string | null; apply_type: string; url: string; /** the job's fit score, when it has one */ score?: number | null;
 };
 export const appRouteOf = (r: Pick<AppLight, "apply_type" | "url" | "portal">): ApplyRoute => applyRoute({ apply_type: r.apply_type, url: r.url, portal: r.portal });
 
@@ -222,7 +223,8 @@ export function sortApps(rows: AppLight[], sort: AppSortKey, dir: "asc" | "desc"
   const num = (a: number | null, b: number | null) => (a === null && b === null ? 0 : a === null ? 1 : b === null ? -1 : (a - b) * sign);
   return [...rows].sort((a, b) => {
     let c = 0;
-    if (sort === "company") c = cmpText(a.company, b.company) * sign;
+    if (sort === "queue") { const group = (x: AppLight) => (x.status === "submitted" ? 1 : 0); c = group(a) - group(b) || num(a.score ?? null, b.score ?? null); } // still to apply first, best score first, applied last
+    else if (sort === "company") c = cmpText(a.company, b.company) * sign;
     else if (sort === "title") c = cmpText(a.title, b.title) * sign;
     else if (sort === "country") c = a.country === null ? (b.country === null ? 0 : 1) : b.country === null ? -1 : cmpText(a.country, b.country) * sign;
     else if (sort === "stage") c = num(STAGE_RANK[appStage(a.status) ?? "rejected"], STAGE_RANK[appStage(b.status) ?? "rejected"]);
@@ -256,7 +258,7 @@ export function appQueryParams(q: AppQuery, over: Link = {}): Link {
   const base: Link = {
     stage: q.stages.length === 0 ? undefined : q.stages, lifecycle: q.lifecycles, portal: q.portals, country: q.countries, method: q.methods,
     q: q.q, from: q.from, to: q.to, sent_from: q.sentFrom, sent_to: q.sentTo,
-    sort: q.sort === "created" ? undefined : q.sort, dir: q.dir === APP_SORTS[q.sort].dir ? undefined : q.dir,
+    sort: q.sort === "queue" ? undefined : q.sort, dir: q.dir === APP_SORTS[q.sort].dir ? undefined : q.dir,
   };
   return { ...base, ...over };
 }

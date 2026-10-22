@@ -160,3 +160,21 @@ describe("job groups", () => {
     expect(JOB_GROUPS.flatMap((g) => g.stages).sort()).toEqual([...STAGE_ORDER].sort());
   });
 });
+
+describe("Applications default order: still to apply first, best score first, applied last", () => {
+  const base = { method: null, lifecycle: "none", submitted_at: null, country: "sg", apply_type: "unknown", url: "https://x.example/job", portal: "linkedin", company: "C" };
+  const rows = [
+    { ...base, id: "applied-high", status: "submitted", created_at: "2026-10-01T00:00:00Z", title: "A", score: 99 },
+    { ...base, id: "queued-low", status: "assisted_pending", created_at: "2026-10-02T00:00:00Z", title: "B", score: 60 },
+    { ...base, id: "queued-high", status: "assisted_pending", created_at: "2026-10-03T00:00:00Z", title: "C", score: 90 },
+    { ...base, id: "queued-none", status: "prepared", created_at: "2026-10-04T00:00:00Z", title: "D", score: null },
+  ] as import("@/lib/list-query").AppLight[];
+  it("is the default sort", () => { expect(parseAppQuery({}).sort).toBe("queue"); });
+  it("puts what is still to apply first by score, and what is applied last, whatever its score", async () => {
+    const { sortApps } = await import("@/lib/list-query");
+    expect(sortApps(rows, "queue", "desc").map((r) => r.id)).toEqual(["queued-high", "queued-low", "queued-none", "applied-high"]);
+    // once the top one is sent, the list reorders itself
+    const sent = rows.map((r) => (r.id === "queued-high" ? { ...r, status: "submitted" } : r));
+    expect(sortApps(sent, "queue", "desc").map((r) => r.id)).toEqual(["queued-low", "queued-none", "applied-high", "queued-high"]);
+  });
+});

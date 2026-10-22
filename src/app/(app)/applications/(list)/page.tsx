@@ -13,6 +13,7 @@ import { activePills, APP_SORTS, APP_STAGES, appQueryParams, appStage, parseAppQ
 import { filterOptions, listApplicationsFiltered } from "@/lib/queries";
 import { fmtDateTime } from "@/lib/time";
 import { AssistantPanel } from "@/components/app/assistant-panel";
+import { SmartRefresh } from "@/components/app/smart-refresh";
 import { AutopilotCard } from "@/components/app/autopilot-card";
 import { PipelineStatus } from "@/components/app/pipeline-status";
 import { currentRole } from "@/lib/role-server";
@@ -61,6 +62,7 @@ export default async function ApplicationsPage({ searchParams }: { searchParams:
           <div className="mt-3"><Suspense fallback={<CardSkeleton height="h-64" />}><PipelineStatus /></Suspense></div>
         </details>
       )}
+      <SmartRefresh seconds={panel?.online ? 8 : 60} />
       {panel && <AssistantPanel {...panel} />}
       <ListToolbar
         kind="apps" action="/applications"

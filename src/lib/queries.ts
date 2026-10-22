@@ -153,13 +153,14 @@ export async function listJobsFiltered(q: JobQuery, paging: { page: number; size
 
 type RawApp = {
   id: string; status: string; method: string | null; lifecycle: string; submitted_at: string | null; created_at: string;
-  job: { title: string; company: string; country: string | null; apply_type: string; url: string; portal?: string | null } | { title: string; company: string; country: string | null; apply_type: string; url: string; portal?: string | null }[] | null;
+  job: RawAppJob | RawAppJob[] | null;
 };
+type RawAppJob = { title: string; company: string; country: string | null; apply_type: string; url: string; portal?: string | null; job_scores?: { score: number } | { score: number }[] | null };
 export type AppsPage = { rows: AppListRow[]; total: number; totalAll: number; page: number; pages: number; shownFrom: number; shownTo: number; portalUnavailable: boolean; stageCounts: Record<StageKey, number> };
 
 async function loadAppsLight(q: AppQuery): Promise<{ light: AppLight[]; portalUnavailable: boolean }> {
   const load = async (withPortal: boolean) => fetchAll<RawApp>((a, b) => {
-    let x = db().from("applications").select(`id,status,method,lifecycle,submitted_at,created_at, job:jobs!inner(title,company,country,apply_type,url${withPortal ? ",portal" : ""})`);
+    let x = db().from("applications").select(`id,status,method,lifecycle,submitted_at,created_at, job:jobs!inner(title,company,country,apply_type,url${withPortal ? ",portal" : ""},job_scores(score))`);
     if (q.lifecycles.length) x = x.in("lifecycle", q.lifecycles);
     if (q.from) x = x.gte("created_at", `${q.from}T00:00:00Z`);
     if (q.to) x = x.lte("created_at", `${q.to}T23:59:59.999Z`);
@@ -173,7 +174,7 @@ async function loadAppsLight(q: AppQuery): Promise<{ light: AppLight[]; portalUn
   if (res.error) throw new Error(`list applications: ${res.error.message}`);
   const light: AppLight[] = res.data.flatMap((r) => {
     const j = one(r.job);
-    return j ? [{ id: r.id, status: r.status, method: r.method, lifecycle: r.lifecycle, submitted_at: r.submitted_at, created_at: r.created_at, title: j.title, company: j.company, country: j.country, portal: j.portal ?? null, apply_type: j.apply_type, url: j.url }] : [];
+    return j ? [{ id: r.id, status: r.status, method: r.method, lifecycle: r.lifecycle, submitted_at: r.submitted_at, created_at: r.created_at, title: j.title, company: j.company, country: j.country, portal: j.portal ?? null, apply_type: j.apply_type, url: j.url, score: (Array.isArray(j.job_scores) ? j.job_scores[0] : j.job_scores)?.score ?? null }] : [];
   });
   return { light, portalUnavailable };
 }
