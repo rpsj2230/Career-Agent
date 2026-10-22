@@ -71,6 +71,15 @@ describe("explainPipeline: why it waits", () => {
   it("explains sending: stuck worker, offline assistant, Hands-free off", () => {
     const stuck = base({ apps: { prepared: 0, approved: 3, submitting: 0, assisted_pending: 0, needs_input: 0, failed: 0, submitted: 0 }, oldestSending: "2026-10-19T10:00:00Z" });
     expect(causes(stuck, "send")).toEqual(["server"]);
+    // approved applications that are for the assistant (LinkedIn, employer sites) are waiting for the assistant, not for a stopped cloud worker
+    const mixed = base({ apps: { prepared: 0, approved: 3, submitting: 0, assisted_pending: 0, needs_input: 0, failed: 0, submitted: 0 }, approvedForAssistant: 3, oldestSending: null });
+    const send = explainPipeline(mixed).stages.find((s) => s.id === "send")!;
+    expect(send.state).not.toBe("blocked");
+    expect(send.reasons.some((r) => r.cause === "server" && /may have stopped/.test(r.text))).toBe(false);
+    expect(send.waiting).toBe(3);
+    const cloudStuck = explainPipeline(base({ apps: { prepared: 0, approved: 3, submitting: 0, assisted_pending: 0, needs_input: 0, failed: 0, submitted: 0 }, approvedForAssistant: 2, oldestSending: "2026-10-19T10:00:00Z" })).stages.find((s) => s.id === "send")!;
+    expect(cloudStuck.state).toBe("blocked");
+    expect(cloudStuck.reasons[0].text).toMatch(/^1 application approved or sending/);
     const off = base({ apps: { prepared: 0, approved: 0, submitting: 0, assisted_pending: 8, needs_input: 0, failed: 0, submitted: 0 }, assistant: { relevant: true, offline: true, text: "The assistant has not reported for 5 hours." } });
     expect(causes(off, "send")).toEqual(["server"]);
     const hands = base({ apps: { prepared: 0, approved: 0, submitting: 0, assisted_pending: 8, needs_input: 0, failed: 0, submitted: 0 }, caps: { daily_total: 15, local_auto_enabled: false } });

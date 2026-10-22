@@ -19,6 +19,7 @@ import { DEFAULT_THRESHOLDS, type Library } from "@/lib/tailor/memory";
 import { tailorResumeSmart, writeCoverLetterSmart, type Runner, type SmartOutcome } from "@/lib/tailor/tailor";
 import { buildDiff } from "@/lib/docs/verify";
 import { masterAsTailored } from "@/lib/tailor/sections";
+import { deferredMessage, INTERACTIVE_WAITS_MS, RETRY_WAITS_MS, shouldDefer, withRetries } from "./resume-retry";
 import { applyScope, DEFAULT_SCOPE } from "@/lib/tailor/scope";
 import { loadMasterFile } from "@/lib/tailor/master-store";
 import { buildAnswers } from "./answers";
@@ -99,7 +100,9 @@ export async function prepareApplication(jobId: string, runId: string | null = n
   // when no model can write a tailored resume, your own master resume is used instead of leaving the application undone
   let master: { reason: string; file: { bytes: Buffer; ext: string } | null } | null = null;
   try {
-    resume = await tailorResumeSmart(profile, { ...job, style, guidance }, run, library);
+    // a model that is busy or rate limited is tried again before anything else is decided
+    const waits = runId ? RETRY_WAITS_MS : INTERACTIVE_WAITS_MS;
+    resume = await withRetries(() => tailorResumeSmart(profile, { ...job, style, guidance }, run, library), { waits, onRetry: (n, err) => console.log(`Resume for "${job.title}": try ${n + 1} after: ${err.slice(0, 120)}`) });
     const prov0 = resume.provenance;
     // a cover letter is about one company: it is only carried over when the old job was near-identical
     const carryFrom = prov0.mode === "reused" && prov0.from && prov0.from.similarity >= (library.thresholds?.reuse ?? DEFAULT_THRESHOLDS.reuse) ? library.past.find((p) => p.jobId === prov0.from!.jobId) : undefined;
@@ -107,6 +110,14 @@ export async function prepareApplication(jobId: string, runId: string | null = n
   } catch (e) {
     // regenerating must never replace a good resume with the plain master one: leave the application exactly as it was
     if (opts.regenerate) throw new Error(`No new resume could be written (${(e instanceof Error ? e.message : String(e)).slice(0, 200)}). The existing resume is unchanged; try again when a model is available.`);
+    // still failing after the tries: leave it for the next round instead of attaching the master resume, up to DEFER_ROUNDS times
+    const reason = e instanceof Error ? e.message : String(e);
+    const before = (await db().from("activity_log").select("id", { count: "exact", head: true }).eq("kind", "application.prepare_failed").eq("status", "failed").eq("job_id", jobId)).count ?? 0;
+    if (shouldDefer(before)) {
+      // the pipeline records its own failure line for a run; a person pressing Prepare gets one here, so the count still goes up
+      if (!runId) await logActivity({ kind: "application.prepare_failed", level: "warn", message: `Resume for ${job.title} at ${job.company} could not be written: ${reason.slice(0, 200)}`, status: "failed", job_id: jobId, company: job.company, country: job.country, portal: job.portal }).catch(() => undefined);
+      throw new Error(deferredMessage(reason, before));
+    }
     const file = await loadMasterFile().catch(() => null);
     master = { reason: (e instanceof Error ? e.message : String(e)).slice(0, 300), file: file ? { bytes: file.bytes, ext: file.ext } : null };
     const content = masterAsTailored(profile);
