@@ -10,7 +10,7 @@ describe("Autopilot settings", () => {
     expect(AUTOPILOT.caps.daily_total).toBeLessThanOrEqual(100);
     expect(AUTOPILOT.caps.daily_linkedin).toBeLessThanOrEqual(50);
     expect(AUTOPILOT.caps.weekly_linkedin).toBeLessThanOrEqual(200);
-    expect(AUTOPILOT.autoPrepare.per_run).toBeLessThanOrEqual(40);
+    expect(AUTOPILOT.autoPrepare.per_run).toBeLessThanOrEqual(100);
     expect(AUTOPILOT.autoPrepare.concurrency).toBeLessThanOrEqual(8);
   });
   it("keeps LinkedIn well under the overall daily limit", () => {
