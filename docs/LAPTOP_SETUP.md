@@ -126,6 +126,21 @@ git pull
 npm ci
 ```
 
+## A local AI model on your Mac (so applications do not stop when the hosted models fail)
+
+The hosted models are free tiers: they run out of daily tokens, and a key or model name can stop working. The app has a local model as the last resort, but it is **switched off unless `LOCAL_MODEL` is set**. The scheduled cloud runs set it themselves; your Mac does not, so the assistant on your computer only had the hosted models.
+
+1. Install Ollama from https://ollama.com (a normal Mac app).
+2. Download a model once, in Terminal: `ollama pull qwen2.5:7b-instruct` (better answers; `qwen2.5:3b-instruct` is smaller and faster).
+3. Put this line in the file `.env.local` in the project folder: `LOCAL_MODEL=qwen2.5:7b-instruct`
+4. Restart the assistant: `bash scripts/autostart/install.sh`.
+
+With that set, the local model is tried only after every hosted model has failed, and the assistant gives it up to three minutes per question (hosted models get 45 seconds). Keep the Ollama app open while the assistant runs. It is slower and less careful than the hosted models, so its answers are for short form questions only; resumes still use the hosted models first.
+
+## Sites the assistant may use that are not job portals
+
+Before it touches a page that is not LinkedIn, the assistant checks that it is the employer's page, a known application system or job portal, or a page whose own job-posting data names the employer. Anything else is left untouched and handed back with the reason. If you know a site is safe, add its domain to `~/.career-agent/trusted-sites.txt` (one per line, for example `bebee.com`). Only you can edit that file. Whatever the site, the assistant never types a password, payment or identity number, never creates an account, and never downloads anything.
+
 ## Troubleshooting
 
 | Message | Fix |

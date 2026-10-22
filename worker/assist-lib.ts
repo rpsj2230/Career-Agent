@@ -117,6 +117,13 @@ export async function stallProblems(page: Page, scope: string): Promise<string[]
       const line = lab && !t.includes(lab) ? `${lab}: ${t}` : t;
       if (!out.includes(line)) out.push(line);
     }
+    // the browser's own verdict on each control (a required box left empty, a number out of range): its message is the page's, not ours
+    for (const c of root.querySelectorAll<HTMLInputElement>("input:invalid, select:invalid, textarea:invalid")) {
+      if (!shown(c)) continue;
+      const l = (c.getAttribute("aria-label") || labelNear(c) || c.name || "a field").slice(0, 90);
+      const line = `${l}: ${c.validationMessage || "not valid"}`;
+      if (!out.includes(line)) out.push(line);
+    }
     for (const c of root.querySelectorAll<HTMLInputElement>("input, select, textarea")) {
       if (!shown(c) || !(c.required || c.getAttribute("aria-required") === "true")) continue;
       const empty = c.type === "checkbox" || c.type === "radio" ? false : c.tagName === "SELECT" ? !c.value || /^\s*(select|choose)/i.test((c as unknown as HTMLSelectElement).selectedOptions[0]?.text ?? "") : !c.value;
@@ -124,6 +131,15 @@ export async function stallProblems(page: Page, scope: string): Promise<string[]
     }
     return out.slice(0, 5);
   }, scope).catch(() => [] as string[]);
+}
+
+/** The window's own words, flattened and cut short: what the page shows when no message or empty field explains why it would not go on. Labels and headings only, no typed values. */
+export async function windowText(page: Page, scope: string, max = 360): Promise<string> {
+  return page.evaluate(({ sel, n }) => {
+    const shown = (e: Element) => { const r = (e as HTMLElement).getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(e as HTMLElement).visibility !== "hidden"; };
+    const root = [...document.querySelectorAll(sel)].find(shown);
+    return root ? ((root as HTMLElement).innerText ?? "").replace(/\s+/g, " ").trim().slice(0, n) : "";
+  }, { sel: scope, n: max }).catch(() => "");
 }
 
 /** True when the page offers the control that sends the application (so you can review and press it yourself). */

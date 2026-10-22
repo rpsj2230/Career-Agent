@@ -15,7 +15,7 @@ describe("what a job page says about itself", () => {
     expect(ld.employerSites).toContain("https://www.cygnify.com");
   });
   it("ignores broken or unrelated data", () => {
-    expect(readJobPostingLd(`<script type="application/ld+json">{nope</script>`)).toEqual({ employerSites: [], applyUrls: [], directApply: false });
+    expect(readJobPostingLd(`<script type="application/ld+json">{nope</script>`)).toEqual({ employerSites: [], applyUrls: [], directApply: false, orgNames: [] });
     expect(readJobPostingLd(jsonLd({ "@type": "Product" })).employerSites).toEqual([]);
   });
 });
