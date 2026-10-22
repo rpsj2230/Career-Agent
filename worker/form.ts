@@ -20,7 +20,8 @@ type Field = {
 async function scan(page: Page, scope?: string): Promise<Field[]> {
   return page.evaluate((scopeSel) => {
     // with a scope (LinkedIn's Easy Apply window) only the controls inside it count: the page's own search boxes are not part of the application
-    const rootEl = scopeSel ? document.querySelector(scopeSel) : null;
+    const shown = (el: Element) => { const r = (el as HTMLElement).getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(el as HTMLElement).visibility !== "hidden"; };
+    const rootEl = scopeSel ? [...document.querySelectorAll(scopeSel)].find(shown) ?? null : null; // the first window that is actually showing, not a hidden one earlier on the page
     if (scopeSel && !rootEl) return [] as Field[];
     const root: ParentNode = rootEl ?? document;
     // multi-step forms are scanned once per step: tags from the previous step must go, or two controls share an index
