@@ -11,7 +11,7 @@ import { assistChecks } from "./assist-check-lib";
 
 async function main(who: Who | null) {
   const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  let dbOk = false, dbError: string | undefined, hb = null as { at?: string; watching?: boolean } | null, autoApplyOn = false, localAutoOn = false, waiting = 0;
+  let dbOk = false, dbError: string | undefined, hb = null as { at?: string; watching?: boolean; signedIn?: string[] } | null, autoApplyOn = false, localAutoOn = false, waiting = 0;
   if (url && key) {
     const sb = scopedDb();
     try {
@@ -19,7 +19,7 @@ async function main(who: Who | null) {
       const [h, a, c, w] = await Promise.all([get("assistant_heartbeat"), get("autoapply"), get("caps"), sb.from("applications").select("id", { count: "exact", head: true }).eq("status", "assisted_pending")]);
       if (h.error) throw new Error(h.error.message);
       dbOk = true;
-      hb = (h.data?.value as { at?: string; watching?: boolean } | null) ?? null;
+      hb = (h.data?.value as { at?: string; watching?: boolean; signedIn?: string[] } | null) ?? null;
       autoApplyOn = (a.data?.value as { enabled?: boolean } | null)?.enabled === true;
       localAutoOn = (c.data?.value as { local_auto_enabled?: boolean } | null)?.local_auto_enabled === true;
       waiting = w.count ?? 0;
@@ -30,7 +30,7 @@ async function main(who: Who | null) {
   const profileDir = browserDirFor(who);
   const lines = assistChecks({
     hasUrl: !!url, hasKey: !!key, dbOk, dbError, heartbeatAgeMs: hb?.at ? Date.now() - new Date(hb.at).getTime() : null, watching: !!hb?.watching,
-    autoApplyOn, localAutoOn, waiting, chromiumFound, profileExists: existsSync(profileDir),
+    autoApplyOn, localAutoOn, waiting, chromiumFound, profileExists: existsSync(profileDir), signedIn: hb?.signedIn ?? null,
   });
   for (const l of lines) console.log(`${l.ok ? "  OK   " : "  FIX  "} ${l.label}${l.ok || !l.fix ? "" : `\n         → ${l.fix}`}`);
   const bad = lines.filter((l) => !l.ok).length;

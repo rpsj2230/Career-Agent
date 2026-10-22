@@ -4,6 +4,8 @@ export type CheckInput = {
   heartbeatAgeMs: number | null; watching: boolean;
   autoApplyOn: boolean; localAutoOn: boolean;
   waiting: number; chromiumFound: boolean; profileExists: boolean;
+  /** the portals the watcher found the assistant's browser signed in to on its last round (null: it has not said) */
+  signedIn?: string[] | null;
 };
 export type CheckLine = { ok: boolean; label: string; fix?: string };
 
@@ -12,7 +14,8 @@ export function assistChecks(i: CheckInput): CheckLine[] {
   out.push({ ok: i.hasUrl && i.hasKey, label: "Settings found (.env.local has SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY)", fix: "Create .env.local in the project folder with SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (the same values as in Vercel)." });
   out.push({ ok: i.dbOk, label: "Can reach the Career Agent database", fix: i.dbError ? `The database said: ${i.dbError}` : "Check your internet connection and the two values in .env.local." });
   out.push({ ok: i.chromiumFound, label: "The browser the assistant uses is installed", fix: "Run: npx playwright install chromium" });
-  out.push({ ok: i.profileExists, label: "You have signed in to your job portals in the assistant's browser at least once", fix: "Run: npm run assist:login, then sign in to LinkedIn, Naukri and Indeed in the window that opens, and close the window. The sessions are kept." });
+  out.push({ ok: i.profileExists, label: "The assistant's browser profile exists (this alone does not prove you are signed in)", fix: "Run: npm run assist:login, then sign in to LinkedIn, Naukri and Indeed in the window that opens, and close the window. The sessions are kept." });
+  if (i.signedIn) out.push({ ok: i.signedIn.includes("linkedin"), label: i.signedIn.includes("linkedin") ? "The assistant's browser is signed in to LinkedIn" : "The assistant's browser is NOT signed in to LinkedIn, so LinkedIn jobs show no Easy Apply button", fix: "Run: npm run assist:login, sign in to LinkedIn in the window that opens (solve any security check yourself), then close the window." });
   out.push({ ok: i.autoApplyOn, label: "Auto-Apply is switched on (Settings → Auto-Apply)", fix: "Without it the assistant only fills forms and waits for you to press Submit." });
   out.push({ ok: i.localAutoOn, label: "Hands-free mode is switched on (Settings → Application limits)", fix: "Without it the background watcher does nothing; `npm run assist` still works when you run it by hand." });
   const alive = i.heartbeatAgeMs !== null && i.heartbeatAgeMs < 3 * 60_000;
