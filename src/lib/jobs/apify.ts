@@ -118,6 +118,28 @@ export function mapApifyItem(item: any, actor: Pick<ApifyActor, "id" | "portal">
   };
 }
 
+/** What Apify itself said about a refusal: its error type and message, if the body has them. */
+async function apifyDetail(res: { json(): Promise<unknown> }): Promise<string> {
+  try {
+    const body = (await res.json()) as { error?: { type?: string; message?: string } } | null;
+    const e = body?.error;
+    const text = [e?.type, e?.message].filter(Boolean).join(": ");
+    return text ? ` (Apify says: ${text.slice(0, 200)})` : "";
+  } catch { return ""; }
+}
+
+/**
+ * HTTP 403 is not always a bad token: the token can be perfectly valid while Apify refuses this actor (a paid rental that has ended, a usage
+ * limit reached, a token without permission for it). Say which, in Apify's own words, so the right thing gets fixed.
+ */
+export async function explainForbidden(res: { json(): Promise<unknown> }, id: string): Promise<string> {
+  const detail = await apifyDetail(res);
+  if (/rent|trial|subscri/i.test(detail)) return `Apify refused (forbidden): the actor "${id}" is a paid rental and its rental or trial is not active${detail}. Rent it again in the Apify Store, or choose another actor.`;
+  if (/limit|usage|credit|budget|quota/i.test(detail)) return `Apify refused (forbidden): your usage limit is reached${detail}. Raise the limit under Apify > Billing, or wait for the monthly reset.`;
+  if (/permission|scope|access/i.test(detail)) return `Apify refused (forbidden): this token has no permission to run "${id}"${detail}. Create a token with full access under Apify > Settings > Integrations.`;
+  return `Apify refused (forbidden, HTTP 403) to run "${id}" with this token${detail}. The token itself may be fine: check the actor's rental, your usage limits and the token's permissions on Apify.`;
+}
+
 export type ApifyFetch = (url: string, init: { method: string; headers: Record<string, string>; body?: string; signal: AbortSignal }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
 
 /**
@@ -133,7 +155,8 @@ export async function runActor(token: string, actor: ApifyActor, vars: TemplateV
   } catch (e) {
     throw new Error(`Could not reach Apify: ${e instanceof Error ? e.message : String(e)}`);
   }
-  if (res.status === 401 || res.status === 403) throw new Error("Apify rejected the token. Copy it again from Apify > Settings > Integrations.");
+  if (res.status === 401) throw new Error(`Apify rejected the token${await apifyDetail(res)}. Copy it again from Apify > Settings > Integrations.`);
+  if (res.status === 403) throw new Error(await explainForbidden(res, id));
   if (res.status === 404) throw new Error(`Apify has no actor "${id}". Check the id in the Apify Store.`);
   if (res.status === 402) throw new Error("Apify says the account is out of credit for this run. Check your Apify usage limits.");
   if (res.status === 400) throw new Error(`Apify rejected the input for "${id}". Compare the input with the actor's documentation.`);

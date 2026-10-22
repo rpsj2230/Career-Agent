@@ -37,19 +37,36 @@ export function dedupeKey(company: string, title: string, country?: string): str
   return `${clean(company)}|${clean(title)}|${(country ?? "").toLowerCase()}`;
 }
 
-const ENTITIES: Record<string, string> = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&#39;": "'", "&nbsp;": " " };
+const ENTITIES: Record<string, string> = {
+  amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", middot: "·", bull: "•", ndash: "–", mdash: "—", hellip: "…", rsquo: "’", lsquo: "‘",
+  ldquo: "“", rdquo: "”", copy: "©", reg: "®", trade: "™", euro: "€", pound: "£", rupee: "₹", laquo: "«", raquo: "»", deg: "°", times: "×",
+};
+
+/** Turn character references (&amp; &middot; &#183; &#x2F;) into the characters they stand for. Unknown names are left as they are. */
+export function decodeEntities(s: string): string {
+  return s.replace(/&(?:#(\d{1,6})|#x([0-9a-f]{1,6})|([a-z]{2,8}));/gi, (m, dec, hex, name) => {
+    if (dec || hex) { const code = dec ? Number(dec) : parseInt(hex, 16); try { return String.fromCodePoint(code); } catch { return m; } }
+    return ENTITIES[String(name).toLowerCase()] ?? m;
+  });
+}
 
 export function htmlToText(html: string): string {
   // Greenhouse returns HTML that is itself entity-escaped; decode first, then strip tags.
-  const decoded = html.replace(/&(amp|lt|gt|quot|#39|nbsp);/g, (m) => ENTITIES[m] ?? m);
+  const decoded = decodeEntities(html);
   return decoded
     .replace(/<\s*(br|\/p|\/li|\/h\d|\/div)\s*\/?>/gi, "\n")
     .replace(/<li[^>]*>/gi, "- ")
     .replace(/<[^>]+>/g, "")
-    .replace(/&(amp|lt|gt|quot|#39|nbsp);/g, (m) => ENTITIES[m] ?? m)
+    .replace(/<[^>]*$/, "") // a tag cut off at the end of a slice
+    .replace(/^[^<]*?>/, (m) => (/^[^<>]{0,400}>$/.test(m) && /=\s*"/.test(m) ? "" : m)) // the tail of a tag cut off at the start of a slice
     .replace(/[ \t]+/g, " ")
     .replace(/\n\s*\n+/g, "\n\n")
     .trim();
+}
+
+/** A short field (company, place, title) as plain text: no tags, no cut-off tag, no entities. Empty when nothing readable is left. */
+export function plainField(s: string | null | undefined): string {
+  return htmlToText(String(s ?? "")).replace(/\s+/g, " ").trim();
 }
 
 const COUNTRY_NAMES: Record<string, string> = {

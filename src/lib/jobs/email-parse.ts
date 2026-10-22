@@ -1,4 +1,4 @@
-import { guessCountry, htmlToText, type NormalizedJob } from "./normalize";
+import { guessCountry, htmlToText, plainField, type NormalizedJob } from "./normalize";
 
 export type AlertMail = { from: string; subject: string; html: string; text?: string; date?: Date; messageId?: string };
 
@@ -152,8 +152,8 @@ export function parseAlertEmail(mail: AlertMail): NormalizedJob[] {
   ordered.forEach((f, i) => {
     const nextStart = ordered[i + 1]?.start ?? Math.min(mail.html.length, f.end + 1500);
     const ctx = contextOf(htmlToText(mail.html.slice(f.end, Math.min(nextStart, f.end + 1500)).replace(/<\/(p|div|tr|li|td|h\d)>/gi, "\n").replace(/<br\s*\/?>/gi, "\n")));
-    const company = ctx.company ?? "Unknown";
-    const location = ctx.location;
+    const company = plainField(ctx.company) || "Unknown";
+    const location = plainField(ctx.location) || undefined;
     jobs.push({
       source: "mailbox", externalId: `${f.match.portal ?? parser.portal}-${f.match.id}`, title: f.title.slice(0, 200), company: company.slice(0, 200),
       country: guessCountry(location ?? mail.subject), location, url: f.match.url, publisher: f.match.portal ?? parser.portal,

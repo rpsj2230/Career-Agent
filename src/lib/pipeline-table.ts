@@ -13,9 +13,11 @@ export type TableInput = {
   sentAutomaticallyToday: number;
   discovery: { max_age_days: number; min_rescan_hours: number };
   scoring: { threshold: number };
+  /** the calendar day 24 hours ago (YYYY-MM-DD, UTC): lets each number link to the list it counts */
+  sinceDay?: string;
 };
 
-export type TableRow = { step: string; question: string; last24h: number | null; /** undefined: the step has no queue; null: the number could not be read */ waiting: number | null | undefined; limit: string; link: { label: string; href: string } };
+export type TableRow = { step: string; question: string; last24h: number | null; /** undefined: the step has no queue; null: the number could not be read */ waiting: number | null | undefined; limit: string; link: { label: string; href: string }; /** where to see the applications or jobs behind each number */ last24hHref?: string; waitingHref?: string };
 
 const n = (x: number, one: string, many = `${one}s`) => `${x} ${x === 1 ? one : many}`;
 
@@ -34,14 +36,15 @@ export function pipelineTable(i: TableInput): TableRow[] {
   const applying = live.filter((s) => s.mode === "scan_prepare_apply");
   const perScheduleResumes = preparing.length ? Math.max(...preparing.map((s) => s.max_prepare)) : 0;
   const perScheduleSends = applying.length ? Math.max(...applying.map((s) => s.max_apply)) : 0;
+  const d = i.sinceDay;
   return [
     {
-      step: "1. Find", question: "New jobs found on the job sources", last24h: i.last24h.found, waiting: undefined,
+      step: "1. Find", question: "New jobs found on the job sources", last24h: i.last24h.found, waiting: undefined, last24hHref: d ? `/jobs?view=all&from=${d}` : undefined,
       limit: `No total limit. Postings up to ${i.discovery.max_age_days} days old; the same search is not repeated within ${n(i.discovery.min_rescan_hours, "hour")}.`,
       link: { label: "Settings, Find", href: "/settings#find" },
     },
     {
-      step: "2. Score", question: "Each found job rated against your profile", last24h: i.last24h.scored, waiting: i.waiting.toScore,
+      step: "2. Score", question: "Each found job rated against your profile", last24h: i.last24h.scored, waiting: i.waiting.toScore, waitingHref: "/jobs?view=new",
       limit: "About 60 per pass, up to 8 passes per run. No daily limit of its own; the free AI models' daily allowance is the ceiling.",
       link: { label: "Models", href: "/models" },
     },
@@ -51,17 +54,17 @@ export function pipelineTable(i: TableInput): TableRow[] {
       link: { label: "Settings, Score and match", href: "/settings#score-match" },
     },
     {
-      step: "4. Prepare", question: "Resume and cover letter written for a match", last24h: i.last24h.prepared, waiting: i.waiting.toPrepare,
+      step: "4. Prepare", question: "Resume and cover letter written for a match", last24h: i.last24h.prepared, waiting: i.waiting.toPrepare, last24hHref: d ? `/applications?stage=all&from=${d}` : undefined, waitingHref: "/jobs?stage=matched",
       limit: `${preparing.length ? `A schedule writes up to ${n(perScheduleResumes, "resume")} per run. ` : "No schedule writes resumes. "}${i.autoPrepare.enabled && i.autoPrepare.per_run > 0 ? `Catch-up rounds write up to ${n(i.autoPrepare.per_run, "resume")} each, ${i.autoPrepare.concurrency} at a time, back to back until none is waiting.` : "Catch-up rounds are switched off."} No daily limit.`,
       link: { label: "Settings, Prepare", href: "/settings#prepare" },
     },
     {
-      step: "5. Approve", question: "Prepared applications cleared to be sent", last24h: i.last24h.approved, waiting: i.waiting.toApprove,
+      step: "5. Approve", question: "Prepared applications cleared to be sent", last24h: i.last24h.approved, waiting: i.waiting.toApprove, waitingHref: "/applications?stage=awaiting_approval",
       limit: `${approvalRule(i)}${applying.length ? ` Up to ${n(perScheduleSends, "approval")} per run. Same company: wait ${i.caps.company_cooldown_days} day${i.caps.company_cooldown_days === 1 ? "" : "s"}.` : ""}`,
       link: { label: "Settings, Approve and send", href: "/settings#approve-send" },
     },
     {
-      step: "6. Send", question: "Approved applications actually submitted", last24h: i.last24h.sent, waiting: i.waiting.toSend,
+      step: "6. Send", question: "Approved applications actually submitted", last24h: i.last24h.sent, waiting: i.waiting.toSend, last24hHref: d ? `/applications?stage=applied&sent_from=${d}` : undefined, waitingHref: "/applications?stage=sending&stage=waiting_assistant",
       limit: `At most ${i.caps.daily_total} automatic submissions a day (${i.sentAutomaticallyToday} so far today). LinkedIn at most ${i.caps.daily_linkedin} a day and ${i.caps.weekly_linkedin} a week. ${i.caps.local_auto_enabled ? "The assistant on your computer presses Submit itself." : "The assistant on your computer waits for you to press Submit."}`,
       link: { label: "Settings, Approve and send", href: "/settings#approve-send" },
     },

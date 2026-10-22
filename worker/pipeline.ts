@@ -12,6 +12,8 @@ import { sendTelegram } from "../src/lib/notify";
 import { forEachProfile, type Profile } from "../src/lib/profiles-store";
 import { profilesEnabled } from "../src/lib/scope";
 import { rawClient } from "../src/lib/raw-client";
+import { repairGarbledJobs } from "../src/lib/jobs/repair-store";
+import { requeueFailed } from "../src/lib/apply/auto-retry-store";
 import { reapStuckApplications } from "../src/lib/apply/reaper";
 import { promptPrepared } from "../src/lib/telegram-prompts";
 import { trackReplies } from "../src/lib/mail/track";
@@ -88,6 +90,13 @@ async function runProfile(p: Profile | null, id: string | undefined): Promise<nu
   if (swept) console.log(`${label}Marked ${swept} stalled run(s) as failed.`);
   const reaped = await reapStuckApplications().catch((e) => { console.error("could not check for stuck applications (not fatal):", e instanceof Error ? e.message : e); return 0; });
   if (reaped) console.log(`${label}Handed back ${reaped} application(s) whose worker stopped before finishing.`);
+  // Autopilot: an application whose last attempt failed for a reason a second try can fix goes back in the queue (at most twice)
+  if ((await getSetting("autopilot").catch(() => null))?.enabled) {
+    const again = await requeueFailed().catch((e) => { console.error("could not retry failed applications (not fatal):", e instanceof Error ? e.message : e); return 0; });
+    if (again) console.log(`${label}Put ${again} failed application(s) back in the queue to try again.`);
+  }
+  const repaired = await repairGarbledJobs().catch((e) => { console.error("could not clean up job text (not fatal):", e instanceof Error ? e.message : e); return 0; });
+  if (repaired) console.log(`${label}Cleaned up the company or place of ${repaired} job(s).`);
   const replies = await trackReplies();
   if (replies.updated.length) console.log(`${label}Replies: ${replies.updated.map((u) => `${u.company} (${u.reply})`).join(", ")}`);
   // a profile that has not been set up (no confirmed resume yet) has nothing to search with or score against: its schedules wait, they do not fail

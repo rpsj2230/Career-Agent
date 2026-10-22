@@ -2,14 +2,14 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { countryLabel } from "@/lib/filters";
-import { portalLabel } from "@/lib/jobs/portal";
+import { portalLabel, viaLabel } from "@/lib/jobs/portal";
 import { LIFECYCLES, LIFECYCLE_LABEL, ROUTE_KINDS, ROUTE_LABEL, STAGES, type Pill, type StageKey } from "@/lib/list-query";
 
 type Opt = { key: string; n?: number };
 const field = "h-9 rounded-md border border-input bg-transparent px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
 
 export type ToolbarQuery = {
-  stages: StageKey[]; portals: string[]; countries: string[]; methods: string[]; q?: string; sort: string; dir: "asc" | "desc";
+  stages: StageKey[]; portals: string[]; vias?: string[]; countries: string[]; methods: string[]; q?: string; sort: string; dir: "asc" | "desc";
   scoreMin?: number; scoreMax?: number; from?: string; to?: string; sentFrom?: string; sentTo?: string; lifecycles?: string[];
 };
 
@@ -25,6 +25,8 @@ export function ListToolbar(props: {
   q: ToolbarQuery;
   sorts: Record<string, { label: string; dir: "asc" | "desc" }>;
   portals: Opt[];
+  /** how jobs reached the app (jobs list only) */
+  vias?: Opt[];
   countries: Opt[];
   pills: (Pill & { href: string })[];
   hrefs: { all: string; stage: Record<string, string>; preset: string[]; clear: string };
@@ -35,7 +37,7 @@ export function ListToolbar(props: {
   const q = props.q;
   const activeAll = q.stages.length === 0;
   const chip = (active: boolean) => `inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium hover:bg-accent ${active ? "border-foreground bg-accent" : "text-muted-foreground"}`;
-  const open = q.portals.length + q.countries.length + q.methods.length + (q.scoreMin !== undefined ? 1 : 0) + (q.scoreMax !== undefined ? 1 : 0) + (q.from ? 1 : 0) + (q.to ? 1 : 0) + (q.sentFrom ? 1 : 0) + (q.sentTo ? 1 : 0) + (q.lifecycles?.length ?? 0) > 0;
+  const open = q.portals.length + (q.vias?.length ?? 0) + q.countries.length + q.methods.length + (q.scoreMin !== undefined ? 1 : 0) + (q.scoreMax !== undefined ? 1 : 0) + (q.from ? 1 : 0) + (q.to ? 1 : 0) + (q.sentFrom ? 1 : 0) + (q.sentTo ? 1 : 0) + (q.lifecycles?.length ?? 0) > 0;
   return (
     <div className="grid gap-3">
       <div className="flex flex-wrap gap-2" aria-label="Pipeline stage">
@@ -76,6 +78,13 @@ export function ListToolbar(props: {
                 <label key={p.key} className="flex items-center gap-2"><input type="checkbox" name="portal" value={p.key} defaultChecked={q.portals.includes(p.key)} /> {portalLabel(p.key)}{p.n ? <span className="text-xs text-muted-foreground">({p.n})</span> : null}</label>
               ))}</div>
             </fieldset>
+            {props.vias && (
+              <fieldset className="grid gap-1 text-sm"><legend className="mb-1 text-xs font-medium text-muted-foreground">Found via</legend>
+                <div className="grid max-h-40 gap-1 overflow-auto">{props.vias.length === 0 ? <span className="text-xs text-muted-foreground">none yet</span> : props.vias.map((v) => (
+                  <label key={v.key} className="flex items-center gap-2"><input type="checkbox" name="via" value={v.key} defaultChecked={q.vias?.includes(v.key)} /> {viaLabel(v.key)}{v.n ? <span className="text-xs text-muted-foreground">({v.n})</span> : null}</label>
+                ))}</div>
+              </fieldset>
+            )}
             <fieldset className="grid gap-1 text-sm"><legend className="mb-1 text-xs font-medium text-muted-foreground">Country</legend>
               <div className="grid max-h-40 gap-1 overflow-auto">{props.countries.length === 0 ? <span className="text-xs text-muted-foreground">none yet</span> : props.countries.map((c) => (
                 <label key={c.key} className="flex items-center gap-2"><input type="checkbox" name="country" value={c.key} defaultChecked={q.countries.includes(c.key)} /> {countryLabel(c.key)}{c.n ? <span className="text-xs text-muted-foreground">({c.n})</span> : null}</label>

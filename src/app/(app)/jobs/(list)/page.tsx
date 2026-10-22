@@ -14,7 +14,7 @@ import { ListToolbar } from "@/components/app/list-toolbar";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { countryLabel } from "@/lib/filters";
-import { portalLabel } from "@/lib/jobs/portal";
+import { portalLabel, viaLabel } from "@/lib/jobs/portal";
 import { activePills, JOB_DEFAULT_STAGES, JOB_SORTS, jobQueryParams, parseJobQuery, queryString, STAGE_ORDER, STAGES, type Link as QParams, type StageKey } from "@/lib/list-query";
 import { applicationsForJobs, counts, filterOptions, listJobsFiltered, scoreOf } from "@/lib/queries";
 import { applyRoute } from "@/lib/apply/route";
@@ -69,8 +69,8 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         chips={STAGE_ORDER.map((key) => ({ key, count: stageN[key] }))}
         presets={[{ label: "Needs my action", stages: ACTION, count: ACTION.reduce((n, k) => n + stageN[k], 0) }]}
         q={{ ...q, methods: q.methods }}
-        sorts={JOB_SORTS} portals={opts.portals} countries={opts.countries}
-        pills={activePills("jobs", q, { portal: portalLabel, country: countryLabel, stage: (k) => STAGES[k].label }, JOB_DEFAULT_STAGES).map((p) => ({ ...p, href: href(p.over) }))}
+        sorts={JOB_SORTS} portals={opts.portals} vias={opts.vias} countries={opts.countries}
+        pills={activePills("jobs", q, { portal: portalLabel, via: viaLabel, country: countryLabel, stage: (k) => STAGES[k].label }, JOB_DEFAULT_STAGES).map((p) => ({ ...p, href: href(p.over) }))}
         hrefs={{ all: href({ stage: "all" }), stage: Object.fromEntries(STAGE_ORDER.map((k) => [k, href({ stage: k })])), preset: [href({ stage: ACTION })], clear: "/jobs" }}
         total={total} totalAll={totalAll}
         showing={`${total.toLocaleString("en-US")} job${total === 1 ? "" : "s"}${pages > 1 ? ` · page ${page} of ${pages}` : ""}`}
