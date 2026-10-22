@@ -12,7 +12,7 @@ import { parseLogFilters } from "@/lib/log-filters";
 import { applyLogs, getRun, queryLogs } from "@/lib/log-queries";
 import { runApplications, runJobs, runModels, runProblems } from "@/lib/run-queries";
 import { applyReport, bySource, windowLabel } from "@/lib/run-report";
-import { duration, leftReasons, runCounts, stepRows, taskLabel } from "@/lib/run-view";
+import { duration, groupProblems, leftReasons, runCounts, stepRows, taskLabel } from "@/lib/run-view";
 import { getSetting } from "@/lib/settings";
 import { appTimezone, fmtDateTime, fmtDuration } from "@/lib/time";
 
@@ -36,6 +36,7 @@ export default async function RunPage({ params }: { params: Promise<{ id: string
   const steps = stepRows(run.stats, sources, { threshold: scoring.threshold ?? 65, mode: scope.mode });
   const counts = runCounts(run.stats);
   const why = leftReasons(run.stats);
+  const problemGroups = groupProblems(problems);
   const found = scans.length ? { from: scans[0].started_at, to: scans.map((s) => s.finished_at ?? s.started_at).sort().at(-1)! } : null;
   const callTotals = models.reduce((a, m) => ({ calls: a.calls + m.calls, failed: a.failed + m.failed }), { calls: 0, failed: 0 });
 
@@ -58,13 +59,13 @@ export default async function RunPage({ params }: { params: Promise<{ id: string
 
       {(run.error || problems.length > 0) && (
         <Card className="border-destructive">
-          <CardHeader><CardTitle className="text-destructive">{run.status === "failed" ? "Why it failed" : "What went wrong"}</CardTitle><CardDescription>{problems.length} warning{problems.length === 1 ? "" : "s"} and error{problems.length === 1 ? "" : "s"} logged during this run.</CardDescription></CardHeader>
+          <CardHeader><CardTitle className="text-destructive">{run.status === "failed" ? "Why it failed" : "What went wrong"}</CardTitle><CardDescription>{problems.length} warning{problems.length === 1 ? "" : "s"} and error{problems.length === 1 ? "" : "s"} logged during this run, shown once per kind of problem.</CardDescription></CardHeader>
           <CardContent className="grid gap-2 text-sm">
             {run.error && <p className="whitespace-pre-wrap">{run.error}</p>}
             {problems.length > 0 && (
               <Table>
-                <TableHeader><TableRow><TableHead>When</TableHead><TableHead>Level</TableHead><TableHead>What</TableHead></TableRow></TableHeader>
-                <TableBody>{problems.map((p) => <TableRow key={p.id}><TableCell className="whitespace-nowrap text-xs">{fmtDateTime(p.at)}</TableCell><TableCell><Badge variant={p.level === "error" ? "destructive" : "secondary"}>{p.level}</Badge></TableCell><TableCell className="whitespace-normal text-xs">{p.message}{p.company ? <span className="text-muted-foreground"> ({p.company})</span> : null}</TableCell></TableRow>)}</TableBody>
+                <TableHeader><TableRow><TableHead>Level</TableHead><TableHead className="text-right">Times</TableHead><TableHead>What</TableHead><TableHead>When</TableHead></TableRow></TableHeader>
+                <TableBody>{problemGroups.map((g) => <TableRow key={g.key} className="align-top"><TableCell><Badge variant={g.level === "error" ? "destructive" : "secondary"}>{g.level}</Badge></TableCell><TableCell className="text-right tabular-nums">{g.count}</TableCell><TableCell className="whitespace-normal text-xs">{g.example}{g.count > 1 ? <span className="text-muted-foreground"> (and {g.count - 1} more like it)</span> : null}</TableCell><TableCell className="whitespace-nowrap text-xs">{fmtDateTime(g.first)}{g.count > 1 ? ` to ${fmtDateTime(g.last)}` : ""}</TableCell></TableRow>)}</TableBody>
               </Table>
             )}
           </CardContent>

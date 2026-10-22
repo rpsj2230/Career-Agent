@@ -18,6 +18,11 @@ export type RunScansResult = { outcomes: ScanOutcome[]; skipped: number; legacy:
 /** Errors that no retry can fix: the service refused the key, token or login. */
 export const isAuthFailure = (message: string) => /rejected the token|rejected the key|\b(401|403)\b|unauthori[sz]ed|forbidden|invalid.{0,20}(api.?key|token|credentials)|incorrect (api )?key|authentication failed/i.test(message);
 
+/** A service that did not answer at all (timeout, refused, unreachable), as opposed to answering with an error about one search. */
+export const isUnreachable = (message: string) => /could not reach|timed? ?out|aborted|econnreset|econnrefused|enotfound|fetch failed|network/i.test(message);
+/** After this many unreachable answers in a row from one service, its remaining searches are left for the next run. */
+export const UNREACHABLE_LIMIT = 3;
+
 /**
  * Run every scan (fetching in parallel across integrations, storing one at a time). Each scan is recorded before it starts and finalised whether it succeeds or
  * fails, a failure in one never stops the others, and integration status is updated from the results.
@@ -38,6 +43,8 @@ export async function runScans(specs: ScanSpec[], deps: ScanDeps, opts: { budget
   type Fetched = { jobs: NormalizedJob[] } | { error: string } | { skipped: true } | { blocked: string };
   // once a service refuses the key or token, trying its other searches only repeats the same refusal (and used up the whole time budget)
   const broken = new Map<string, string>();
+  // a service that does not answer (for example a government site that blocks cloud addresses) would otherwise cost one full timeout per search
+  const unreachableInARow = new Map<string, number>();
   const pending = new Map<ScanSpec, Promise<Fetched>>();
   const groups = new Map<string, ScanSpec[]>();
   for (const spec of specs) groups.set(spec.integration, [...(groups.get(spec.integration) ?? []), spec]);
@@ -48,9 +55,14 @@ export async function runScans(specs: ScanSpec[], deps: ScanDeps, opts: { budget
         if (opts.budgetMs !== undefined && now() - started > opts.budgetMs) return { skipped: true } as const;
         const refusal = broken.get(spec.integration);
         if (refusal) return { blocked: refusal } as const;
-        try { return { jobs: await spec.fetch() }; } catch (e) {
+        try { const jobs = await spec.fetch(); unreachableInARow.set(spec.integration, 0); return { jobs }; } catch (e) {
           const error = e instanceof Error ? e.message : String(e);
           if (isAuthFailure(error)) broken.set(spec.integration, error);
+          if (isUnreachable(error)) {
+            const n = (unreachableInARow.get(spec.integration) ?? 0) + 1;
+            unreachableInARow.set(spec.integration, n);
+            if (n >= UNREACHABLE_LIMIT && !broken.has(spec.integration)) broken.set(spec.integration, `It did not answer ${n} times in a row (${error.slice(0, 120)}), so its remaining searches were skipped this time and are tried again at the next run.`);
+          } else unreachableInARow.set(spec.integration, 0);
           return { error };
         }
       });

@@ -204,7 +204,11 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
     // a job board's listing page has no form: follow its Apply link to the employer's own site first
     const board = await leaveJobBoard(page, isRedirector);
     page = board.page;
-    if (!board.left && auto) throw new Handback("The link stays on the job board (its Apply link did not lead to the employer's own page); apply on the employer's own site");
+    if (!board.left && auto) {
+      const title = (await board.page.title().catch(() => "")).replace(/\s+/g, " ").trim().slice(0, 70);
+      let host = ""; try { host = new URL(board.page.url()).hostname; } catch { /* keep blank */ }
+      throw new Handback(`The link stays on the job board (its Apply link did not lead to the employer's own page; the page on ${host || "the board"} is titled "${title || "no title"}"); apply on the employer's own site`);
+    }
     const opened = await openApplyForm(page);
     const fresh = context.pages().filter((p) => !before.has(p) && p !== page);
     if (fresh.length) page = fresh[fresh.length - 1]; // the apply button opened a new tab

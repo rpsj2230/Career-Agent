@@ -5,6 +5,7 @@ import { WorkersControls } from "./workers-controls";
 
 const STATE = {
   working: { label: "reporting in", cls: "bg-green-600 text-white" },
+  idle: { label: "between runs", cls: "" },
   quiet: { label: "quiet", cls: "bg-amber-500 text-white" },
   never: { label: "not set up", cls: "" },
   off: { label: "switched off", cls: "" },

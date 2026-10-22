@@ -67,3 +67,20 @@ describe("modelLines", () => {
     expect(taskLabel("mystery")).toBe("mystery");
   });
 });
+
+describe("groupProblems", () => {
+  const p = (id: number, at: string, level: string, message: string) => ({ id, at, level, message, company: null });
+  it("shows the same failure of every search once, with how many times", async () => {
+    const { groupProblems } = await import("@/lib/run-view");
+    const g = groupProblems([
+      p(1, "2026-10-22T07:34:00Z", "error", 'mcf "AI Transformation Lead in Singapore": Could not reach api.mycareersfuture.gov.sg: The operation was aborted due to timeout'),
+      p(2, "2026-10-22T07:35:00Z", "error", 'mcf "Project Manager in Singapore": Could not reach api.mycareersfuture.gov.sg: The operation was aborted due to timeout'),
+      p(3, "2026-10-22T07:36:00Z", "error", 'mcf "COO in Singapore": Could not reach api.mycareersfuture.gov.sg: The operation was aborted due to timeout'),
+      p(4, "2026-10-22T07:34:00Z", "error", 'apify "linkedin: X": Apify rejected the token. Copy it again from Apify > Settings > Integrations.'),
+      p(5, "2026-10-22T07:40:00Z", "warn", "2 job(s) could not be scored; they will be retried next run"),
+    ]);
+    expect(g.map((x) => [x.level, x.count])).toEqual([["error", 3], ["error", 1], ["warn", 1]]);
+    expect(g[0]).toMatchObject({ first: "2026-10-22T07:34:00Z", last: "2026-10-22T07:36:00Z" });
+    expect(g[0].example).toContain("AI Transformation Lead");
+  });
+});
