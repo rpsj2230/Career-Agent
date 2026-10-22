@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ActionButton } from "@/components/app/action-button";
 import { ScopeToggles } from "@/components/app/scope-toggles";
 import { TemplateMap } from "@/components/app/template-map";
 import { DEFAULT_SCOPE, SAMPLE_PROFILE } from "@/lib/tailor/scope";
@@ -91,7 +92,14 @@ export default async function ResumesPage({ searchParams }: { searchParams: Prom
                     <TableCell className="whitespace-normal"><div className="font-medium">{r.title}</div><div className="text-xs text-muted-foreground">{r.company}{r.country ? ` · ${countryLabel(r.country)}` : ""}{r.sourceTitle && r.mode !== "fresh" ? ` · from "${r.sourceTitle}"` : ""}</div></TableCell>
                     <TableCell className="whitespace-normal"><div className="flex flex-wrap gap-1">{tagsFor(r).map((t) => <Badge key={t} variant={t === "needs review" ? "destructive" : "secondary"}>{t}</Badge>)}</div></TableCell>
                     <TableCell className="whitespace-nowrap text-xs">{fmtDate(r.createdAt, tz)} · v{r.version}</TableCell>
-                    <TableCell className="whitespace-nowrap text-sm"><Link className="underline" href={`/jobs/${r.jobId}`}>Job</Link> · <a className="underline" href={`/api/files?path=${encodeURIComponent(r.storagePath)}`}>Download</a></TableCell>
+                    <TableCell className="whitespace-normal text-sm">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <a className="font-medium underline" href={`/resumes/view/${r.documentId}`} target="_blank" rel="noreferrer">View</a>
+                        <Link className="underline" href={`/jobs/${r.jobId}`}>Job</Link>
+                        <a className="underline" href={`/api/files?path=${encodeURIComponent(r.storagePath)}`}>Download DOCX</a>
+                        {!r.verified && <ActionButton size="sm" variant="destructive" endpoint={`/api/documents/${r.documentId}/review`} body={{ action: "approve" }} confirm="Approve this resume although the checker flagged claims? Press View first to read them." success="Resume approved">Approve</ActionButton>}
+                      </div>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
