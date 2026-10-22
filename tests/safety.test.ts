@@ -264,3 +264,24 @@ describe("a suggestion box (typeahead)", () => {
     await page.close();
   });
 });
+
+import { keptValue, verifyEntries } from "../worker/form";
+describe("reading the form back after filling it", () => {
+  it("tolerates reformatting and objects only to a lost or unrelated value", () => {
+    expect(keptValue("+65 8716 1454", "8716 1454")).toBe(true);
+    expect(keptValue("Fluent", "Fluent (read, write)")).toBe(true);
+    expect(keptValue("60 days", "")).toBe(false);
+    expect(keptValue("Yes", "No")).toBe(false);
+    expect(keptValue("Singapore", "singapore, SG")).toBe(true);
+  });
+  live("finds an answer the page cleared, and accepts a reformatted one", async () => {
+    if (!browser) return;
+    const page = await browser.newPage();
+    await page.goto(pathToFileURL(join(process.cwd(), "tests/fixtures/forgetful-form.html")).href);
+    const r = await fillForm(page, { applicant: { name: "Asha Rao", email: "a@x.com", phone: "+65 8716 1454", location: "Singapore", links: [] }, answers: [{ question: "Notice period", answer: "60 days" }, { question: "Are you comfortable with travel?", answer: "Yes" }], resumePath: "/dev/null" });
+    await page.waitForTimeout(150);
+    const lost = await verifyEntries(page, r.entries);
+    expect(lost.map((l) => l.label)).toEqual(["Notice period"]); // cleared by the page; the reformatted phone and the chosen option are fine
+    await page.close();
+  });
+});

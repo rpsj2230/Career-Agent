@@ -26,11 +26,11 @@ export const CONSENT_BOX = /\b(i\s+(have\s+read|agree|accept|consent|acknowledge
 
 type Field = {
   idx: number; tag: string; type: string; label: string; name: string; required: boolean;
-  options: { text: string; value: string; idx: number }[]; hasValue: boolean; combo?: boolean;
+  options: { text: string; value: string; idx: number }[]; hasValue: boolean; combo?: boolean; /** what the control shows now (select: the chosen option; groups: the chosen options) */ current?: string;
 };
 
 /** Scan the page (or Easy Apply modal) for fillable controls, tagging each with data-ca-i. Radios are grouped by name. */
-async function scan(page: Page, scope?: string): Promise<Field[]> {
+export async function scan(page: Page, scope?: string): Promise<Field[]> {
   return page.evaluate((scopeSel) => {
     // with a scope (LinkedIn's Easy Apply window) only the controls inside it count: the page's own search boxes are not part of the application
     const shown = (el: Element) => { const r = (el as HTMLElement).getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(el as HTMLElement).visibility !== "hidden"; };
@@ -99,6 +99,7 @@ async function scan(page: Page, scope?: string): Promise<Field[]> {
         g.options.push({ text: labelOf(el), value: el.value, idx: n });
         g.required ||= req;
         g.hasValue ||= el.checked;
+        if (el.checked) g.current = [g.current, labelOf(el)].filter(Boolean).join(" | ");
         return;
       }
       if (type === "radio") {
@@ -119,7 +120,7 @@ async function scan(page: Page, scope?: string): Promise<Field[]> {
       const options = all.filter((o) => !prompt(o));
       const chosen = type === "select" ? (el as unknown as HTMLSelectElement).selectedOptions[0] : null;
       const hasValue = type === "checkbox" ? el.checked : type === "select" ? !!chosen && !prompt({ text: chosen.text.trim(), value: chosen.value }) : !!el.value;
-      out.push({ idx: n, tag: el.tagName.toLowerCase(), type, label: labelOf(el), name: el.name, required: req, options, hasValue, combo: el.getAttribute("role") === "combobox" || !!el.getAttribute("aria-autocomplete") });
+      out.push({ idx: n, tag: el.tagName.toLowerCase(), type, label: labelOf(el), name: el.name, required: req, options, hasValue, current: type === "select" ? (chosen?.text ?? "").trim() : type === "checkbox" ? (el.checked ? "yes" : "") : el.value, combo: el.getAttribute("role") === "combobox" || !!el.getAttribute("aria-autocomplete") });
     });
     return out;
   }, scope);
@@ -295,4 +296,34 @@ export async function looksLikeSearchForm(page: Page): Promise<boolean> {
     if (application) return false;
     return forms.some(searchy) || [...document.querySelectorAll('input[type="search"]')].some(visible);
   });
+}
+
+const alnum = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "");
+
+/** Did the page keep what was typed? Tolerant of formatting (a phone number reformatted, a choice shown with extra words); it only objects when the value is gone or unrelated. */
+export function keptValue(expected: string, actual: string): boolean {
+  const e = alnum(expected), a = alnum(actual);
+  if (!a) return false;
+  if (!e) return true;
+  if (a.includes(e) || e.includes(a)) return true;
+  const digits = (x: string) => x.replace(/\D+/g, "");
+  return digits(expected).length >= 6 && digits(expected).endsWith(digits(actual).slice(-8));
+}
+
+/**
+ * Read the form back after filling it and compare with what was entered. A page's own scripts sometimes clear or reformat a value, and a form submitted with a blank where an answer
+ * was typed is a wrong application. Returns the answers the page did not keep (label, what was entered, what the page shows). Files and secrets are never read.
+ */
+export async function verifyEntries(page: Page, entries: FieldEntry[], scope?: string): Promise<{ label: string; expected: string; actual: string }[]> {
+  const fields = await scan(page, scope);
+  const byLabel = new Map(fields.map((f) => [clean(f.label || f.name), f]));
+  const bad: { label: string; expected: string; actual: string }[] = [];
+  for (const e of entries) {
+    if (e.kind === "file" || e.kind === "checkbox" && e.value === "ticked") continue;
+    const f = byLabel.get(clean(e.label));
+    if (!f || f.type === "file" || f.type === "password") continue;
+    const actual = f.current ?? "";
+    if (!keptValue(e.value, actual)) bad.push({ label: e.label, expected: e.value, actual });
+  }
+  return bad;
 }

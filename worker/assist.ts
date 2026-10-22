@@ -49,7 +49,7 @@ import { trustedSites } from "./trusted-sites";
 import { naukriOpenApply, parseNaukriState } from "./naukri-lib";
 import { newQuestions } from "./ai-answers-core";
 import { acquireWatcherLock, lockPathFor } from "./assist-lock";
-import { clean, clickSubmit, fillForm, looksLikeSearchForm } from "./form";
+import { clean, clickSubmit, fillForm, looksLikeSearchForm, verifyEntries } from "./form";
 import { orderQueue } from "../src/lib/apply/queue-order";
 import { NO_FORM, pushRecent, staleLinkedinNoForm, staleOldReading, type Live, type Recent } from "../src/lib/apply/assistant-live";
 import { boardDenied, CONFIRMATION, detectBlock, linkedinSignedIn, type Answer } from "./match";
@@ -504,6 +504,15 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
           r = { filled: [...r.filled, ...again.filled], unanswered: again.unanswered, pending: again.pending, blocked: again.blocked, entries: [...r.entries, ...again.entries.filter((e) => e.kind !== "file").map((e) => (ai.has(e.label) ? { ...e, source: "ai" as const } : e))] };
           say(`  Answered ${extra.length} question(s) from your profile.`);
         }
+      }
+      // read the page back: an answer the page dropped or cleared is typed again once, and if it is lost again nothing is sent
+      const lost = await verifyEntries(page, r.entries, formScope).catch(() => []);
+      if (lost.length) {
+        say(`  The page did not keep: ${lost.map((l) => l.label).join("; ")}. Typing them again.`);
+        const again = await fillForm(page, fctx, formScope);
+        r = { ...r, filled: [...r.filled, ...again.filled], entries: [...r.entries, ...again.entries.filter((e) => e.kind !== "file")] };
+        const stillLost = await verifyEntries(page, r.entries.filter((e) => lost.some((l) => l.label === e.label)), formScope).catch(() => []);
+        if (stillLost.length) { stalledNote = `The page would not keep these answers (they were cleared after typing): ${stillLost.map((l) => l.label).join("; ")}`; break; }
       }
       entered.push(...r.entries); steps++;
       for (const u of r.unanswered) if (!unanswered.includes(u)) unanswered.push(u);

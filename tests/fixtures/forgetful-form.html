@@ -1,0 +1,11 @@
+<html><body><form>
+<label for="a">First name*</label><input id="a" required>
+<label for="b">Notice period*</label><input id="b" required>
+<label for="c">Phone*</label><input id="c" required>
+<label for="d">Are you comfortable with travel?*</label><select id="d" required><option value="Select an option">Select an option</option><option>Yes</option><option>No</option></select>
+<script>
+  // a script that wipes "Notice period" whenever it is typed (the site's own bug)
+  document.getElementById('b').addEventListener('input', () => { setTimeout(() => { document.getElementById('b').value = ''; }, 30); });
+  // a script that reformats the phone number
+  document.getElementById('c').addEventListener('input', (e) => { const d = e.target.value.replace(/\D/g, ''); e.target.value = d.length > 4 ? d.slice(0, 4) + ' ' + d.slice(4) : d; });
+</script></form></body></html>
