@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { chromium, type Browser } from "playwright";
-import { clickSubmit, fillForm } from "../worker/form";
+import { clickSubmit, fillForm, looksLikeSearchForm } from "../worker/form";
 import { CONFIRMATION } from "../worker/match";
 
 const executablePath = process.env.CHROMIUM_PATH ?? (process.env.PLAYWRIGHT_BROWSERS_PATH ? `${process.env.PLAYWRIGHT_BROWSERS_PATH}/chromium` : undefined);
@@ -142,6 +142,38 @@ describe.skipIf(!executablePath)("other employers' form shapes", () => {
     await page.setContent('<a role="button" id="cta" onclick="document.title=\'cta\'">Apply now</a><form onsubmit="event.preventDefault();document.title=\'submitted\'"><input name="a"><button type="submit">Send</button></form>');
     expect(await clickSubmit(page)).toBe(true);
     expect(await page.title()).toBe("submitted");
+    await page.close();
+  });
+});
+
+describe.skipIf(!executablePath)("looksLikeSearchForm", () => {
+  it("recognises a job board's search page, so nothing is typed into it", async () => {
+    if (!browser) throw new Error("Chromium failed to launch");
+    const page = await browser.newPage();
+    await page.goto(fixture("", "job-board-search"));
+    expect(await looksLikeSearchForm(page)).toBe(true);
+    await page.close();
+  });
+  it("does not mistake a real application form for a search page", async () => {
+    if (!browser) throw new Error("Chromium failed to launch");
+    const page = await browser.newPage();
+    await page.goto(fixture());
+    expect(await looksLikeSearchForm(page)).toBe(false);
+    await page.close();
+  });
+  it("still sees an application form when the page also has a search box in its header", async () => {
+    if (!browser) throw new Error("Chromium failed to launch");
+    const page = await browser.newPage();
+    await page.setContent(`<form role="search"><input type="search" name="q"><button>Search</button></form>
+      <form action="/apply"><input name="a"><input name="b"><input name="c"><button type="submit">Submit application</button></form>`);
+    expect(await looksLikeSearchForm(page)).toBe(false);
+    await page.close();
+  });
+  it("is false on a page with no forms at all", async () => {
+    if (!browser) throw new Error("Chromium failed to launch");
+    const page = await browser.newPage();
+    await page.setContent("<h1>Closed</h1>");
+    expect(await looksLikeSearchForm(page)).toBe(false);
     await page.close();
   });
 });

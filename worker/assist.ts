@@ -34,7 +34,7 @@ import { requestPending, type AssistantRequest } from "../src/lib/apply/assistan
 import { autoDecision, humanPause, withinHours, type AutoCaps, type AutoState } from "./assist-policy";
 import { answerPending } from "./ai-answers";
 import { acquireWatcherLock, lockPathFor } from "./assist-lock";
-import { clickSubmit, fillForm } from "./form";
+import { clickSubmit, fillForm, looksLikeSearchForm } from "./form";
 import { CONFIRMATION, detectBlock, type Answer } from "./match";
 
 const need = (k: string) => { const v = process.env[k]; if (!v) throw new Error(`${k} is not set. Put it in .env.local (see the README, "Apply assistant").`); return v; };
@@ -208,6 +208,7 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
     if (opened === "none" && !auto) say("  No apply button found on this page. The form may be on the employer's site: use the open window.");
 
     for (let step = 0; step < 8; step++) {
+      if (await looksLikeSearchForm(page)) break; // a job board's search box is not an application: nothing is typed into it
       let r = await fillForm(page, fctx);
       if (r.pending.length) {
         // questions the rules and the answer bank could not answer are answered from the profile by a model, never by guessing
@@ -251,11 +252,15 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
   if (auto) {
     let problem: string | null = null;
     if (unanswered.length) problem = `Needs you: ${unanswered.join("; ")}`;
+    else if (await looksLikeSearchForm(page)) problem = "The link opens a job board's listing or search page, not an application form; apply on the employer's own site";
     else if (entered.length === 0) problem = "No application form was found on this page (it may need a sign-in, or the role may be closed); apply on the employer's site";
     else if (!(await finalStepVisible(page))) problem = "Could not reach the final step of the form";
     if (problem) { await handBack(problem); await page.close().catch(() => undefined); return "later"; }
     const baseline = CONFIRMATION.test(await page.innerText("body").catch(() => ""));
-    if (!(await clickSubmit(page))) { await handBack("Could not find the submit button"); await page.close().catch(() => undefined); return "later"; }
+    let pressed = false;
+    try { pressed = await clickSubmit(page); }
+    catch (e) { await handBack(`Could not press the submit button (${e instanceof Error ? e.message.split("\n")[0] : e})`); await page.close().catch(() => undefined); return "later"; }
+    if (!pressed) { await handBack("Could not find the submit button"); await page.close().catch(() => undefined); return "later"; }
     const ok = await page.waitForFunction(({ src, needFormGone }) => {
       if (!new RegExp(src, "i").test(document.body.innerText)) return false;
       if (!needFormGone) return true;
@@ -404,6 +409,15 @@ async function batch(sb: SupabaseClient, who: Who | null): Promise<number> {
       if (!(await claim(sb, app.id))) { say(`  [${i + 1}/${apps.length}] taken by another assistant; skipped.`); continue; }
       let r: Outcome;
       try { r = await assistOne(sb, context, app, i + 1, apps.length, auto); }
+      catch (e) {
+        // one application that goes wrong must not end the round: it is handed back with the reason, and the next one is taken
+        r = "later";
+        const message = `The assistant could not finish this one (${e instanceof Error ? e.message.split("\n")[0] : String(e)})`;
+        say(`  Handed back to you: ${message}`);
+        await sb.from("applications").update({ status: "needs_input", error: message }).eq("id", app.id).eq("status", "submitting");
+        await sb.from("apply_events").insert({ application_id: app.id, kind: "needs_input", detail: { message, worker: WORKER } });
+        current.handedBack++;
+      }
       finally { await release(sb, app.id); } // anything not finished or handed back goes back to the queue for the next round, or for another worker
       if (r === "done") done++;
       if (r === "quit") break;
