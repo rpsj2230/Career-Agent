@@ -13,6 +13,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { HandbackAnswers } from "@/components/app/handback-answers";
+import { loadHandbacks } from "@/lib/apply/handbacks-store";
 import { applicationProvenance } from "@/lib/apply/provenance";
 import { changedSince, fmtBytes, shortHash, submissionView, summariseDiff, type DiffRow } from "@/lib/apply/detail";
 import { db, must } from "@/lib/db";
@@ -59,6 +61,7 @@ export default async function ApplicationPage({ params }: { params: Promise<{ id
   const originalView = snapProfile.success ? resumeView(snapProfile.data, masterAsTailored(snapProfile.data)) : null;
   const diff = summariseDiff(resume?.diff);
   const sub = submissionView(app);
+  const myQuestions = app.status === "needs_input" ? (await loadHandbacks().catch(() => [])).filter((g) => g.apps.some((a) => a.id === id)) : [];
   const who = applicationProvenance({ status: app.status, method: app.method, submitted_at: app.submitted_at, submission: sub.kind === "record" ? sub.record : null }, events);
   const moved = changedSince(snap, live);
   const issues = [...(resume?.verification?.issues ?? []), ...(cover?.verification?.issues ?? [])];
@@ -120,7 +123,9 @@ export default async function ApplicationPage({ params }: { params: Promise<{ id
                 <ActionButton variant="outline" endpoint={`/api/applications/${id}`} body={{ action: "skip" }} success="Skipped">Skip this job</ActionButton>
               </div>
               {app.error && <p><b>Why it stopped:</b> <span className="text-destructive">{app.error}</span></p>}
-              {r && r.unanswered.length > 0 && <div><b>Still needed from you:</b><ul className="list-disc pl-5">{r.unanswered.map((u, i) => <li key={i}>{u}</li>)}</ul></div>}
+              {app.status === "needs_input" && myQuestions.length > 0
+                ? <div className="grid gap-2"><b>Answer here, then it goes back to the assistant:</b><HandbackAnswers groups={myQuestions} /></div>
+                : r && r.unanswered.length > 0 && <div><b>Still needed from you:</b><ul className="list-disc pl-5">{r.unanswered.map((u, i) => <li key={i}>{u}</li>)}</ul></div>}
               {r && r.fields.length > 0 && (
                 <details><summary className="cursor-pointer font-medium">Already filled in ({r.fields.filter((f) => f.kind !== "file").length}): copy from here if the form is blank</summary>
                   <Table><TableBody>{r.fields.filter((f) => f.kind !== "file").map((f, i) => <TableRow key={i}><TableCell className="whitespace-normal font-medium">{f.label}</TableCell><TableCell className="whitespace-normal">{f.value}</TableCell></TableRow>)}</TableBody></Table>

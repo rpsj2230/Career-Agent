@@ -152,7 +152,7 @@ describe("the probe's description of a page", () => {
   }, 30_000);
 });
 
-import { finalStepVisible, nextStep, refusedFields, uploadEasyApplyResume, walkEasyApply } from "../worker/assist-lib";
+import { buttonsShown, linkedinSessionAlive, linkedinSignedOutView, finalStepVisible, nextStep, refusedFields, uploadEasyApplyResume, walkEasyApply } from "../worker/assist-lib";
 import { skillYears } from "../src/lib/apply/skill-years";
 import { MasterProfile } from "../src/lib/types";
 describe("a real-shaped Easy Apply window: native dialog, four pages", () => {
@@ -271,4 +271,38 @@ describe("Easy Apply questions the form asks (resume step, then a question Linke
     expect(w.stoppedAt).toMatch(/Microsoft Azure/);
     await context.close();
   }, 60_000);
+});
+
+describe("telling a signed-out LinkedIn page from a signed-in one", () => {
+  live("a member's page with obfuscated class names is not mistaken for a signed-out page", async () => {
+    if (!browser) return;
+    const page = await browser.newPage();
+    await page.goto(fixture("linkedin-signed-in-obfuscated"));
+    expect(await linkedinSignedOutView(page)).toBe(false);
+    await page.goto(fixture("linkedin-signed-out"));
+    expect(await linkedinSignedOutView(page)).toBe(true);
+    await page.close();
+  });
+  live("the session check follows LinkedIn's own redirect to the sign-in page", async () => {
+    if (!browser) return;
+    for (const alive of [true, false]) {
+      const context = await browser.newContext();
+      await context.route("https://www.linkedin.com/**", (route) => {
+        const u = route.request().url();
+        if (/\/feed\//.test(u)) return alive ? route.fulfill({ status: 200, contentType: "text/html", body: "<title>Feed</title>" }) : route.fulfill({ status: 302, headers: { location: "https://www.linkedin.com/login" } });
+        return route.fulfill({ status: 200, contentType: "text/html", body: "<title>Sign in</title>" });
+      });
+      expect(await linkedinSessionAlive(context)).toBe(alive);
+      expect(context.pages().length).toBe(0); // its own tab is closed again
+      await context.close();
+    }
+  }, 30_000);
+  live("lists the buttons a stalled form is showing", async () => {
+    if (!browser) return;
+    const page = await browser.newPage();
+    await page.goto(fixture("linkedin-easy-questions"));
+    await page.click("button[aria-label^='Easy Apply']");
+    expect(await buttonsShown(page, EASY_APPLY_SCOPE)).toEqual(["Next"]);
+    await page.close();
+  });
 });

@@ -32,7 +32,7 @@ export function HandbackAnswers({ groups }: { groups: HandbackGroup[] }) {
               <option value="">Every country</option>
               {g.countries.map((c) => <option key={c} value={c}>Only {COUNTRY_NAME_MAP[c] ?? c.toUpperCase()}</option>)}
             </select>
-            <Button onClick={() => save(g)} disabled={!(answers[g.key] ?? "").trim()}>Save and re-queue</Button>
+            <Button onClick={() => save(g)} disabled={!(answers[g.key] ?? "").trim()}>Save and send again</Button>
           </div>
         </div>
       ))}

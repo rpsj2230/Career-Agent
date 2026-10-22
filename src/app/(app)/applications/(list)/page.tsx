@@ -6,13 +6,15 @@ import { ListToolbar } from "@/components/app/list-toolbar";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { countryLabel } from "@/lib/filters";
 import { portalLabel } from "@/lib/jobs/portal";
 import { activePills, APP_SORTS, APP_STAGES, appQueryParams, appStage, parseAppQuery, queryString, STAGES, type Link as QParams, type StageKey } from "@/lib/list-query";
 import { filterOptions, listApplicationsFiltered } from "@/lib/queries";
 import { fmtDateTime } from "@/lib/time";
 import { AssistantPanel } from "@/components/app/assistant-panel";
+import { HandbackAnswers } from "@/components/app/handback-answers";
+import { loadHandbacks } from "@/lib/apply/handbacks-store";
 import { SmartRefresh } from "@/components/app/smart-refresh";
 import { AutopilotCard } from "@/components/app/autopilot-card";
 import { PipelineStatus } from "@/components/app/pipeline-status";
@@ -28,6 +30,7 @@ import { draftStates } from "@/lib/apply/email-store";
 export const dynamic = "force-dynamic";
 
 export default async function ApplicationsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const handbacksPromise = loadHandbacks().catch(() => []);
   const sp = await searchParams;
   const isAdmin = (await currentRole()) === "admin";
   const q = parseAppQuery(sp);
@@ -42,6 +45,7 @@ export default async function ApplicationsPage({ searchParams }: { searchParams:
     const next = active ? (q.dir === "asc" ? "desc" : "asc") : APP_SORTS[key].dir;
     return <Link key={key} href={href({ sort: key === "created" && next === "desc" ? undefined : key, dir: next === APP_SORTS[key].dir ? undefined : next })} className="inline-flex items-center gap-1 hover:underline" title={`Sort by ${APP_SORTS[key].label}`}>{label}<span aria-hidden className="text-xs">{active ? (q.dir === "asc" ? "▲" : "▼") : "↕"}</span></Link>;
   };
+  const handbacks = await handbacksPromise;
   const emails = await draftStates(rows.map((r) => r.id)).catch(() => new Map());
   const fmt = (d: string | null) => fmtDateTime(d);
   const route = (r: (typeof rows)[number]) => applyRoute({ apply_type: r.job?.apply_type, url: r.job?.url, portal: r.job?.portal, emailMode: emails.get(r.id)?.mode ?? null });
@@ -66,6 +70,18 @@ export default async function ApplicationsPage({ searchParams }: { searchParams:
       )}
       <SmartRefresh seconds={panel?.online ? 8 : 60} />
       {panel && <AssistantPanel {...panel} />}
+      {handbacks.length > 0 && (
+        <Card id="questions" className="border-amber-500">
+          <CardHeader>
+            <CardTitle>Questions waiting for your answer ({handbacks.length})</CardTitle>
+            <CardDescription>
+              A job site asked these and your profile and answer bank have no answer. Type the answer and press <b>Save and send again</b>: it is kept for every later application, and each application that was waiting for it goes back to the assistant.
+              Use the country box when the answer is only true for one country. Agreement boxes (terms, privacy) are never answered for you.
+            </CardDescription>
+          </CardHeader>
+          <CardContent><HandbackAnswers groups={handbacks} /></CardContent>
+        </Card>
+      )}
       <ListToolbar
         kind="apps" action="/applications"
         chips={APP_STAGES.map((key) => ({ key, count: stageN[key] }))}

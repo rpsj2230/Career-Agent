@@ -53,3 +53,12 @@ export const scopedQuestion = (question: string, countryName: string | null) => 
 export function requeueStatus(row: { approved_at: string | null }, lastHandback: { assistant?: boolean } | null): "assisted_pending" | "prepared" {
   return row.approved_at && lastHandback?.assistant === true ? "assisted_pending" : "prepared";
 }
+
+/**
+ * The questions named in a hand-back's own text ("Needs you: A; B"), for applications whose record did not keep the list.
+ * Only that exact form is read; any other reason (a page with no form, a sign-in wall) names no question.
+ */
+export function questionsInReason(error: string | null | undefined): string[] {
+  const m = (error ?? "").match(/^\s*Needs you:\s*([\s\S]+)$/i);
+  return m ? m[1].split(/;\s+/).map((x) => x.trim()).filter(Boolean) : [];
+}
