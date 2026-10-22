@@ -107,7 +107,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
                     <div key="n" className="grid max-w-xs gap-1">
                       <div><StageBadge stage={stage} /></div>
                       {stage === "rejected" ? <span className="text-xs text-muted-foreground">{j.skip_reason ?? "Closed out by the score or your rules."}</span>
-                        : app ? <Link className="text-xs underline" href={`/applications/${app.id}`}>{stage === "awaiting_approval" ? "Open the application: review and approve" : "Open the application"}</Link>
+                        : app ? <Link className="text-xs underline" href={`/applications/${app.id}`}>{stage === "awaiting_approval" ? "Open the application: review and approve" : stage === "needs_input" || stage === "failed" ? "Open: finish it yourself (form link, answers, resume)" : "Open the application"}</Link>
                         : waiting ? <span className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">Resume is written automatically <ActionButton size="sm" variant="outline" endpoint={`/api/jobs/${j.id}/prepare`} success="Preparing">Prepare now</ActionButton></span>
                         : stage === "unscored" ? <span className="text-xs text-muted-foreground">Waiting for its fit score</span> : null}
                     </div>,

@@ -1,6 +1,9 @@
 name: Apply (worker)
 
 on:
+  # a sweep every hour sends any approved automatic application that a started run missed (a run cancelled because another was waiting, a failed start)
+  schedule:
+    - cron: "47 * * * *"
   workflow_dispatch:
     inputs:
       application_id:

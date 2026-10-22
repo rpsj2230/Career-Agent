@@ -110,6 +110,9 @@ const GENERIC_LINK_TEXT = /^(view|apply|see|see more jobs|open|easy apply|view j
 const decode = (s: string) => s.replace(/&amp;/g, "&").replace(/&#x2F;/g, "/").replace(/&#38;/g, "&");
 const tidy = (s: string) => htmlToText(s).replace(/\s+/g, " ").trim();
 
+/** Portals email a receipt when you apply ("Your application was sent to Acme"); the job in it is already applied for. */
+export const isApplicationReceipt = (subject: string | undefined): boolean => /\b(your application (was|has been) (sent|submitted|received)|you applied|application (sent|submitted)|thanks? for applying|thank you for applying)\b/i.test(subject ?? "");
+
 /** Company and location from the text that follows a job title in the email ("Acme · Singapore", or two lines). */
 export function contextOf(after: string): { company?: string; location?: string; salary?: string } {
   const parts = after
@@ -131,6 +134,7 @@ export function contextOf(after: string): { company?: string; location?: string;
 export function parseAlertEmail(mail: AlertMail): NormalizedJob[] {
   const parser = senderPortal(mail.from);
   if (!parser || !mail.html) return [];
+  if (isApplicationReceipt(mail.subject)) return []; // "Your application was sent to ...": a job you already applied for, not a new one to apply for
   const anchors: { href: string; text: string; start: number; end: number }[] = [];
   const re = /<a\b[^>]*?\bhref\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
   for (let m = re.exec(mail.html); m; m = re.exec(mail.html)) anchors.push({ href: decode(m[1]), text: tidy(m[2]), start: m.index, end: m.index + m[0].length });

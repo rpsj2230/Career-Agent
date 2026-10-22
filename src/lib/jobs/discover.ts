@@ -10,7 +10,7 @@ import { getSetting, putSetting } from "@/lib/settings";
 import { ATS_LABEL, EMPTY_WATCHLIST, mergeWatchlist, type Watchlist } from "./ats";
 import { loadEffectiveCountries } from "@/lib/country-config-store";
 import type { RunTrigger } from "@/lib/activity-types";
-import { effectiveIntervalHours, idleStreak, silentDrop } from "./adaptive";
+import { effectiveIntervalHours, failedRecently, idleStreak, silentDrop } from "./adaptive";
 import { apifyBudget } from "./apify-usage";
 import { ingestScan, loadKnownJobs } from "./ingest";
 import { runScans, type ScanDeps } from "./scans";
@@ -47,6 +47,19 @@ async function recentScans(): Promise<Map<string, { at: Date; inserted: number; 
     const list = out.get(k) ?? [];
     if (list.length < 6) list.push({ at: new Date(r.started_at), inserted: r.inserted ?? 0, fetched: r.fetched ?? 0 });
     out.set(k, list);
+  }
+  return out;
+}
+
+/** For each search: when it last FAILED (within the last day), so a search that keeps failing is not retried every round. */
+async function recentFailures(): Promise<Map<string, Date>> {
+  const since = new Date(Date.now() - 24 * 3_600_000).toISOString();
+  const res = await fetchAll((a, b) => db().from("portal_scans").select("integration,country,query,started_at").eq("status", "error").gte("started_at", since).order("started_at", { ascending: false }).order("id").range(a, b), 2000);
+  const out = new Map<string, Date>();
+  if (res.error) return out;
+  for (const r of res.data as { integration: string; country: string | null; query: string | null; started_at: string }[]) {
+    const k = scanKey(r.integration, r.country, r.query);
+    if (!out.has(k)) out.set(k, new Date(r.started_at));
   }
   return out;
 }
@@ -98,8 +111,10 @@ export async function scanStep(ctx: RunCtx, o: ScanScope) {
   const minHours = settings.min_rescan_hours ?? 6;
   let recentlySearched = 0;
   if (!o.force && minHours > 0) {
+    const failures = await recentFailures().catch(() => new Map<string, Date>());
     const fresh = specs.filter((sp) => {
       const k = scanKey(sp.integration, sp.country, sp.query);
+      if (failedRecently(failures.get(k))) return true;
       const at = last.get(k);
       // a search that keeps finding nothing new is asked less often (never less often than daily)
       return at && Date.now() - at.getTime() < effectiveIntervalHours(minHours, idleStreak(history.get(k) ?? [])) * 3_600_000;

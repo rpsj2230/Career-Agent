@@ -81,11 +81,18 @@ const MIN_TITLE = 0.85;
  * two equally good matches are ambiguous and nothing is returned, because applying to the wrong role is worse than not applying.
  */
 export async function findOnEmployerBoards(job: { title: string; company: string; location?: string | null }, deps: AltDeps): Promise<Direct | null> {
-  const slugs = slugCandidates(job.company);
-  const jobs = await Promise.all(slugs.flatMap((slug) => BOARDS.map(async (b) => {
+  return findOnBoards(job, slugCandidates(job.company).flatMap((slug) => BOARDS.map((b) => ({ ats: b.ats, slug }))), deps, "the employer's own");
+}
+
+/** The same lookup for boards already known by name (for example a board a careers page links to), so nothing is guessed. */
+export async function findOnBoards(job: { title: string; company: string; location?: string | null }, boards: { ats: Ats; slug: string }[], deps: AltDeps, whose = "the employer's own"): Promise<Direct | null> {
+  const unique = [...new Map(boards.map((b) => [`${b.ats}:${b.slug}`, b])).values()];
+  const jobs = await Promise.all(unique.map(async ({ ats, slug }) => {
+    const b = BOARDS.find((x) => x.ats === ats);
+    if (!b) return null;
     const data = await deps.getJson(b.url(slug)).catch(() => null);
     return data ? { b, slug, postings: b.read(data, slug) as Posting[] } : null;
-  })));
+  }));
   const hits: { ats: Ats; slug: string; p: Posting; score: number }[] = [];
   for (const j of jobs) {
     if (!j) continue;
@@ -100,7 +107,7 @@ export async function findOnEmployerBoards(job: { title: string; company: string
   const top = hits.filter((h) => h.score === best);
   if (new Set(top.map((h) => h.p.url)).size !== 1) return null;
   const h = top[0];
-  return { url: h.p.url, ats: h.ats, how: `the same job on the employer's own ${h.ats} board (${h.slug})` };
+  return { url: h.p.url, ats: h.ats, how: `the same job on ${whose} ${h.ats} board (${h.slug})` };
 }
 
 /** Every alternative, in order: links named in the description first (no guessing), then the employer's own boards. */

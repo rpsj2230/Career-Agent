@@ -14,6 +14,7 @@
  * the background): it also presses Submit itself, but only within your daily limits, only when every required question was
  * answered, only after a pause that looks like a person, and it stops at the first CAPTCHA or security check.
  */
+import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -30,7 +31,13 @@ import { chromium, type BrowserContext, type Page } from "playwright";
 import { confirmationSnippet, type FieldEntry, type SubmissionRecord } from "../src/lib/apply/submission";
 import { MasterProfile } from "../src/lib/types";
 import { isRedirector } from "../src/lib/jobs/redirectors";
-import { alternativeRoutes } from "../src/lib/jobs/alt-routes";
+import { atsLinksIn, findOnEmployerBoards } from "../src/lib/jobs/alt-routes";
+import { careersSiteRoutes, googleJobsRoutes, type Found, type RouteId } from "../src/lib/jobs/more-routes";
+import { jsearchSearch, jsonFetcher } from "../src/lib/jobs/sources";
+import { resolveCredentials } from "../src/lib/integrations/credentials";
+import { summariseAttempts, type RouteAttempt } from "../src/lib/apply/route-chain";
+import { contactEmailsFor } from "../src/lib/apply/contact-email";
+import { loadDraft } from "../src/lib/apply/email-store";
 import { finalStepVisible, leaveJobBoard, nextStep, openApplyForm } from "./assist-lib";
 import { requestPending, type AssistantRequest } from "../src/lib/apply/assistant-request";
 import { autoDecision, humanPause, withinHours, type AutoCaps, type AutoState } from "./assist-policy";
@@ -44,6 +51,13 @@ const need = (k: string) => { const v = process.env[k]; if (!v) throw new Error(
 const fetchJson = async (url: string): Promise<unknown | null> => {
   try { const r = await fetch(url, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(6000) }); return r.ok ? await r.json() : null; } catch { return null; }
 };
+/** A public page as HTML text (an employer's careers page), or null when it is missing, slow or not a page. */
+const fetchHtml = async (url: string): Promise<string | null> => {
+  try { const r = await fetch(url, { headers: { Accept: "text/html" }, signal: AbortSignal.timeout(8000), redirect: "follow" }); return r.ok ? (await r.text()).slice(0, 600_000) : null; } catch { return null; }
+};
+/** The JSearch key saved in the app (or the environment), read once; null when there is none. */
+let jsearchKeyCache: Promise<string | null> | undefined;
+const jsearchKey = () => (jsearchKeyCache ??= resolveCredentials().then((c) => c.creds.jsearch?.rapidapi_key ?? null).catch(() => null));
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const sha256 = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
 
@@ -64,6 +78,12 @@ let current: Round = { at: new Date().toISOString(), submitted: 0, handedBack: 0
 let lastRound: Round | null = null;
 const leftFor = (reason: string) => { current.left[reason] = (current.left[reason] ?? 0) + 1; };
 
+/** The code this worker runs (a commit), so the app can say whether it is up to date. */
+const VERSION = (() => {
+  if (process.env.GITHUB_SHA) return process.env.GITHUB_SHA;
+  try { return execSync("git rev-parse HEAD", { stdio: ["ignore", "pipe", "ignore"] }).toString().trim(); } catch { return ""; }
+})();
+
 /** Tell the app this assistant is alive, so it can warn you if applications are waiting and it has gone quiet. Never throws. */
 async function heartbeat(sb: SupabaseClient) {
   if (process.env.ASSIST_NO_HEARTBEAT === "1") {
@@ -71,12 +91,12 @@ async function heartbeat(sb: SupabaseClient) {
     const name = process.env.ASSIST_WORKER?.trim();
     if (name && name !== "computer") {
       const portals = (process.env.ASSIST_PORTALS ?? "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
-      try { await sb.from("settings").upsert({ key: `worker_heartbeat:${name}`, value: { at: new Date().toISOString(), portals }, updated_at: new Date().toISOString() }); } catch { /* a courtesy */ }
+      try { await sb.from("settings").upsert({ key: `worker_heartbeat:${name}`, value: { at: new Date().toISOString(), portals, version: VERSION }, updated_at: new Date().toISOString() }); } catch { /* a courtesy */ }
     }
     return;
   }
   try {
-    await sb.from("settings").upsert({ key: "assistant_heartbeat", value: { at: new Date().toISOString(), mode: AUTO ? "hands-free" : "assist", watching: WATCH, hours: process.env.ASSIST_HOURS ?? "", tz: Intl.DateTimeFormat().resolvedOptions().timeZone, ...(lastRound ? { round: lastRound } : {}) }, updated_at: new Date().toISOString() });
+    await sb.from("settings").upsert({ key: "assistant_heartbeat", value: { at: new Date().toISOString(), version: VERSION, mode: AUTO ? "hands-free" : "assist", watching: WATCH, hours: process.env.ASSIST_HOURS ?? "", tz: Intl.DateTimeFormat().resolvedOptions().timeZone, ...(lastRound ? { round: lastRound } : {}) }, updated_at: new Date().toISOString() });
   } catch { /* the heartbeat is a courtesy, never a reason to stop */ }
 }
 
@@ -209,24 +229,52 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
     // a job board's listing page has no form: follow its Apply link to the employer's own site first
     let board = await leaveJobBoard(page, isRedirector);
     page = board.page;
-    if (!board.left) {
-      // other ways to the employer's own form: a link named in the job description, then the same job on the employer's own job board
-      const routes = await alternativeRoutes({ title: job.title, company: job.company, location: job.location, description: job.description }, { getJson: fetchJson }).catch(() => []);
-      for (const alt of routes) {
+    // every way in that is tried is recorded, in order, so a hand-back says exactly what was attempted
+    const attempts: RouteAttempt[] = [{ route: "board-link", outcome: board.left ? "worked" : "no-link" }];
+    const facts = { title: job.title, company: job.company, location: job.location, description: job.description };
+    const tryRoute = async (route: RouteId, find: () => Promise<Found[]>): Promise<boolean> => {
+      let list: Found[];
+      try { list = await find(); } catch (e) { attempts.push({ route, outcome: "error", detail: e instanceof Error ? e.message.split("\n")[0].slice(0, 80) : "unknown" }); return false; }
+      if (list.length === 0) { attempts.push({ route, outcome: "none-found" }); return false; }
+      for (const alt of list) {
         await page.goto(alt.url, { waitUntil: "domcontentloaded", timeout: 45_000 }).catch(() => undefined);
         await page.waitForLoadState("networkidle", { timeout: 8000 }).catch(() => undefined);
         if (isRedirector(page.url()) || (await looksLikeSearchForm(page))) continue;
+        if (await blocked(page)) continue;
         say(`  Found another way in: ${alt.how}`);
         await sb.from("jobs").update({ url: alt.url, ...(alt.ats === "greenhouse" || alt.ats === "lever" ? { apply_type: alt.ats } : {}) }).eq("id", job.id);
-        await logAct(sb, { kind: "job.link_resolved", message: `Found the employer's own application page for ${job.title} at ${job.company}: ${alt.how}`, application_id: app.id, job_id: job.id, company: job.company, portal: job.portal, detail: { url: alt.url, how: alt.how, assistant: true } });
-        board = { page, left: true };
-        break;
+        await logAct(sb, { kind: "job.link_resolved", message: `Found the employer's own application page for ${job.title} at ${job.company}: ${alt.how}`, application_id: app.id, job_id: job.id, company: job.company, portal: job.portal, detail: { url: alt.url, how: alt.how, route, assistant: true } });
+        attempts.push({ route, outcome: "worked", detail: alt.how });
+        return true;
+      }
+      attempts.push({ route, outcome: "unusable", detail: `${list.length} link(s)` });
+      return false;
+    };
+    if (!board.left) {
+      const listing = await page.content().catch(() => null);
+      const chain: [RouteId, () => Promise<Found[]>][] = [
+        ["description-link", async () => atsLinksIn(job.description)],
+        ["employer-board", async () => { const f = await findOnEmployerBoards(facts, { getJson: fetchJson }); return f ? [f] : []; }],
+        ["careers-site", () => careersSiteRoutes(facts, { getJson: fetchJson, getHtml: fetchHtml }, listing)],
+        ["google-jobs", async () => {
+          const key = await jsearchKey();
+          if (!key) throw new Error("no JSearch key");
+          return googleJobsRoutes(facts, (q) => jsearchSearch(jsonFetcher(), key, q));
+        }],
+      ];
+      for (const [route, find] of chain) {
+        if (await tryRoute(route, find)) { board = { page, left: true }; break; }
       }
     }
+    // the email route needs no form: an address in the posting is another way to apply, sent alongside by the app itself
+    const emailed = await loadDraft(app.id).then((d) => d?.sent ? d.sent.to : null).catch(() => null);
+    const listed = contactEmailsFor({ url: job.url, description: job.description, company: job.company });
+    attempts.push(emailed ? { route: "email", outcome: "worked", detail: `already emailed to ${emailed}` } : { route: "email", outcome: listed.length ? "unavailable" : "none-found", detail: listed.length ? "an address is listed, but no email application was sent for this job" : undefined });
     if (!board.left && auto) {
       const title = (await board.page.title().catch(() => "")).replace(/\s+/g, " ").trim().slice(0, 70);
       let host = ""; try { host = new URL(board.page.url()).hostname; } catch { /* keep blank */ }
-      throw new Handback(`The link stays on the job board (its Apply link did not lead to the employer's own page, and the employer's own board has no matching job; the page on ${host || "the board"} is titled "${title || "no title"}"); apply on the employer's own site`, false, "board");
+      await sb.from("apply_events").insert({ application_id: app.id, kind: "routes_tried", detail: { attempts } }).then(() => undefined, () => undefined);
+      throw new Handback(`No route reached the employer's form. ${summariseAttempts(attempts)} The page on ${host || "the board"} is titled "${title || "no title"}"; apply on the employer's own site`, false, "board");
     }
     const opened = await openApplyForm(page);
     const fresh = context.pages().filter((p) => !before.has(p) && p !== page);

@@ -72,16 +72,42 @@ describe("runActor", () => {
     expect(r.calls[0].init.headers.Authorization).toBe("Bearer tok");
     expect(JSON.parse(r.calls[0].init.body!)).toEqual({ q: "Product Manager", n: 40 });
   });
-  it.each([[401, /rejected the token/], [403, /refused \(forbidden/], [404, /no actor/], [402, /out of credit/], [400, /rejected the input/], [500, /HTTP 500/]])("explains HTTP %s", async (status, re) => {
+  it.each([[401, /rejected the token/], [403, /refused \(forbidden, HTTP 403\)/], [404, /no actor/], [402, /out of credit/], [400, /rejected the input/], [500, /HTTP 500/]])("explains HTTP %s", async (status, re) => {
     await expect(runActor("tok", actor, vars, respond(status).f)).rejects.toThrow(re);
   });
   it("tells a refused actor from a bad token, in Apify's own words", async () => {
     const body = (type: string, message: string) => ({ error: { type, message } });
-    await expect(runActor("tok", actor, vars, respond(403, body("actor-is-not-rented", "You must rent this actor to run it")).f)).rejects.toThrow(/paid rental and its rental or trial is not active.*actor-is-not-rented/);
-    await expect(runActor("tok", actor, vars, respond(403, body("usage-limit", "Monthly usage hard limit exceeded")).f)).rejects.toThrow(/usage limit is reached.*Monthly usage hard limit exceeded/);
+    await expect(runActor("tok", actor, vars, respond(403, body("actor-is-not-rented", "You must rent this actor to run it")).f)).rejects.toThrow(/paid rental and its rental or trial is not active.*actor-is-not-rented.*The token is fine/);
+    await expect(runActor("tok", actor, vars, respond(403, body("usage-limit", "Monthly usage hard limit exceeded")).f)).rejects.toThrow(/Apify usage limit reached.*Monthly usage hard limit exceeded.*The token is fine/);
     await expect(runActor("tok", actor, vars, respond(403, body("forbidden", "Insufficient permissions for the actor")).f)).rejects.toThrow(/no permission to run/);
-    await expect(runActor("tok", actor, vars, respond(403, {}).f)).rejects.toThrow(/token itself may be fine/);
+    await expect(runActor("tok", actor, vars, respond(403, {}).f)).rejects.toThrow(/Check the actor's rental, your usage limits/);
     await expect(runActor("tok", actor, vars, respond(401, body("token-not-found", "User was not found or authentication token is not valid")).f)).rejects.toThrow(/rejected the token \(Apify says: token-not-found/);
+  });
+  describe("asks Apify what is really wrong", () => {
+    // a fake Apify: the actor run is refused with `runStatus`, /users/me answers `me`, /users/me/limits answers `limits`
+    const fake = (runStatus: number, me: { status: number }, limits: unknown): ApifyFetch => async (url) => {
+      const json = (status: number, body: unknown) => ({ ok: status >= 200 && status < 300, status, json: async () => body });
+      if (url.endsWith("/users/me")) return json(me.status, { data: {} });
+      if (url.endsWith("/users/me/limits")) return json(200, limits);
+      return json(runStatus, {});
+    };
+    it("says LIMIT, with the amounts and the reset date, when the monthly usage limit is used up (not a token problem)", async () => {
+      const f = fake(403, { status: 200 }, { data: { limits: { maxMonthlyUsageUsd: 5 }, current: { monthlyUsageUsd: 5 }, monthlyUsageCycle: { endAt: "2026-11-01T00:00:00.000Z" } } });
+      const err = await runActor("tok", actor, vars, f).catch((e: Error) => e.message);
+      expect(err).toMatch(/Apify usage limit reached: \$5\.00 of \$5\.00 used this month, resets 2026-11-01/);
+      expect(err).toMatch(/The token is fine/);
+      expect(err).not.toMatch(/rejected the token/);
+    });
+    it("says TOKEN only when Apify itself does not know the token", async () => {
+      const err = await runActor("tok", actor, vars, fake(403, { status: 401 }, {})).catch((e: Error) => e.message);
+      expect(err).toMatch(/rejected the token/);
+    });
+    it("says neither when the token works and the limit is not reached", async () => {
+      const f = fake(403, { status: 200 }, { data: { limits: { maxMonthlyUsageUsd: 300 }, current: { monthlyUsageUsd: 43 } } });
+      const err = await runActor("tok", actor, vars, f).catch((e: Error) => e.message);
+      expect(err).toMatch(/refused \(forbidden, HTTP 403\).*The token works/);
+      expect(err).not.toMatch(/rejected the token|usage limit reached/);
+    });
   });
   it("explains an unreachable network and tolerates a non-list answer", async () => {
     await expect(runActor("tok", actor, vars, async () => { throw new Error("ECONNRESET"); })).rejects.toThrow(/Could not reach Apify/);

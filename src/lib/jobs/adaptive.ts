@@ -12,6 +12,10 @@ export function effectiveIntervalHours(minHours: number, idleRuns: number): numb
   return Math.max(minHours, Math.min(doubled, 24));
 }
 
+/** A search that failed this recently is not tried again yet: the same refusal would only repeat, and it would keep the round busy with nothing else. */
+export const RETRY_AFTER_FAILURE_HOURS = 2;
+export const failedRecently = (at: Date | undefined, now = Date.now()): boolean => !!at && now - at.getTime() < RETRY_AFTER_FAILURE_HOURS * 3_600_000;
+
 /** Leading empty runs (newest first): scans that stored no new job. */
 export const idleStreak = (history: { inserted: number }[]): number => {
   let n = 0;

@@ -1,5 +1,5 @@
 /** Who can apply, whether each worker is reporting in, and what it handles, for the Workers panel. */
-export type Beat = { at?: string; portals?: string[] } | null | undefined;
+export type Beat = { at?: string; portals?: string[]; version?: string } | null | undefined;
 export type WorkersInput = {
   now: Date;
   computer: Beat;
@@ -9,8 +9,10 @@ export type WorkersInput = {
   /** applications each worker started in the last 24 hours, and how many it passed on (a sign-in page, a security check) */
   started24h: Record<string, number>;
   declined24h: Record<string, number>;
+  /** the version of the app that is live now (the commit it was built from), to compare with what each worker reports running */
+  latest?: string;
 };
-export type WorkerRow = { id: "github" | "oracle" | "computer"; name: string; where: string; state: "working" | "idle" | "quiet" | "never" | "off"; seen: string; handles: string[]; started: number; passedOn: number };
+export type WorkerRow = { id: "github" | "oracle" | "computer"; name: string; where: string; state: "working" | "idle" | "quiet" | "never" | "off"; seen: string; handles: string[]; started: number; passedOn: number; version: { state: "current" | "outdated" | "unknown"; text: string } | null };
 
 const ago = (ms: number): string => {
   const m = Math.max(0, Math.round(ms / 60_000));
@@ -19,6 +21,16 @@ const ago = (ms: number): string => {
   const h = Math.round(m / 60);
   return h < 48 ? `${h} h ago` : `${Math.round(h / 24)} days ago`;
 };
+const short = (v: string) => v.slice(0, 7);
+/** Is this worker running the code that is live? A worker that reports no version predates the check, so it is told to update. */
+export function versionStatus(b: Beat, latest?: string): WorkerRow["version"] {
+  if (!b?.at) return null;
+  const running = b.version?.trim();
+  if (!running) return { state: "unknown", text: "version not reported: this worker is older than the version check, so update it" };
+  if (!latest) return { state: "unknown", text: `running ${short(running)} (the live version is not known here)` };
+  const same = latest.startsWith(running) || running.startsWith(latest);
+  return same ? { state: "current", text: `running the latest version (${short(running)})` } : { state: "outdated", text: `running ${short(running)}, the latest is ${short(latest)}: update it` };
+}
 const PORTAL_NAMES: Record<string, string> = { linkedin: "LinkedIn", indeed: "Indeed", naukri: "Naukri" };
 
 export function workersOverview(i: WorkersInput): WorkerRow[] {
@@ -33,8 +45,8 @@ export function workersOverview(i: WorkersInput): WorkerRow[] {
   const oracleAlive = status(i.oracle, 10).state === "working";
   const n = (r: Record<string, number>, k: string) => r[k] ?? 0;
   return [
-    { id: "github", name: "GitHub (free cloud runner)", where: "runs every hour, nothing to keep switched on", ...status(i.github, 75, true, 8 * 60), handles: i.cloud.enabled ? ["Employers' own pages"] : ["Nothing while cloud workers are off"], started: n(i.started24h, "github"), passedOn: n(i.declined24h, "github") },
-    { id: "oracle", name: "Always-on machine (for example Oracle)", where: "optional; you set it up once", ...status(i.oracle, 10, true), handles: i.cloud.enabled ? ["Employers' own pages", ...oraclePortals] : ["Nothing while cloud workers are off"], started: n(i.started24h, "oracle"), passedOn: n(i.declined24h, "oracle") },
+    { id: "github", name: "GitHub (free cloud runner)", where: "runs every hour, nothing to keep switched on", ...status(i.github, 75, true, 8 * 60), handles: i.cloud.enabled ? ["Employers' own pages"] : ["Nothing while cloud workers are off"], started: n(i.started24h, "github"), passedOn: n(i.declined24h, "github"), version: versionStatus(i.github, i.latest) },
+    { id: "oracle", name: "Always-on machine (for example Oracle)", where: "optional; you set it up once", ...status(i.oracle, 10, true), handles: i.cloud.enabled ? ["Employers' own pages", ...oraclePortals] : ["Nothing while cloud workers are off"], started: n(i.started24h, "oracle"), passedOn: n(i.declined24h, "oracle"), version: versionStatus(i.oracle, i.latest) },
     {
       id: "computer", name: "Your computer (the assistant)", where: "needs the computer on and you signed in", ...status(i.computer, 3),
       handles: [
@@ -42,7 +54,7 @@ export function workersOverview(i: WorkersInput): WorkerRow[] {
         ...(oracleAlive && oraclePortals.length ? [`${oraclePortals.join(", ")} only if the always-on machine passes them on or stops`] : []),
         i.cloud.enabled ? `Employers' own pages that wait more than ${i.cloud.fallback_minutes} minutes for the cloud workers` : "Employers' own pages",
       ],
-      started: n(i.started24h, "computer"), passedOn: 0,
+      started: n(i.started24h, "computer"), passedOn: 0, version: versionStatus(i.computer, i.latest),
     },
   ];
 }
