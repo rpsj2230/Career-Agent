@@ -67,3 +67,10 @@ export function usableAnswers(pending: Pending[], out: z.infer<typeof AiAnswers>
   }
   return res;
 }
+
+/** The questions not yet put to a model during this application: the same question is not asked again on every page of a form that did not move on. */
+export function newQuestions(pending: Pending[], asked: Set<string>): Pending[] {
+  const fresh = pending.filter((q) => !asked.has(norm(q.label)));
+  for (const q of fresh) asked.add(norm(q.label));
+  return fresh;
+}

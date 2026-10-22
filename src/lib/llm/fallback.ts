@@ -30,6 +30,17 @@ export function selectCandidates(
     .sort((a, b) => a.priority - b.priority);
 }
 
+/** What went wrong, in words: some providers fail with an empty message, so the error's name, status, cause and a bit of the reply are used too. */
+export function describeError(e: unknown): string {
+  if (!(e instanceof Error)) return String(e) || "unknown error";
+  const x = e as Error & { statusCode?: number; status?: number; code?: string; cause?: unknown; responseBody?: string };
+  const msg = (e.message ?? "").trim();
+  if (msg) return msg;
+  const cause = x.cause instanceof Error ? x.cause.message : typeof x.cause === "string" ? x.cause : "";
+  const parts = [e.name !== "Error" ? e.name : "", x.statusCode ?? x.status ? `HTTP ${x.statusCode ?? x.status}` : "", x.code ?? "", cause, (x.responseBody ?? "").replace(/\s+/g, " ").slice(0, 120)].filter(Boolean);
+  return parts.length ? parts.join(" ") : "the provider returned an error with no message (check the key and the model name on the Models page)";
+}
+
 export class AllModelsFailed extends Error {
   constructor(public task: Task, public attempts: { label: string; error: string }[]) {
     super(
@@ -58,7 +69,7 @@ export async function runWithFallback<T, M extends ModelRow = ModelRow>(
       await onAttempt?.(m, true, Date.now() - t0);
       return { value, used: m };
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = describeError(e);
       attempts.push({ label: m.label, error: msg.slice(0, 300) });
       await onAttempt?.(m, false, Date.now() - t0, msg.slice(0, 500));
     }

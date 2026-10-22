@@ -11,10 +11,10 @@ import type { Answer } from "./match";
 export async function answerPending(o: { profile: MasterProfile; bank: Answer[]; job: { title: string; company: string; description?: string | null }; pending: Pending[]; jobId?: string }): Promise<Answer[]> {
   if (o.pending.length === 0) return [];
   try {
-    const { output } = await runStructured({ task: "tailor", schema: AiAnswers, system: AI_SYSTEM, prompt: buildAiPrompt(o), jobId: o.jobId, prefer: "strong", budgetMs: 60_000 });
+    const { output } = await runStructured({ task: "tailor", schema: AiAnswers, system: AI_SYSTEM, prompt: buildAiPrompt(o), jobId: o.jobId, prefer: "strong", budgetMs: 45_000, skipParked: true });
     return usableAnswers(o.pending, output);
   } catch (e) {
-    console.error(`  Could not write answers with a model (${e instanceof Error ? e.message.split("\n")[0] : e}); those questions stay with you.`);
+    console.error(`  Could not write answers with a model (${(e instanceof Error ? e.message.split("\n")[0] : String(e)).slice(0, 400)}); those questions stay with you.`);
     return [];
   }
 }
