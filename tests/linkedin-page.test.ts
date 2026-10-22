@@ -152,7 +152,7 @@ describe("the probe's description of a page", () => {
   }, 30_000);
 });
 
-import { buttonsShown, linkedinSessionAlive, linkedinSignedOutView, finalStepVisible, nextStep, refusedFields, uploadEasyApplyResume, walkEasyApply } from "../worker/assist-lib";
+import { buttonsShown, fingerprint, stallProblems, linkedinSessionAlive, linkedinSignedOutView, finalStepVisible, nextStep, refusedFields, uploadEasyApplyResume, walkEasyApply } from "../worker/assist-lib";
 import { skillYears } from "../src/lib/apply/skill-years";
 import { MasterProfile } from "../src/lib/types";
 describe("a real-shaped Easy Apply window: native dialog, four pages", () => {
@@ -329,6 +329,41 @@ describe("pressing only this job's own Apply button", () => {
     expect(r.kind).toBe("none");
     expect(r.note).toMatch(/no Easy Apply or company-website button was visible/);
     expect(await page.title()).not.toBe("WRONG JOB OPENED");
+    await context.close();
+  }, 30_000);
+});
+
+describe("a form that will not go on", () => {
+  const base = { applicant: { name: "Asha Rao", email: "a@x.com", phone: "1", location: "SG", links: [] }, resumePath: "/dev/null" };
+  live("a dropdown left on its prompt is a question to answer, and is answered from the answer bank", async () => {
+    if (!browser) return;
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto(fixture("linkedin-easy-stall"));
+    const r = await linkedinOpenApply(context, page, "https://www.linkedin.com/jobs/view/4476612945/");
+    const none = await fillForm(page, { ...base, answers: [] }, r.scope);
+    expect(none.unanswered).toEqual(["Are you comfortable with occasional travel?"]);
+    expect(none.pending[0].options).toEqual(["Yes", "No"]); // the prompt is not offered as a choice
+    const done = await fillForm(page, { ...base, answers: [{ question: "Are you comfortable with occasional travel?", answer: "Yes" }] }, r.scope);
+    expect(done.filled).toEqual(["Are you comfortable with occasional travel?"]);
+    expect(await page.inputValue("#ok")).toBe("Yes");
+    await context.close();
+  }, 30_000);
+  live("pressing Review on an unanswered page changes the page once (the error), then nothing; the page's own words are reported", async () => {
+    if (!browser) return;
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto(fixture("linkedin-easy-stall"));
+    const r = await linkedinOpenApply(context, page, "https://www.linkedin.com/jobs/view/4476612945/");
+    const a = await fingerprint(page, r.scope!);
+    await nextStep(page, r.scope); await page.waitForTimeout(300);
+    const b = await fingerprint(page, r.scope!);
+    expect(b).not.toBe(a); // the error appeared
+    await nextStep(page, r.scope); await page.waitForTimeout(300);
+    expect(await fingerprint(page, r.scope!)).toBe(b); // pressing again changes nothing: stuck
+    const probs = await stallProblems(page, r.scope!);
+    expect(probs.join(" | ")).toMatch(/Please enter a valid answer/);
+    expect(probs.join(" | ")).toMatch(/Are you comfortable with occasional travel\?/);
     await context.close();
   }, 30_000);
 });

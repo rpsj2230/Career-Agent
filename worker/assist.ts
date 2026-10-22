@@ -40,7 +40,7 @@ import { resolveCredentials } from "../src/lib/integrations/credentials";
 import { summariseAttempts, type RouteAttempt } from "../src/lib/apply/route-chain";
 import { contactEmailsFor } from "../src/lib/apply/contact-email";
 import { loadDraft } from "../src/lib/apply/email-store";
-import { accountGatedVendor, applyButtonsSeen, onJobPage, guardDownloads, buttonsShown, linkedinSessionAlive, linkedinSignedOutView, EASY_APPLY_SCOPE, finalStepVisible, leaveJobBoard, linkedinOpenApply, nextStep, openApplyForm, parseLinkedinState, refusedFields, uploadEasyApplyResume, waitForLinkedinApply } from "./assist-lib";
+import { accountGatedVendor, applyButtonsSeen, onJobPage, guardDownloads, buttonsShown, fingerprint, stallProblems, linkedinSessionAlive, linkedinSignedOutView, EASY_APPLY_SCOPE, finalStepVisible, leaveJobBoard, linkedinOpenApply, nextStep, openApplyForm, parseLinkedinState, refusedFields, uploadEasyApplyResume, waitForLinkedinApply } from "./assist-lib";
 import { requestPending, type AssistantRequest } from "../src/lib/apply/assistant-request";
 import { autoDecision, humanPause, withinHours, type AutoCaps, type AutoState } from "./assist-policy";
 import { answerPending } from "./ai-answers";
@@ -253,6 +253,7 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
   const before = new Set(context.pages());
   let formScope: string | undefined; // LinkedIn's Easy Apply window: only the controls inside it belong to the application
   let openNote = "";
+  let stalledNote = ""; // set when an Easy Apply page would not go on
   const fileInfo = (role: "resume" | "cover_letter", f: { path: string; storage_path: string }) => ({ role, name: basename(f.path), bytes: statSync(f.path).size, sha256: sha256(f.path), storage_path: f.storage_path });
   const record = (outcome: SubmissionRecord["outcome"], method: "assisted" | "automated", confirmation: SubmissionRecord["confirmation"], error: string | null, note: string): SubmissionRecord => ({
     version: 1, method, outcome, started_at: startedAt, finished_at: new Date().toISOString(), target_url: job.url, final_url: page.isClosed() ? null : page.url(),
@@ -454,8 +455,20 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
       entered.push(...r.entries); steps++;
       for (const u of r.unanswered) if (!unanswered.includes(u)) unanswered.push(u);
       if (await finalStepVisible(page, formScope)) break;
+      const beforePress = formScope ? await fingerprint(page, formScope) : "";
       if (!(await nextStep(page, formScope))) break;
-      await sleep(900);
+      if (formScope) {
+        // the page must change (the next page, or an error): if pressing Next or Review changes nothing, the form is stuck and pressing it again will not help
+        let afterPress = beforePress;
+        for (let t = 0; t < 6 && afterPress === beforePress; t++) { await sleep(500); afterPress = await fingerprint(page, formScope); }
+        if (afterPress === beforePress && !(await finalStepVisible(page, formScope))) {
+          const probs = await stallProblems(page, formScope);
+          const seen = await buttonsShown(page, formScope);
+          stalledNote = `Could not reach the final step of the form: the page would not go on after pressing Next or Review (it says: ${probs.length ? probs.join("; ") : "no message"}; buttons: ${seen.length ? seen.join(" | ") : "none"})`;
+          say(`  ${stalledNote}`);
+          break;
+        }
+      } else await sleep(900);
       if (formScope) {
         // LinkedIn keeps the same page and marks the question it refused: that question is the one to hand back, answered from the app next time
         const refused = (await refusedFields(page, formScope)).map(clean).filter(Boolean);
@@ -509,6 +522,7 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
         }
       } else problem = "No application form was found on this page (it may need a sign-in, or the role may be closed); apply on the employer's site";
     }
+    else if (stalledNote) problem = stalledNote;
     else if (!(await finalStepVisible(page, formScope))) {
       let host = ""; try { host = new URL(page.url()).hostname.replace(/^www\./, ""); } catch { /* keep blank */ }
       const seen = await buttonsShown(page, formScope);
