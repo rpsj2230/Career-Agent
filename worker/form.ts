@@ -3,6 +3,7 @@ import type { Locator, Page } from "playwright";
 import type { FieldEntry } from "../src/lib/apply/submission";
 import { asCount, wantsNumber, yearsSkill } from "../src/lib/apply/skill-years";
 import { sensitiveKind, type Sensitive } from "../src/lib/apply/safety";
+import { languageAnswer } from "../src/lib/apply/languages";
 import { matchAnswer, standardValue, type Answer, type Applicant } from "./match";
 
 export type FillContext = {
@@ -11,6 +12,8 @@ export type FillContext = {
   skillYears?: (skill: string) => string | null;
   /** the owner's default for a tool the profile cannot back; used only when nothing else answers */
   defaultYears?: (skill: string) => string | null;
+  /** the languages the owner knows ("English: fluent; Hindi: fluent"); a language not on the line is answered as none */
+  languages?: string;
 };
 /** A question the rules could not answer, with what is needed to answer it from the profile. */
 export type Pending = { label: string; type: "text" | "textarea" | "select" | "radio" | "number"; options: string[]; required: boolean };
@@ -186,7 +189,7 @@ export async function fillForm(page: Page, ctx: FillContext, scope?: string): Pr
       }
       if (f.type === "checkboxgroup") {
         if (f.hasValue) continue;
-        const answer = matchAnswer(f.label, ctx.answers);
+        const answer = matchAnswer(f.label, ctx.answers) ?? languageAnswer(label, f.options.map((o) => o.text), ctx.languages);
         const i = answer ? pickOption(f.options, answer) : -1;
         if (i >= 0) { await tick(at(f.options[i].idx)); filled.push(label); entries.push({ label, value: f.options[i].text, kind: "checkbox", source: "answers" }); }
         else ask({ ...f, type: "radio" }, label);
@@ -201,18 +204,19 @@ export async function fillForm(page: Page, ctx: FillContext, scope?: string): Pr
       }
       if (f.hasValue) continue;
       // the visible label decides first (a field named "_systemfield_name" labelled "Name"); the field's own name is the fallback
+      const langAns = languageAnswer(label, f.options.map((o) => o.text), ctx.languages);
       const std = standardValue(label, ctx.applicant) ?? standardValue(probe, ctx.applicant);
       const banked = std ?? matchAnswer(label, ctx.answers);
       const skill = banked == null ? yearsSkill(label) : null;
       const derived = skill ? ctx.skillYears?.(skill) ?? null : null;
       const standing = skill && derived == null ? ctx.defaultYears?.(skill) ?? null : null;
-      const raw = banked ?? derived ?? standing;
+      const raw = banked ?? derived ?? standing ?? langAns;
       // a count asked for in a box is written as a number: "3 years" would be refused
       const value = raw != null && f.type !== "select" && wantsNumber(label) ? asCount(raw) : raw;
-      const source: FieldEntry["source"] = std != null || derived != null ? "profile" : standing != null ? "rule" : "answers";
+      const source: FieldEntry["source"] = std != null || derived != null || (banked == null && standing == null && langAns != null) ? "profile" : standing != null ? "rule" : "answers";
 
       if (f.type === "radio") {
-        const answer = matchAnswer(f.label, ctx.answers);
+        const answer = matchAnswer(f.label, ctx.answers) ?? languageAnswer(label, f.options.map((o) => o.text), ctx.languages);
         const i = answer ? pickOption(f.options, answer) : -1;
         if (i >= 0) { await at(f.options[i].idx).check(); filled.push(label); entries.push({ label, value: f.options[i].text, kind: "radio", source: "answers" }); }
         else ask(f, label);

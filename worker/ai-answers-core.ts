@@ -32,6 +32,7 @@ export function factsFor(p: MasterProfile): string {
     "Education: " + p.education.map((e) => `${e.degree ?? ""} ${e.school ?? ""}`.trim()).join("; "),
     "Skills: " + p.skills.map((s) => s.name).slice(0, 80).join(", "),
     p.certifications.length ? "Certifications: " + p.certifications.map((c) => c.name).join(", ") : "",
+    p.preferences.languages ? `Languages known (any other language: none): ${p.preferences.languages}` : "",
     `PREFERENCES: notice period ${prefs.noticePeriod ?? "not given"}; visa/work authorisation ${prefs.visaStatus ?? "not given"}; relocate ${prefs.relocate === undefined ? "not given" : prefs.relocate ? "yes" : "no"}.`,
   ].filter(Boolean).join("\n");
 }

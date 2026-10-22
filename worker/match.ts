@@ -1,5 +1,6 @@
 /** Pure helpers for the apply worker: no browser, no network, fully unit-tested. */
 import { yearsSkill } from "../src/lib/apply/skill-years";
+import { languageAsked } from "../src/lib/apply/languages";
 
 export type Answer = { question: string; answer: string };
 export type Applicant = { name: string; email: string; phone: string; location: string; links: string[]; currentCompany?: string };
@@ -49,6 +50,9 @@ export function matchAnswer(label: string, answers: Answer[]): string | null {
     if (fam === "visa" || fam === "sponsorship") return null;
   }
   // "years of experience with X": an answer saved for X serves every wording of the question, and never serves a question about another tool
+  // a saved answer about one language never answers a question about another ("level in English" is not "level in Chinese")
+  const lang = languageAsked(label);
+  if (lang) return answers.find((a) => a.answer.trim() && languageAsked(a.question) === lang)?.answer ?? null;
   const skill = yearsSkill(label);
   if (skill) return answers.find((a) => a.answer.trim() && yearsSkill(a.question) === skill)?.answer ?? null;
   const lw = words(label);

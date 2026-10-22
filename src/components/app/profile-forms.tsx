@@ -97,7 +97,7 @@ export function DraftReview({ initial, conflicts }: { initial: unknown; conflict
   );
 }
 
-type Prefs = { countries: string[]; roles: string[]; payCountry?: string; currentCtc?: string; expectedCtc?: string; noticePeriod?: string; visaStatus?: string; relocate?: boolean };
+type Prefs = { countries: string[]; roles: string[]; payCountry?: string; currentCtc?: string; expectedCtc?: string; noticePeriod?: string; visaStatus?: string; relocate?: boolean; languages?: string };
 const csv = (s: string) => s.split(",").map((x) => x.trim()).filter(Boolean);
 
 export function PreferencesForm({ prefs, searching, profileTitles }: { prefs: Prefs; searching: { names: string[]; configured: boolean }; profileTitles: string[] }) {
@@ -138,6 +138,7 @@ export function PreferencesForm({ prefs, searching, profileTitles }: { prefs: Pr
       {field("expectedCtc", "Expected CTC (in that country's terms)", "32 LPA")}
       {field("noticePeriod", "Notice period", "60 days")}
       {field("visaStatus", "Work authorisation / visa (in that country)", "Indian citizen")}
+      <div className="grid gap-1 md:col-span-2"><Label htmlFor="languages">Languages you know (any language not listed is answered as &quot;none&quot;)</Label><Input id="languages" value={p.languages ?? ""} placeholder="English: fluent (read, write, speak); Hindi: fluent (read, write, speak)" onChange={(e) => set("languages", e.target.value)} /></div>
       <div className="flex items-center gap-2"><Checkbox id="relocate" checked={!!p.relocate} onCheckedChange={(v) => set("relocate", v === true)} /><Label htmlFor="relocate">Open to relocation</Label></div>
       <div className="flex flex-wrap gap-2 md:col-span-2"><Button onClick={save}>Save preferences</Button><AutofillButton scope="preferences" label="Fill empty fields from my profile" /></div>
     </div>

@@ -65,6 +65,8 @@ export const MasterProfile = z.object({
       noticePeriod: z.string().optional(),
       visaStatus: z.string().optional(),
       relocate: z.boolean().optional(),
+      /** the languages you know and how well, e.g. "English: fluent; Hindi: fluent". Any language not listed is answered as "none". */
+      languages: z.string().optional(),
     })
     .default({ countries: [], roles: [] }),
   experience: z.array(Experience).default([]),
