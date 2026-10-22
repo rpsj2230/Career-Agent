@@ -11,8 +11,8 @@ import { join } from "node:path";
 import { chromium } from "playwright";
 import { asAssistantProfile, browserDirFor, type Who } from "./assist-profile";
 import { browserFromMachine, LEAN_BROWSER } from "./browser";
-import { EASY_APPLY_SCOPE, linkedinOpenApply, waitForLinkedinApply } from "./assist-lib";
-import { launchAgentPlists, runningWatchers, type Outline } from "./assist-login-lib";
+import { describePage, EASY_APPLY_SCOPE, linkedinOpenApply, waitForLinkedinApply } from "./assist-lib";
+import { launchAgentPlists, runningWatchers } from "./assist-login-lib";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const quiet = (cmd: string, args: string[]) => { try { execFileSync(cmd, args, { stdio: "ignore" }); } catch { /* not running */ } };
@@ -34,26 +34,19 @@ async function main(who: Who | null) {
 
   const choice = browserFromMachine();
   const context = await chromium.launchPersistentContext(profileDir, { headless: false, viewport: null, executablePath: choice.executablePath, channel: choice.channel, ...LEAN_BROWSER });
+  // the page-reading code below is compiled by tsx, which adds a helper the browser does not have: define it, as the assistant does
+  await context.addInitScript({ content: "window.__name = window.__name || function (t) { return t; };" });
   try {
     const page = context.pages()[0] ?? (await context.newPage());
     await page.bringToFront().catch(() => undefined);
     console.log(`The ${choice.name} window is open: watch it. Opening the job...`);
+    try {
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45_000 });
     await waitForLinkedinApply(page);
     const opened = await linkedinOpenApply(context, page);
     await sleep(3500);
     const target = opened.page;
-    const dump = await target.evaluate((scopeSel) => {
-      const vis = (e: Element) => { const r = (e as HTMLElement).getBoundingClientRect(); const s = getComputedStyle(e as HTMLElement); return r.width > 0 && r.height > 0 && s.visibility !== "hidden" && s.display !== "none"; };
-      const short = (t: string | null | undefined, n = 60) => (t ?? "").replace(/\s+/g, " ").trim().slice(0, n);
-      const cls = (e: Element) => short(typeof (e as HTMLElement).className === "string" ? (e as HTMLElement).className : "", 80).split(" ").slice(0, 4).join(" ");
-      const labelOf = (e: HTMLInputElement) => short(e.getAttribute("aria-label") || (e.id ? document.querySelector(`label[for="${CSS.escape(e.id)}"]`)?.textContent : "") || e.closest("label")?.textContent || e.getAttribute("placeholder") || "");
-      const outline = (e: Element): Outline => { const i = e as HTMLInputElement; return { tag: e.tagName.toLowerCase(), role: e.getAttribute("role") ?? undefined, type: i.type || undefined, name: i.name || undefined, id: short(e.id, 40) || undefined, aria: short(e.getAttribute("aria-label")) || undefined, label: labelOf(i) || undefined, cls: cls(e) || undefined, required: i.required || undefined }; };
-      const containers = [...document.querySelectorAll(`${scopeSel}, main, [aria-modal], [role=dialog]`)].filter(vis).slice(0, 8).map((c) => ({ ...outline(c), visibleControls: c.querySelectorAll("input, select, textarea, button, a[href]").length }));
-      const scope = document.querySelector(scopeSel) ?? document.querySelector("main") ?? document.body;
-      const controls = [...scope.querySelectorAll("input, select, textarea, button, a[href], [role=button]")].filter(vis).slice(0, 80).map((e) => ({ ...outline(e), text: short(e.textContent, 40) }));
-      return { url: location.href.replace(/[?#].*$/, ""), title: short(document.title, 80), containers, controls };
-    }, EASY_APPLY_SCOPE) as unknown;
+    const dump = await describePage(target, EASY_APPLY_SCOPE);
     const dir = join(homedir(), ".career-agent", "probe");
     mkdirSync(dir, { recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -65,6 +58,11 @@ async function main(who: Who | null) {
     console.log(text);
     console.log("===== END =====");
     console.log(`\nAlso saved: ${shot}  (a picture of the page now; send it if you like). Close the browser window to finish.`);
+    } catch (e) {
+      console.error("\n===== THE PROBE HIT AN ERROR: paste these lines =====");
+      console.error(e instanceof Error ? `${e.name}: ${e.message}\n${(e.stack ?? "").split("\n").slice(0, 6).join("\n")}` : String(e));
+      console.error("===== END =====\nThe window stays open: close it to finish.");
+    }
     await new Promise<void>((resolve) => { context.on("close", () => resolve()); process.on("SIGINT", () => { void context.close().then(() => resolve()); }); });
   } finally { resume(); }
 }
