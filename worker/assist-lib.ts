@@ -6,7 +6,7 @@ import type { Page } from "playwright";
  */
 
 /** Buttons and links that open an application ("Easy Apply", "Apply now", "Apply"). Already-applied states are excluded. */
-const APPLY_ENTRY = /\b(easy apply|quick apply|apply now|apply for (this )?job|apply to (this )?job|i'?m interested)\b|^\s*apply\s*$/i;
+const APPLY_ENTRY = /\b(easy apply|quick apply|apply now|apply for (this )?job|apply to (this )?job|apply (on|at|via|through|with) (the )?(company|employer|external)('s)?( career)?( web)?(site| page)?|apply externally|i'?m interested)\b|^\s*apply\s*$/i;
 const NOT_APPLY = /applied|application status|saved|save job|follow|share|report/i;
 /** Steps that only move forward inside a multi-step form. */
 const NEXT_STEP = /^\s*(next|continue|review|save (and|&) continue|continue to next step|review your application)\s*$/i;
@@ -88,4 +88,34 @@ export async function leaveJobBoard(page: Page, isBoard: (url: string) => boolea
   await next.waitForLoadState("domcontentloaded").catch(() => undefined);
   await next.waitForLoadState("networkidle", { timeout: 8000 }).catch(() => undefined);
   return { page: next, left: !isBoard(next.url()) };
+}
+
+
+/** LinkedIn builds its job page after the first load: wait (briefly) for the apply button to appear before looking for it. */
+export async function waitForLinkedinApply(page: Page, timeoutMs = 9000): Promise<void> {
+  await page.locator('button[aria-label*="pply" i], a[aria-label*="pply" i], .jobs-apply-button, button:has-text("Apply"), a:has-text("Apply")').first().waitFor({ state: "visible", timeout: timeoutMs }).catch(() => undefined);
+}
+
+/** LinkedIn asks "Job search safety reminders" before it sends you to a company's site: continue past it. Returns true when it was there. */
+export async function passSafetyReminder(page: Page): Promise<boolean> {
+  const btn = page.getByRole("button", { name: /^\s*continue applying\s*$/i }).first();
+  if (await btn.isVisible({ timeout: 2500 }).catch(() => false)) { await btn.click({ timeout: 4000 }).catch(() => undefined); return true; }
+  return false;
+}
+
+export type LinkedinState = { applied: string | null; closed: boolean };
+/** What the page's own words say: "Applied 2 weeks ago" (you already did), or that the role no longer takes applications. Pure. */
+export function parseLinkedinState(bodyText: string): LinkedinState {
+  const applied = bodyText.match(/\bApplied\s+(?:\d+\s+(?:second|minute|hour|day|week|month|year)s?\s+ago|on\s+[A-Z][a-z]+\s+\d{1,2}(?:,\s*\d{4})?)/);
+  const closed = /no longer accepting applications|this job is no longer available|job (is )?closed|position has been filled/i.test(bodyText);
+  return { applied: applied ? applied[0].replace(/\s+/g, " ") : null, closed };
+}
+
+/** The apply-related buttons and links a page shows, by name: what to tell you when the assistant could not find the form. Never page text beyond a few short labels. */
+export async function applyButtonsSeen(page: Page): Promise<string[]> {
+  const names = await page.locator("button, a, [role=button]").evaluateAll((els) => els
+    .filter((e) => (e as HTMLElement).offsetParent !== null)
+    .map((e) => ((e.getAttribute("aria-label") || (e as HTMLElement).innerText || "").replace(/\s+/g, " ").trim()))
+    .filter((t) => t.length > 0 && t.length <= 48 && /apply|easy|sign in|join|continue|save/i.test(t))).catch(() => [] as string[]);
+  return [...new Set(names)].slice(0, 8);
 }

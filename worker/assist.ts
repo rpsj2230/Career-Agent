@@ -38,7 +38,7 @@ import { resolveCredentials } from "../src/lib/integrations/credentials";
 import { summariseAttempts, type RouteAttempt } from "../src/lib/apply/route-chain";
 import { contactEmailsFor } from "../src/lib/apply/contact-email";
 import { loadDraft } from "../src/lib/apply/email-store";
-import { finalStepVisible, leaveJobBoard, nextStep, openApplyForm } from "./assist-lib";
+import { applyButtonsSeen, finalStepVisible, leaveJobBoard, nextStep, openApplyForm, parseLinkedinState, passSafetyReminder, waitForLinkedinApply } from "./assist-lib";
 import { requestPending, type AssistantRequest } from "../src/lib/apply/assistant-request";
 import { autoDecision, humanPause, withinHours, type AutoCaps, type AutoState } from "./assist-policy";
 import { answerPending } from "./ai-answers";
@@ -335,7 +335,28 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
       await sb.from("apply_events").insert({ application_id: app.id, kind: "routes_tried", detail: { attempts } }).then(() => undefined, () => undefined);
       throw new Handback(`No route reached the employer's form. ${summariseAttempts(attempts)} The page on ${host || "the board"} is titled "${title || "no title"}"; apply on the employer's own site`, false, "board");
     }
+    const onLinkedin = String(job.portal ?? "").toLowerCase() === "linkedin";
+    if (onLinkedin) {
+      // LinkedIn builds its job page after the first load, and says in its own words when you already applied or the role is closed
+      stepNow(sb, "waiting for LinkedIn to show the apply button");
+      await waitForLinkedinApply(page);
+      const st = parseLinkedinState(await page.innerText("body").catch(() => ""));
+      if (st.applied) {
+        const now = new Date().toISOString();
+        await sb.from("applications").update({ status: "submitted", method: "assisted", lifecycle: "applied", submitted_at: now, error: null }).eq("id", app.id);
+        await sb.from("jobs").update({ status: "applied" }).eq("id", job.id);
+        await sb.from("apply_events").insert({ application_id: app.id, kind: "marked_submitted", detail: { why: `LinkedIn's own page says "${st.applied}"` } });
+        await logAct(sb, { kind: "application.submitted", message: `Already applied (LinkedIn shows "${st.applied}"): ${job.title} at ${job.company}`, status: "submitted", application_id: app.id, job_id: job.id, company: job.company, country: job.country, portal: job.portal, detail: { method: "assisted", assistant: true, linkedin_says: st.applied } });
+        noteRecent({ title: job.title, company: job.company, portal: "linkedin", outcome: "submitted", note: `LinkedIn already shows "${st.applied}"` });
+        say(`  Already applied: LinkedIn shows "${st.applied}".`);
+        await page.close().catch(() => undefined);
+        return "later";
+      }
+      if (st.closed) throw new Handback("LinkedIn says this role is no longer accepting applications");
+    }
     const opened = await openApplyForm(page);
+    // an external "Apply" on LinkedIn first shows "Job search safety reminders": continue past it so the company's page opens
+    if (onLinkedin && opened === "clicked" && (await passSafetyReminder(page))) await sleep(1500);
     const fresh = context.pages().filter((p) => !before.has(p) && p !== page);
     if (fresh.length) page = fresh[fresh.length - 1]; // the apply button opened a new tab
     await page.waitForLoadState("domcontentloaded").catch(() => undefined);
@@ -397,7 +418,10 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
         await page.close().catch(() => undefined);
         return "later";
       }
-      problem = String(job.portal ?? "").toLowerCase() === "linkedin" ? "LinkedIn shows no Easy Apply form for this job (it may apply on the company's site through another page, or the role may be closed); apply from the job page" : "No application form was found on this page (it may need a sign-in, or the role may be closed); apply on the employer's site";
+      if (String(job.portal ?? "").toLowerCase() === "linkedin") {
+        const seen = await applyButtonsSeen(page);
+        problem = `LinkedIn shows no application form for this job (the apply button may be missing, or the role closed); apply from the job page. Buttons the page showed: ${seen.length ? seen.join(" | ") : "none that mention apply"}`;
+      } else problem = "No application form was found on this page (it may need a sign-in, or the role may be closed); apply on the employer's site";
     }
     else if (!(await finalStepVisible(page))) problem = "Could not reach the final step of the form";
     if (problem) { await handBack(problem); await page.close().catch(() => undefined); return "later"; }
@@ -508,8 +532,10 @@ async function batch(sb: SupabaseClient, who: Who | null): Promise<number> {
   let apps = (data ?? []) as (AppRow & { approved_at?: string | null })[];
   if (apps.length) {
     const { data: jobs } = await sb.from("jobs").select("id, portal, source, apply_type, url").in("id", apps.map((a) => a.job_id));
-    type J = { id: string; portal?: string | null; source?: string | null; apply_type?: string | null; url?: string | null };
-    const byId = new Map(((jobs ?? []) as J[]).map((j) => [j.id, j]));
+    type J = { id: string; portal?: string | null; source?: string | null; apply_type?: string | null; url?: string | null; score?: number | null };
+    const scoreRows = ((await sb.from("job_scores").select("job_id, score").in("job_id", apps.map((a) => a.job_id))).data ?? []) as { job_id: string; score: number | null }[];
+    const scoreOfJob = new Map(scoreRows.map((r) => [r.job_id, r.score]));
+    const byId = new Map(((jobs ?? []) as J[]).map((j) => [j.id, { ...j, score: scoreOfJob.get(j.id) ?? null }]));
     // which workers already tried an application and passed it on (a sign-in page, a security check)
     const declined = new Map<string, string[]>();
     const ev = await sb.from("apply_events").select("application_id, detail").eq("kind", "worker_declined").in("application_id", apps.map((a) => a.id));

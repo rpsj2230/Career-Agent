@@ -24,3 +24,11 @@ describe("which applications the assistant takes first", () => {
     expect(orderQueue([{ id: "x", approved_at: null }], () => undefined)).toHaveLength(1);
   });
 });
+
+describe("within a group the best-scoring job goes first", () => {
+  it("orders by score, then by oldest approval", () => {
+    const jobs: Record<string, { portal: string; score: number | null }> = { a: { portal: "linkedin", score: 70 }, b: { portal: "linkedin", score: 95 }, c: { portal: "linkedin", score: 95 }, d: { portal: "linkedin", score: null } };
+    const items = [{ id: "a", approved_at: "2026-10-01" }, { id: "c", approved_at: "2026-10-03" }, { id: "b", approved_at: "2026-10-02" }, { id: "d", approved_at: "2026-09-30" }];
+    expect(orderQueue(items, (i) => jobs[i.id]).map((i) => i.id)).toEqual(["b", "c", "a", "d"]);
+  });
+});
