@@ -46,6 +46,7 @@ import { autoDecision, humanPause, withinHours, type AutoCaps, type AutoState } 
 import { answerPending } from "./ai-answers";
 import { dropShots } from "./shots";
 import { trustedSites } from "./trusted-sites";
+import { naukriOpenApply, parseNaukriState } from "./naukri-lib";
 import { newQuestions } from "./ai-answers-core";
 import { acquireWatcherLock, lockPathFor } from "./assist-lock";
 import { clean, clickSubmit, fillForm, looksLikeSearchForm } from "./form";
@@ -405,6 +406,46 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
       }
       else if (r.kind === "external") { page = r.page; opened = "clicked"; await logAct(sb, { kind: "job.link_resolved", message: `LinkedIn sent the assistant to the company's own page for ${job.title} at ${job.company}`, application_id: app.id, job_id: job.id, company: job.company, portal: job.portal, detail: { how: r.note, assistant: true } }); }
       else opened = "none";
+    } else if (String(job.portal ?? "").toLowerCase() === "naukri") {
+      // Naukri says in its own words when you already applied or the role is closed; its Apply button either applies at once, asks questions, or goes to the employer's site
+      const st = parseNaukriState(await page.innerText("body").catch(() => ""));
+      if (st.applied) {
+        const now = new Date().toISOString();
+        await sb.from("applications").update({ status: "submitted", method: "assisted", lifecycle: "applied", submitted_at: now, error: null, screenshot_path: null }).eq("id", app.id);
+        await sb.from("jobs").update({ status: "applied" }).eq("id", job.id);
+        await dropShots(sb, app.id, ["live", "last"]);
+        await sb.from("apply_events").insert({ application_id: app.id, kind: "marked_submitted", detail: { why: `Naukri's own page says "${st.applied}"` } });
+        noteRecent({ title: job.title, company: job.company, portal: "naukri", outcome: "submitted", note: `Naukri already shows "${st.applied}"` });
+        say(`  Already applied: Naukri shows "${st.applied}".`);
+        await page.close().catch(() => undefined);
+        return "later";
+      }
+      if (st.closed) {
+        await sb.from("jobs").update({ status: "skipped", skip_reason: "Naukri says this role is no longer accepting applications" }).eq("id", job.id);
+        throw new Handback("Naukri says this role is no longer accepting applications");
+      }
+      stepNow(sb, "opening the application on Naukri");
+      const r = await naukriOpenApply(context, page);
+      openNote = r.note;
+      say(`  Naukri: ${r.note}.`);
+      if (r.kind === "login") {
+        const reason = "Naukri asks for a sign-in in the assistant's browser: run  npm run assist:login , sign in to Naukri, close the window";
+        portalOff.set("naukri", { reason, handBack: false });
+        say(`  Left for later: ${reason}.`); leftFor(reason);
+        await page.close().catch(() => undefined);
+        return "later";
+      }
+      if (r.kind === "applied") {
+        if (!auto) { say("  Naukri applied. Recorded as submitted."); }
+        await submitted(auto ? "automated" : "assisted", true, "Naukri's Apply button applied at once; the page said it had applied.");
+        if (auto) auto.state.submittedToday++;
+        say("  Submitted and confirmed by the portal.");
+        await page.close().catch(() => undefined);
+        return "done";
+      }
+      if (r.kind === "questions") { formScope = r.scope; opened = "clicked"; }
+      else if (r.kind === "external") { page = r.page; opened = "clicked"; }
+      else opened = await openApplyForm(page); // Naukri's own button was not found: the generic search for an apply control still runs
     } else opened = await openApplyForm(page);
     const fresh = context.pages().filter((p) => !before.has(p) && p !== page);
     if (fresh.length) page = fresh[fresh.length - 1]; // the apply button opened a new tab
