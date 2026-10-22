@@ -49,3 +49,65 @@ describe("the LinkedIn apply button", () => {
     await page.close();
   });
 });
+
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { EASY_APPLY_SCOPE, formIsOpen, linkedinOpenApply } from "../worker/assist-lib";
+import { fillForm } from "../worker/form";
+
+const live = it.skipIf(!process.env.CHROMIUM_PATH && !process.env.PLAYWRIGHT_BROWSERS_PATH);
+describe("opening a LinkedIn application", () => {
+  live("does not mistake the site's own search boxes for an application form", async () => {
+    if (!browser) return;
+    const page = await browser.newPage();
+    await page.goto(fixture("linkedin-popup"));
+    expect(await formIsOpen(page)).toBe(false);
+    await page.close();
+  });
+  live("opens the company's page in a new tab from 'Apply on company website'", async () => {
+    if (!browser) return;
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto(fixture("linkedin-popup"));
+    const r = await linkedinOpenApply(context, page);
+    expect(r.kind).toBe("external");
+    expect(r.page.url()).toMatch(/employer\.html$/);
+    expect(r.note).toMatch(/new tab/);
+    await context.close();
+  });
+  live("continues past the safety reminder when its button is a link", async () => {
+    if (!browser) return;
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto(fixture("linkedin-safety-link"));
+    const r = await linkedinOpenApply(context, page);
+    expect(r.kind).toBe("external");
+    expect(r.page.url()).toMatch(/employer\.html$/);
+    await context.close();
+  });
+  live("opens Easy Apply and fills only what is inside its window, never the search boxes", async () => {
+    if (!browser) return;
+    const dir = mkdtempSync(join(tmpdir(), "li-"));
+    const resumePath = join(dir, "resume.docx"); writeFileSync(resumePath, "x");
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto(fixture("linkedin-easy-modal"));
+    const r = await linkedinOpenApply(context, page);
+    expect(r.kind).toBe("easy");
+    const result = await fillForm(page, { applicant: { name: "Asha Rao", email: "a@x.com", phone: "+65 9000 0000", location: "Singapore", links: [] }, answers: [], resumePath }, EASY_APPLY_SCOPE);
+    expect(result.filled.length).toBe(2);
+    expect(await page.inputValue('input[name="email"]')).toBe("a@x.com");
+    expect(await page.inputValue('[aria-label="Search by title, skill, or company"]')).toBe("");
+    await context.close();
+  });
+  live("says what happened when the click opens nothing", async () => {
+    if (!browser) return;
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.setContent('<button aria-label="Apply on company website">Apply</button>');
+    const r = await linkedinOpenApply(context, page);
+    expect(r.kind).toBe("none");
+    expect(r.note).toMatch(/no new page opened/);
+    await context.close();
+  }, 30_000);
+});

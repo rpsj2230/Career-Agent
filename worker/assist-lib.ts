@@ -1,4 +1,4 @@
-import type { Page } from "playwright";
+import type { BrowserContext, Page } from "playwright";
 
 /**
  * Page helpers for the local assist runner (worker/assist.ts). They move through an application form on the way to the
@@ -16,7 +16,8 @@ export const SENDS_APPLICATION = /^\s*(submit( application)?|send application|ap
 const FIELD = 'input:not([type=hidden]):not([type=search]):not([type=submit]):not([type=button]), textarea, select';
 
 export async function formIsOpen(page: Page): Promise<boolean> {
-  const n = await page.locator(FIELD).evaluateAll((els) => els.filter((e) => (e as HTMLElement).offsetParent !== null).length).catch(() => 0);
+  // the site's own search boxes (a header or navigation bar) are not an application form
+  const n = await page.locator(FIELD).evaluateAll((els) => els.filter((e) => (e as HTMLElement).offsetParent !== null && !e.closest("header, nav, [role=search], form[role=search], #global-nav, .global-nav, .search-global-typeahead")).length).catch(() => 0);
   return n >= 2;
 }
 
@@ -96,11 +97,57 @@ export async function waitForLinkedinApply(page: Page, timeoutMs = 9000): Promis
   await page.locator('button[aria-label*="pply" i], a[aria-label*="pply" i], .jobs-apply-button, button:has-text("Apply"), a:has-text("Apply")').first().waitFor({ state: "visible", timeout: timeoutMs }).catch(() => undefined);
 }
 
-/** LinkedIn asks "Job search safety reminders" before it sends you to a company's site: continue past it. Returns true when it was there. */
+/** LinkedIn asks "Job search safety reminders" before it sends you to a company's site: continue past it (its button is a button or a link). Returns true when it was there. */
 export async function passSafetyReminder(page: Page): Promise<boolean> {
-  const btn = page.getByRole("button", { name: /^\s*continue applying\s*$/i }).first();
+  const name = /^\s*continue applying\s*$/i;
+  const btn = page.getByRole("button", { name }).or(page.getByRole("link", { name })).first();
   if (await btn.isVisible({ timeout: 2500 }).catch(() => false)) { await btn.click({ timeout: 4000 }).catch(() => undefined); return true; }
   return false;
+}
+
+/** The Easy Apply window on a LinkedIn job page. Fields are read from inside it only. */
+export const EASY_APPLY_SCOPE = '[role="dialog"], .jobs-easy-apply-modal, [data-test-modal]';
+
+export type LinkedinOpen = { kind: "easy" | "external" | "none"; page: Page; note: string };
+const clickHard = async (el: ReturnType<Page["locator"]>) => {
+  try { await el.click({ timeout: 5000 }); return; } catch { /* covered or animating */ }
+  try { await el.click({ timeout: 3000, force: true }); return; } catch { /* last resort */ }
+  await el.evaluate((n) => (n as HTMLElement).click()).catch(() => undefined);
+};
+/** Words of whatever dialog is open on the page, for the hand-back message (a heading and short button names, never page text beyond that). */
+async function dialogWords(page: Page): Promise<string> {
+  const d = page.locator('[role="dialog"]').first();
+  if (!(await d.isVisible().catch(() => false))) return "no dialog open";
+  const heading = ((await d.locator("h1, h2, h3").first().innerText().catch(() => "")) || "").replace(/\s+/g, " ").trim().slice(0, 60);
+  const names = await d.locator("button, a").evaluateAll((els) => els.map((e) => ((e.getAttribute("aria-label") || (e as HTMLElement).innerText || "").replace(/\s+/g, " ").trim())).filter((t) => t && t.length <= 40)).catch(() => [] as string[]);
+  return `dialog "${heading}" with ${[...new Set(names)].slice(0, 5).join(" | ") || "no buttons"}`;
+}
+
+/**
+ * Open a LinkedIn application on its own terms, and say what happened. Easy Apply opens a window on the page; "Apply on company website"
+ * opens the company's page in a new tab, sometimes after a "safety reminders" window. Never presses the button that sends an application.
+ */
+export async function linkedinOpenApply(context: BrowserContext, page: Page): Promise<LinkedinOpen> {
+  const easy = page.getByRole("button", { name: /easy apply/i }).or(page.getByRole("link", { name: /easy apply/i })).first();
+  const external = page.getByRole("button", { name: /apply on company website|apply externally|apply on (the )?employer|^\s*apply\s*$/i }).or(page.getByRole("link", { name: /apply on company website|apply externally|apply on (the )?employer|^\s*apply\s*$/i })).first();
+  if (await easy.isVisible().catch(() => false)) {
+    await clickHard(easy);
+    await page.locator(EASY_APPLY_SCOPE).first().waitFor({ state: "visible", timeout: 8000 }).catch(() => undefined);
+    const open = await page.locator(EASY_APPLY_SCOPE).first().isVisible().catch(() => false);
+    return open ? { kind: "easy", page, note: "opened Easy Apply" } : { kind: "none", page, note: `clicked Easy Apply but no window opened (${await dialogWords(page)})` };
+  }
+  if (await external.isVisible().catch(() => false)) {
+    const label = ((await external.getAttribute("aria-label").catch(() => "")) || (await external.innerText().catch(() => "")) || "Apply").replace(/\s+/g, " ").trim().slice(0, 40);
+    const popup = context.waitForEvent("page", { timeout: 12_000 }).catch(() => null);
+    const before = page.url();
+    await clickHard(external);
+    await passSafetyReminder(page);
+    const opened = await popup;
+    if (opened) { await opened.waitForLoadState("domcontentloaded").catch(() => undefined); return { kind: "external", page: opened, note: `clicked "${label}", the company page opened in a new tab` }; }
+    if (page.url() !== before && !/linkedin\.com/i.test(page.url())) return { kind: "external", page, note: `clicked "${label}", the page moved to the company site` };
+    return { kind: "none", page, note: `clicked "${label}" but no new page opened (${await dialogWords(page)})` };
+  }
+  return { kind: "none", page, note: "no Easy Apply or company-website button was visible" };
 }
 
 export type LinkedinState = { applied: string | null; closed: boolean };

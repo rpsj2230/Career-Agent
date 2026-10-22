@@ -17,8 +17,12 @@ type Field = {
 };
 
 /** Scan the page (or Easy Apply modal) for fillable controls, tagging each with data-ca-i. Radios are grouped by name. */
-async function scan(page: Page): Promise<Field[]> {
-  return page.evaluate(() => {
+async function scan(page: Page, scope?: string): Promise<Field[]> {
+  return page.evaluate((scopeSel) => {
+    // with a scope (LinkedIn's Easy Apply window) only the controls inside it count: the page's own search boxes are not part of the application
+    const rootEl = scopeSel ? document.querySelector(scopeSel) : null;
+    if (scopeSel && !rootEl) return [] as Field[];
+    const root: ParentNode = rootEl ?? document;
     // multi-step forms are scanned once per step: tags from the previous step must go, or two controls share an index
     document.querySelectorAll("[data-ca-i]").forEach((e) => e.removeAttribute("data-ca-i"));
     const visible = (el: Element) => {
@@ -45,7 +49,7 @@ async function scan(page: Page): Promise<Field[]> {
       const prev = el.closest("div")?.parentElement?.querySelector("label,legend,p,span");
       return text(prev ?? null);
     };
-    const els = [...document.querySelectorAll<HTMLInputElement>("input, textarea, select")].filter((e) => {
+    const els = [...root.querySelectorAll<HTMLInputElement>("input, textarea, select")].filter((e) => {
       const t = (e.type || "").toLowerCase();
       return !["hidden", "submit", "button", "image", "reset"].includes(t) && !e.disabled && visible(e);
     });
@@ -73,7 +77,7 @@ async function scan(page: Page): Promise<Field[]> {
       out.push({ idx: n, tag: el.tagName.toLowerCase(), type, label: labelOf(el), name: el.name, required: req, options, hasValue: type === "checkbox" ? el.checked : !!el.value });
     });
     return out;
-  });
+  }, scope);
 }
 
 /** Tick a box. Many sites hide the real checkbox behind a styled one, so a plain check() times out: then force it, and as a last resort click it in the page. */
@@ -102,8 +106,8 @@ function pickOption(options: { text: string }[], answer: string): number {
  * (including consent/terms checkboxes, which you must tick yourself) is reported in `unanswered`, and the
  * caller must NOT submit.
  */
-export async function fillForm(page: Page, ctx: FillContext): Promise<FillResult> {
-  const fields = await scan(page);
+export async function fillForm(page: Page, ctx: FillContext, scope?: string): Promise<FillResult> {
+  const fields = await scan(page, scope);
   const filled: string[] = [];
   const unanswered: string[] = [];
   const entries: FieldEntry[] = [];
