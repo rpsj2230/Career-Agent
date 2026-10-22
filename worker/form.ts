@@ -110,10 +110,13 @@ async function scan(page: Page, scope?: string): Promise<Field[]> {
         g.hasValue ||= el.checked;
         return;
       }
-      const options = type === "select"
-        ? [...(el as unknown as HTMLSelectElement).options].map((o, k) => ({ text: o.text.trim(), value: o.value, idx: k })).filter((o) => o.value !== "")
-        : [];
-      out.push({ idx: n, tag: el.tagName.toLowerCase(), type, label: labelOf(el), name: el.name, required: req, options, hasValue: type === "checkbox" ? el.checked : !!el.value });
+      // a dropdown's first entry is often a prompt ("Select an option") with a value of its own: it is not an answer, and not a choice
+      const prompt = (o: { text: string; value: string }) => o.value === "" || /^\s*(please\s+)?(select|choose)\b[^a-z0-9]*(an?\s+)?(option|one|\.\.\.)?[^a-z0-9]*$|^\s*[-–—]+\s*(select|choose)?[^a-z0-9]*$/i.test(o.text);
+      const all = type === "select" ? [...(el as unknown as HTMLSelectElement).options].map((o, k) => ({ text: o.text.trim(), value: o.value, idx: k })) : [];
+      const options = all.filter((o) => !prompt(o));
+      const chosen = type === "select" ? (el as unknown as HTMLSelectElement).selectedOptions[0] : null;
+      const hasValue = type === "checkbox" ? el.checked : type === "select" ? !!chosen && !prompt({ text: chosen.text.trim(), value: chosen.value }) : !!el.value;
+      out.push({ idx: n, tag: el.tagName.toLowerCase(), type, label: labelOf(el), name: el.name, required: req, options, hasValue });
     });
     return out;
   }, scope);

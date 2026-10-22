@@ -88,6 +88,44 @@ export async function refusedFields(page: Page, scope?: string): Promise<string[
   }, scope);
 }
 
+/** What the Easy Apply window is showing, as one string: its headings, labels, buttons and messages. It changes when the form moves on, or shows an error. */
+export async function fingerprint(page: Page, scope: string): Promise<string> {
+  return page.evaluate((sel) => {
+    const shown = (e: Element) => { const r = (e as HTMLElement).getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(e as HTMLElement).visibility !== "hidden"; };
+    const root = [...document.querySelectorAll(sel)].find(shown);
+    if (!root) return "";
+    return [...root.querySelectorAll("h1,h2,h3,legend,label,button,[role=alert],[class*=error i],[class*=feedback i]")].filter(shown).map((e) => (e.textContent ?? "").replace(/\s+/g, " ").trim()).join("|").slice(0, 1200);
+  }, scope).catch(() => "");
+}
+
+/**
+ * Why a form will not go on, in the page's own words: its visible error messages, each with the question it belongs to, and the required
+ * boxes that are still empty. Names of questions and messages only: never a value that was typed.
+ */
+export async function stallProblems(page: Page, scope: string): Promise<string[]> {
+  return page.evaluate((sel) => {
+    const shown = (e: Element) => { const r = (e as HTMLElement).getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(e as HTMLElement).visibility !== "hidden"; };
+    const root = [...document.querySelectorAll(sel)].find(shown);
+    if (!root) return [] as string[];
+    const text = (e: Element | null) => (e?.textContent ?? "").replace(/\s+/g, " ").trim();
+    const labelNear = (e: Element) => { let up: Element | null = e; for (let i = 0; i < 5 && up; i++) { const l = up.querySelector("label, legend"); if (l && text(l)) return text(l).slice(0, 90); up = up.parentElement; } return ""; };
+    const out: string[] = [];
+    for (const e of root.querySelectorAll("[role=alert], [class*=error i], [class*=feedback i], [id*=error i]")) {
+      const t = text(e);
+      if (!shown(e) || !t || t.length > 140 || !/(required|invalid|valid|enter|select|choose|must|please|error|wrong|at least|too)/i.test(t)) continue;
+      const lab = labelNear(e);
+      const line = lab && !t.includes(lab) ? `${lab}: ${t}` : t;
+      if (!out.includes(line)) out.push(line);
+    }
+    for (const c of root.querySelectorAll<HTMLInputElement>("input, select, textarea")) {
+      if (!shown(c) || !(c.required || c.getAttribute("aria-required") === "true")) continue;
+      const empty = c.type === "checkbox" || c.type === "radio" ? false : c.tagName === "SELECT" ? !c.value || /^\s*(select|choose)/i.test((c as unknown as HTMLSelectElement).selectedOptions[0]?.text ?? "") : !c.value;
+      if (empty) { const l = (c.getAttribute("aria-label") || labelNear(c) || c.name || "a required field").slice(0, 90); const line = `${l} (empty)`; if (!out.includes(line)) out.push(line); }
+    }
+    return out.slice(0, 5);
+  }, scope).catch(() => [] as string[]);
+}
+
 /** True when the page offers the control that sends the application (so you can review and press it yourself). */
 export async function finalStepVisible(page: Page, scope?: string): Promise<boolean> {
   const byRole = (scope ? page.locator(`${scope} >> visible=true`).first().getByRole("button", { name: SENDS_APPLICATION }) : page.getByRole("button", { name: SENDS_APPLICATION })).first();

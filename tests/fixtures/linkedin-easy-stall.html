@@ -1,0 +1,14 @@
+<html><head><title>Manager | Deloitte | LinkedIn</title></head><body>
+<header id="global-nav"><a href="/mynetwork/">My Network</a></header>
+<main><button aria-label="Easy Apply to this job" onclick="document.getElementById('d').showModal()">Easy Apply</button></main>
+<dialog id="d"><h2>Apply to Deloitte</h2><h3>Additional Questions</h3>
+  <div><label for="ok">Are you comfortable with occasional travel?*</label>
+  <select id="ok" required><option value="Select an option">Select an option</option><option>Yes</option><option>No</option></select>
+  <div id="msg" hidden role="alert">Please enter a valid answer</div></div>
+  <button type="button">Back</button><button type="button" onclick="check()">Review</button>
+  <div id="review" hidden><h3>Review your application</h3><button type="button" onclick="window.sent = true">Submit application</button></div>
+</dialog>
+<script>
+  window.sent = false;
+  function check() { const s = document.getElementById('ok'); const ok = s.value === 'Yes' || s.value === 'No'; document.getElementById('msg').hidden = ok; if (ok) document.getElementById('review').hidden = false; }
+</script></body></html>
