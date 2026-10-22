@@ -39,7 +39,7 @@ import { resolveCredentials } from "../src/lib/integrations/credentials";
 import { summariseAttempts, type RouteAttempt } from "../src/lib/apply/route-chain";
 import { contactEmailsFor } from "../src/lib/apply/contact-email";
 import { loadDraft } from "../src/lib/apply/email-store";
-import { accountGatedVendor, applyButtonsSeen, EASY_APPLY_SCOPE, finalStepVisible, leaveJobBoard, linkedinOpenApply, nextStep, openApplyForm, parseLinkedinState, refusedFields, uploadEasyApplyResume, waitForLinkedinApply } from "./assist-lib";
+import { accountGatedVendor, applyButtonsSeen, buttonsShown, linkedinSessionAlive, linkedinSignedOutView, EASY_APPLY_SCOPE, finalStepVisible, leaveJobBoard, linkedinOpenApply, nextStep, openApplyForm, parseLinkedinState, refusedFields, uploadEasyApplyResume, waitForLinkedinApply } from "./assist-lib";
 import { requestPending, type AssistantRequest } from "../src/lib/apply/assistant-request";
 import { autoDecision, humanPause, withinHours, type AutoCaps, type AutoState } from "./assist-policy";
 import { answerPending } from "./ai-answers";
@@ -194,13 +194,6 @@ async function blocked(page: Page) {
 
 /** "adzuna" for any adzuna.* address: the key a refused job board is remembered by. */
 const boardKey = (url: string): string => { try { const h = new URL(url).hostname.replace(/^www\./, "").split("."); return `board:${h.length > 2 && h[h.length - 2].length <= 3 ? h[h.length - 3] : h[h.length - 2] ?? ""}`; } catch { return ""; } };
-
-/** LinkedIn's signed-out view: a sign-in link and no signed-in navigation bar. */
-async function linkedinSignedOutView(page: Page): Promise<boolean> {
-  const signInLink = (await page.locator('a[href*="/login"], a[href*="/signup"], button:has-text("Sign in")').count().catch(() => 0)) > 0;
-  const navBar = (await page.locator('#global-nav, nav.global-nav, .global-nav').count().catch(() => 0)) > 0;
-  return signInLink && !navBar;
-}
 
 type Outcome = "done" | "later" | "skipped" | "quit" | "stop";
 class Handback extends Error {
@@ -450,7 +443,7 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
     if (unanswered.length) problem = `Needs you: ${unanswered.join("; ")}`;
     else if (!formScope && (await looksLikeSearchForm(page))) problem = "The link opens a job board's listing or search page, not an application form; apply on the employer's own site";
     else if (entered.length === 0) {
-      if (String(job.portal ?? "").toLowerCase() === "linkedin" && (await linkedinSignedOutView(page))) {
+      if (String(job.portal ?? "").toLowerCase() === "linkedin" && (await linkedinSignedOutView(page)) && (await linkedinSessionAlive(context)) !== true) {
         const reason = "LinkedIn shows its signed-out page in the assistant's browser (its saved sign-in is missing or has expired): run  npm run assist:login , sign in to LinkedIn, close the window";
         portalOff.set("linkedin", { reason, handBack: false });
         say(`  Left for later: ${reason}.`); leftFor(reason);
@@ -470,7 +463,11 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
         }
       } else problem = "No application form was found on this page (it may need a sign-in, or the role may be closed); apply on the employer's site";
     }
-    else if (!(await finalStepVisible(page, formScope))) problem = "Could not reach the final step of the form";
+    else if (!(await finalStepVisible(page, formScope))) {
+      let host = ""; try { host = new URL(page.url()).hostname.replace(/^www\./, ""); } catch { /* keep blank */ }
+      const seen = await buttonsShown(page, formScope);
+      problem = `Could not reach the final step of the form (stopped on ${host || "the page"} after ${steps} page${steps === 1 ? "" : "s"}, ${entered.length} field${entered.length === 1 ? "" : "s"} filled; buttons on the page: ${seen.length ? seen.join(" | ") : "none"})`;
+    }
     if (problem) { await handBack(problem); await page.close().catch(() => undefined); return "later"; }
     stepNow(sb, "pressing Submit");
     const baseline = CONFIRMATION.test(await page.innerText("body").catch(() => ""));

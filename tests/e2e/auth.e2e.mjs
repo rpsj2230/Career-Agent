@@ -654,6 +654,8 @@ if (process.env.PLAYWRIGHT_BROWSERS_PATH || process.env.CHROMIUM_PATH) {
 
   // ---- learning from hand-backs: answer a blocking question once, and the waiting application returns to the queue with it
   r = await call("/profile"); check("the profile page lists the questions that stopped applications", r.text.includes("Questions the agent could not answer") && r.text.includes("favourite sorting algorithm"), "section missing");
+  r = await call("/applications"); check("the Applications page shows the question with a box to answer it", r.text.includes("Questions waiting for your answer") && r.text.includes("favourite sorting algorithm") && r.text.includes("Save and send again"), "card missing");
+  r = await call(`/applications/${stuck.appId}`); check("the application's own page has the answer box", r.text.includes("Answer here, then it goes back to the assistant") && r.text.includes("favourite sorting algorithm"), "box missing");
   r = await call("/api/answers/learn", { method: "POST", body: { question: "Name your favourite sorting algorithm", answer: "Merge sort", appIds: [stuck.appId] } });
   check("answering it saves the answer and re-queues the application", r.status === 200 && r.json?.requeued === 1, `${r.status} ${r.text}`);
   const stuckRow = mock.rowsOf("applications").find((a) => a.id === stuck.appId);

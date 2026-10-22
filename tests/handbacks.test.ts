@@ -55,3 +55,12 @@ describe("where an answered hand-back goes", () => {
     expect(requeueStatus({ approved_at: "2026-10-22T01:00:00Z" }, { assistant: false })).toBe("prepared");
   });
 });
+
+import { questionsInReason } from "../src/lib/apply/handbacks";
+describe("questions read from a hand-back's own text", () => {
+  it("reads the list after 'Needs you:' and nothing else", () => {
+    expect(questionsInReason("Needs you: How many years of work experience do you have with Machine Tools?; Notice period")).toEqual(["How many years of work experience do you have with Machine Tools?", "Notice period"]);
+    expect(questionsInReason("Could not reach the final step of the form (stopped on tiktok.com)")).toEqual([]);
+    expect(questionsInReason(null)).toEqual([]);
+  });
+});

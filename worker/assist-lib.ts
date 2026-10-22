@@ -229,6 +229,37 @@ export async function applyButtonsSeen(page: Page): Promise<string[]> {
 }
 
 
+/** LinkedIn's signed-out view: a sign-in link and nothing that only a member's page has. */
+export async function linkedinSignedOutView(page: Page): Promise<boolean> {
+  const signInLink = (await page.locator('a[href*="/login"], a[href*="/signup"], button:has-text("Sign in")').count().catch(() => 0)) > 0;
+  // LinkedIn's class names change, but a member's page always links to the member-only areas
+  const memberLinks = (await page.locator('a[href*="/mynetwork"], a[href*="/messaging"], a[href*="/notifications"], #global-nav, nav.global-nav, .global-nav').count().catch(() => 0)) > 0;
+  return signInLink && !memberLinks;
+}
+
+/** What the page offers, as short labels: the buttons a person could press. Used to say where a form stalled. */
+export async function buttonsShown(page: Page, scope?: string): Promise<string[]> {
+  const root = scope ? page.locator(`${scope} >> visible=true`).first() : page.locator("body");
+  const names = await root.locator("button, [role=button], input[type=submit]").evaluateAll((els) => els
+    .filter((e) => (e as HTMLElement).offsetParent !== null)
+    .map((e) => ((e.getAttribute("aria-label") || (e as HTMLInputElement).value || (e as HTMLElement).innerText || "").replace(/\s+/g, " ").trim()))
+    .filter((t) => t.length > 0 && t.length <= 40)).catch(() => [] as string[]);
+  return [...new Set(names)].slice(0, 8);
+}
+
+/**
+ * Is the browser's LinkedIn sign-in still accepted? A signed-out visitor sent to the home feed lands on a sign-in or join page; a member stays on the feed.
+ * Opens its own tab and closes it. Returns null when it could not tell (no network, slow page): the caller then does not pause LinkedIn.
+ */
+export async function linkedinSessionAlive(context: BrowserContext): Promise<boolean | null> {
+  const page = await context.newPage();
+  try {
+    await page.goto("https://www.linkedin.com/feed/", { waitUntil: "domcontentloaded", timeout: 20_000 });
+    await page.waitForTimeout(1500);
+    return !/linkedin\.com\/(login|authwall|uas\/|signup|checkpoint)/i.test(page.url());
+  } catch { return null; } finally { await page.close().catch(() => undefined); }
+}
+
 /** Employer systems that make you create or sign in to an account for each company: the assistant does not create accounts, so these are handed back with that reason. */
 export function accountGatedVendor(host: string): string | null {
   const h = host.toLowerCase();
