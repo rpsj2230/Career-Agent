@@ -18,6 +18,8 @@ export function spreadOrder<T extends { label: string }>(ordered: T[], o: { tier
 
 /** A failing model is tried last for a few minutes: longer when the provider refused the key or the quota is used up. */
 export function parkMillis(error: string): number {
+  // a model the account cannot use (retired, or no access) will not work again today: stop trying it for hours
+  if (/does not exist or you do not have access|model_not_found|model not found|decommission|no longer (supported|available)|deprecated/i.test(error)) return 6 * 3_600_000;
   if (/\b(401|403)\b|unauthor|forbidden|invalid.*key|api key/i.test(error)) return 15 * 60_000;
   if (/\b429\b|rate.?limit|quota|exhaust|too many|resource.?exhausted/i.test(error)) return 5 * 60_000;
   return 60_000;

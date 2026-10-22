@@ -44,6 +44,7 @@ import { accountGatedVendor, applyButtonsSeen, onJobPage, guardDownloads, button
 import { requestPending, type AssistantRequest } from "../src/lib/apply/assistant-request";
 import { autoDecision, humanPause, withinHours, type AutoCaps, type AutoState } from "./assist-policy";
 import { answerPending } from "./ai-answers";
+import { newQuestions } from "./ai-answers-core";
 import { acquireWatcherLock, lockPathFor } from "./assist-lock";
 import { clean, clickSubmit, fillForm, looksLikeSearchForm } from "./form";
 import { orderQueue } from "../src/lib/apply/queue-order";
@@ -415,6 +416,7 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
     if (opened === "none" && !auto) say("  No apply button found on this page. The form may be on the employer's site: use the open window.");
 
     let resumeSent = false;
+    const askedModel = new Set<string>();
     for (let step = 0; step < 8; step++) {
       stepNow(sb, `filling the form (page ${step + 1})`);
       if (downloadBlocked) throw new Handback(`The page tried to download a file ("${downloadBlocked}"). The assistant never downloads or installs anything: it stopped without touching the file. Check the page before going further`);
@@ -437,9 +439,10 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
         let host = ""; try { host = new URL(page.url()).hostname.replace(/^www\./, ""); } catch { /* keep blank */ }
         throw new Handback(sensitiveReason(r.blocked[0].kind, host));
       }
-      if (r.pending.length) {
+      const toAsk = newQuestions(r.pending, askedModel);
+      if (toAsk.length) {
         // questions the rules and the answer bank could not answer are answered from the profile by a model, never by guessing
-        const extra = await answerPending({ profile, bank: fctx.answers, job: { title: job.title, company: job.company, description: job.description }, pending: r.pending, jobId: job.id });
+        const extra = await answerPending({ profile, bank: fctx.answers, job: { title: job.title, company: job.company, description: job.description }, pending: toAsk, jobId: job.id });
         if (extra.length) {
           fctx.answers = [...fctx.answers, ...extra];
           const ai = new Set(extra.map((e) => e.question));

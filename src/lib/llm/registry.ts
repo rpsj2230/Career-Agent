@@ -6,7 +6,7 @@ import { getSetting } from "@/lib/settings";
 import type { Task } from "@/lib/types";
 import { DEFAULT_MODELS } from "./defaults";
 import { callStructured } from "./call";
-import { runWithFallback, selectCandidates, timeoutFor, withLocalFallback, type ModelRow } from "./fallback";
+import { AllModelsFailed, runWithFallback, selectCandidates, timeoutFor, withLocalFallback, type ModelRow } from "./fallback";
 import { baseEnv, envLabel, MAX_KEYS, resolveKeyPool, resolveKeys, slotEnv } from "./keys";
 import { defaultPrefer, orderForTier, tierOf, type Tier } from "./tiers";
 import { expandByKeys, nextTick, parking, spreadOrder } from "./spread";
@@ -67,6 +67,8 @@ export async function runStructured<S extends z.ZodType>(opts: {
   prefer?: Tier;
   /** total time allowed across all attempts (for a web request that the host cuts off); each attempt gets what is left */
   budgetMs?: number;
+  /** try only models that are not cooling down after a failure (an unattended caller that must not wait on dead models) */
+  skipParked?: boolean;
 }): Promise<{ output: z.infer<S>; model: string; tier: Tier }> {
   const loaded = await loadCandidates(opts.task);
   const routing = (await getSetting("scoring").catch(() => null))?.routing !== false;
@@ -74,7 +76,11 @@ export async function runStructured<S extends z.ZodType>(opts: {
   // calls running at the same time start on different models, and a model that just failed goes to the back for a while
   // one entry per model and key: five keys on a provider means five entries for each of its models
   const expanded: KeyedModel[] = expandByKeys(ordered, (l) => loaded.pool.get(l));
-  const candidates = spreadOrder(expanded, { tierOf: (m) => tierOf({ label: m.realLabel, model: m.model }), tick: nextTick(), parked: parking.isParked });
+  const ordered2 = spreadOrder(expanded, { tierOf: (m) => tierOf({ label: m.realLabel, model: m.model }), tick: nextTick(), parked: parking.isParked });
+  const candidates = opts.skipParked ? ordered2.filter((m) => !parking.isParked(m.label)) : ordered2;
+  if (opts.skipParked && candidates.length === 0 && ordered2.length > 0) {
+    throw new AllModelsFailed(opts.task, [{ label: "all models", error: "every model is cooling down after recent failures (rate limit, no access or an error); tried again in a few minutes" }]);
+  }
   const { value, used } = await runWithFallback(
     opts.task,
     candidates,

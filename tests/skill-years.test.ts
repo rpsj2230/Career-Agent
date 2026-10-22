@@ -68,3 +68,33 @@ describe("labels that arrive twice", () => {
     expect(clean("Email address*")).toBe("Email address");
   });
 });
+
+import { newQuestions } from "../worker/ai-answers-core";
+import { describeError } from "../src/lib/llm/fallback";
+import { parkMillis } from "../src/lib/llm/spread";
+describe("a long years question, and failing models", () => {
+  it("reads the field in a long 'years in designing and delivering ...' question, so the default rule answers it", () => {
+    const q = "How many years of experience do you have in designing and delivering training, workshops, and change management initiatives?";
+    expect(yearsSkill(q)).toBe("designing and delivering training workshops and change management initiatives");
+  });
+  it("puts a question to a model once per application, not on every page", () => {
+    const asked = new Set<string>();
+    const a = { label: "Why this role?", type: "textarea" as const, options: [], required: true };
+    const b = { label: "Notice period", type: "text" as const, options: [], required: true };
+    expect(newQuestions([a], asked)).toEqual([a]);
+    expect(newQuestions([a, b], asked)).toEqual([b]);
+    expect(newQuestions([a, b], asked)).toEqual([]);
+  });
+  it("says what failed when a provider gives an empty message", () => {
+    expect(describeError(new Error("Rate limit reached"))).toBe("Rate limit reached");
+    const e = Object.assign(new Error(""), { name: "APICallError", statusCode: 401, responseBody: '{"error":"invalid api key"}' });
+    expect(describeError(e)).toMatch(/APICallError HTTP 401/);
+    expect(describeError(e)).toMatch(/invalid api key/);
+    expect(describeError(new Error(""))).toMatch(/no message/);
+  });
+  it("parks a model the account cannot use for hours, and a rate-limited one for minutes", () => {
+    expect(parkMillis("The model `llama-3.3-70b-versatile` does not exist or you do not have access to it.")).toBe(6 * 3_600_000);
+    expect(parkMillis("Rate limit reached for model on tokens per day")).toBe(5 * 60_000);
+    expect(parkMillis("No object generated: response did not match schema")).toBe(60_000);
+  });
+});

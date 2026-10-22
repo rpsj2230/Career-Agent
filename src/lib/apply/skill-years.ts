@@ -15,15 +15,15 @@ export function yearsSkill(label: string): string | null {
   const l = label.replace(/[*✱?]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
   if (!/\byears?\b/.test(l) && !/\bexperience\b/.test(l)) return null;
   const m =
-    l.match(/(?:years?|yrs?)\b.{0,40}?\b(?:experience|exp|expertise|work(?:ed|ing)?|hands[- ]on)\b.{0,30}?\b(?:with|in|using|on|of|as)\s+(.{2,60})$/) ??
-    l.match(/\bexperience\b.{0,30}?\b(?:with|in|using|on)\s+(.{2,60}?)\s*\(?(?:in )?(?:number of )?years?\)?$/) ??
-    l.match(/^(.{2,60}?)\s+(?:experience|expertise)\s*\(?(?:in )?years?\)?$/) ??
-    l.match(/(?:years?|yrs?)\s+(?:with|in|using|of)\s+(.{2,60})$/);
+    l.match(/(?:years?|yrs?)\b.{0,40}?\b(?:experience|exp|expertise|work(?:ed|ing)?|hands[- ]on)\b.{0,30}?\b(?:with|in|using|on|of|as)\s+(.{2,120})$/) ??
+    l.match(/\bexperience\b.{0,30}?\b(?:with|in|using|on)\s+(.{2,120}?)\s*\(?(?:in )?(?:number of )?years?\)?$/) ??
+    l.match(/^(.{2,120}?)\s+(?:experience|expertise)\s*\(?(?:in )?years?\)?$/) ??
+    l.match(/(?:years?|yrs?)\s+(?:with|in|using|of)\s+(.{2,120})$/);
   if (!m) return null;
   let s = m[1].replace(/\b(do|did|have|you|your|please|required|total|professional|relevant|overall)\b/g, " ").replace(/[^a-z0-9+#. ]/g, " ").replace(/\s+/g, " ").trim();
   s = s.replace(FILLER, "").replace(/^microsoft\s+/, "").replace(/\s+(experience|skills?|platform|technology|tools?)$/, "").trim();
   s = ALIASES[s] ?? s;
-  return s.length >= 2 && s.length <= 50 ? s : null;
+  return s.length >= 2 && s.length <= 100 ? s : null;
 }
 
 const yearOf = (s: string | undefined, nowYear: number): number | null => {
