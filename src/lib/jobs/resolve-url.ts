@@ -3,12 +3,8 @@ import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { detectApplyType, type ApplyType } from "./normalize";
 
-/** Hosts whose links are tracking redirects to the real posting, not the posting itself. */
-const REDIRECTORS = [/(^|\.)adzuna\.[a-z.]+$/i, /(^|\.)jooble\.org$/i, /(^|\.)careerjet\.[a-z.]+$/i, /(^|\.)jobrapido\.com$/i];
-
-export const isRedirector = (url: string): boolean => {
-  try { const h = new URL(url).hostname; return REDIRECTORS.some((r) => r.test(h)); } catch { return false; }
-};
+export { isRedirector } from "./redirectors";
+import { isRedirector } from "./redirectors";
 
 /** True for addresses that must never be fetched from a server: loopback, private, link-local (cloud metadata), unspecified. */
 export function isPrivateAddress(ip: string): boolean {

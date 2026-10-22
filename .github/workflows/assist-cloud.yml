@@ -36,7 +36,10 @@ jobs:
           ASSIST_HEADLESS: "1"
           ASSIST_NO_HEARTBEAT: "1"
           ASSIST_WORKER: github
-          ASSIST_LIMIT: "25"
+          # employer sites have no account to protect: a short pause between applications, so a run gets through many more
+          ASSIST_AUTO_PAUSE_MS: "4000"
+          ASSIST_LIMIT: "60"
+          ASSIST_MAX_MINUTES: "45"
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
