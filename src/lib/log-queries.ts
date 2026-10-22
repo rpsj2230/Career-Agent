@@ -87,9 +87,9 @@ export async function applyLogs(o: { from?: string; to?: string; tz?: string; ru
   const res = await fetchAll((a, b) => {
     let q = db().from("activity_log").select("kind,portal,country,status,detail").in("kind", ["application.submitted", "application.approved", "application.needs_input", "application.manual", "application.failed"]);
     if (o.run) q = q.eq("run_id", o.run);
-    if (from) q = q.gte("created_at", from.from);
-    if (to) q = q.lte("created_at", to.to);
-    return q.order("created_at", { ascending: false }).order("id").range(a, b);
+    if (from) q = q.gte("at", from.from);
+    if (to) q = q.lte("at", to.to);
+    return q.order("at", { ascending: false }).order("id").range(a, b);
   }, 20_000);
   return res.error ? [] : (res.data as { kind: string; portal: string | null; country: string | null; status: string | null; detail: Record<string, unknown> | null }[]);
 }
