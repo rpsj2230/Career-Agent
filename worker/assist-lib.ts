@@ -40,16 +40,16 @@ export async function openApplyForm(page: Page): Promise<"already" | "clicked" |
 }
 
 /** Press a forward-only button ("Next", "Continue", "Review"). Returns false when there is none (the last step, or a single-page form). */
-export async function nextStep(page: Page): Promise<boolean> {
-  const btn = page.getByRole("button", { name: NEXT_STEP }).first();
+export async function nextStep(page: Page, scope?: string): Promise<boolean> {
+  const btn = (scope ? page.locator(`${scope} >> visible=true`).first().getByRole("button", { name: NEXT_STEP }) : page.getByRole("button", { name: NEXT_STEP })).first();
   if (!(await btn.isVisible().catch(() => false))) return false;
   await btn.click({ timeout: 5000 }).catch(() => undefined);
   return true;
 }
 
 /** True when the page offers the control that sends the application (so you can review and press it yourself). */
-export async function finalStepVisible(page: Page): Promise<boolean> {
-  const byRole = page.getByRole("button", { name: SENDS_APPLICATION }).first();
+export async function finalStepVisible(page: Page, scope?: string): Promise<boolean> {
+  const byRole = (scope ? page.locator(`${scope} >> visible=true`).first().getByRole("button", { name: SENDS_APPLICATION }) : page.getByRole("button", { name: SENDS_APPLICATION })).first();
   if (await byRole.isVisible().catch(() => false)) return true;
   return page.locator('form input[type="submit"], form button[type="submit"]').first().isVisible().catch(() => false);
 }
@@ -120,7 +120,7 @@ async function controlsOutsideNav(page: Page): Promise<number> {
 async function waitForEasyApplyWindow(page: Page, timeoutMs = 9000): Promise<{ scope: string | null; why: string }> {
   const end = Date.now() + timeoutMs;
   while (Date.now() < end) {
-    if (await page.locator(EASY_APPLY_SCOPE).first().isVisible().catch(() => false)) return { scope: EASY_APPLY_SCOPE, why: "a window opened" };
+    if (await page.locator(`${EASY_APPLY_SCOPE} >> visible=true`).first().isVisible().catch(() => false)) return { scope: EASY_APPLY_SCOPE, why: "a window opened" };
     if (/\/apply\b/i.test(page.url()) && (await controlsOutsideNav(page)) >= 1) return { scope: "main", why: "the page moved to its /apply steps" };
     await page.waitForTimeout(400).catch(() => undefined);
   }
@@ -212,8 +212,27 @@ export async function describePage(page: Page, scope: string): Promise<unknown> 
       const labelOf = (e: HTMLInputElement) => short(e.getAttribute("aria-label") || (e.id ? document.querySelector(`label[for="${CSS.escape(e.id)}"]`)?.textContent : "") || e.closest("label")?.textContent || e.getAttribute("placeholder") || "");
       const outline = (e: Element) => { const i = e as HTMLInputElement; return { tag: e.tagName.toLowerCase(), role: e.getAttribute("role") ?? undefined, type: i.type || undefined, name: i.name || undefined, id: short(e.id, 40) || undefined, aria: short(e.getAttribute("aria-label")) || undefined, label: labelOf(i) || undefined, cls: cls(e) || undefined, required: i.required || undefined }; };
       const containers = [...document.querySelectorAll(`${scopeSel}, main, [aria-modal], [role=dialog]`)].filter(vis).slice(0, 8).map((c) => ({ ...outline(c), visibleControls: c.querySelectorAll("input, select, textarea, button, a[href]").length }));
-      const scope = document.querySelector(scopeSel) ?? document.querySelector("main") ?? document.body;
+      const scope = [...document.querySelectorAll(scopeSel)].find(vis) ?? document.querySelector("main") ?? document.body;
       const controls = [...scope.querySelectorAll("input, select, textarea, button, a[href], [role=button]")].filter(vis).slice(0, 80).map((e) => ({ ...outline(e), text: short(e.textContent, 40) }));
       return { url: location.href.replace(/[?#].*$/, ""), title: short(document.title, 80), containers, controls };
   }, scope) as Promise<unknown>;
+}
+
+
+/**
+ * Step through an Easy Apply window with Next/Continue/Review and describe every page (structure only), stopping BEFORE the button that sends
+ * the application, which is never pressed. For `npm run assist:probe`: it shows what each step of a real application asks.
+ */
+export async function walkEasyApply(page: Page, scope: string, maxPages = 6): Promise<{ pages: unknown[]; stoppedAt: string }> {
+  const pages: unknown[] = [];
+  for (let i = 0; i < maxPages; i++) {
+    await page.waitForTimeout(1800).catch(() => undefined);
+    pages.push(await describePage(page, scope));
+    const root = page.locator(`${scope} >> visible=true`).first();
+    if (await root.getByRole("button", { name: /submit( application)?|send application/i }).first().isVisible().catch(() => false)) return { pages, stoppedAt: "the Submit button, which was not pressed" };
+    const next = root.getByRole("button", { name: NEXT_STEP }).first();
+    if (!(await next.isVisible().catch(() => false))) return { pages, stoppedAt: "no Next button on this page" };
+    await next.click({ timeout: 5000 }).catch(() => undefined);
+  }
+  return { pages, stoppedAt: `${maxPages} pages` };
 }

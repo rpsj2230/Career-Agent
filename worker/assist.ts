@@ -407,8 +407,8 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
       }
       entered.push(...r.entries); steps++;
       for (const u of r.unanswered) if (!unanswered.includes(u)) unanswered.push(u);
-      if (await finalStepVisible(page)) break;
-      if (!(await nextStep(page))) break;
+      if (await finalStepVisible(page, formScope)) break;
+      if (!(await nextStep(page, formScope))) break;
       await sleep(900);
     }
   } catch (e) {
@@ -458,7 +458,7 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
         }
       } else problem = "No application form was found on this page (it may need a sign-in, or the role may be closed); apply on the employer's site";
     }
-    else if (!(await finalStepVisible(page))) problem = "Could not reach the final step of the form";
+    else if (!(await finalStepVisible(page, formScope))) problem = "Could not reach the final step of the form";
     if (problem) { await handBack(problem); await page.close().catch(() => undefined); return "later"; }
     stepNow(sb, "pressing Submit");
     const baseline = CONFIRMATION.test(await page.innerText("body").catch(() => ""));

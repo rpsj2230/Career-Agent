@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { chromium } from "playwright";
 import { asAssistantProfile, browserDirFor, type Who } from "./assist-profile";
 import { browserFromMachine, LEAN_BROWSER } from "./browser";
-import { describePage, EASY_APPLY_SCOPE, linkedinOpenApply, waitForLinkedinApply } from "./assist-lib";
+import { describePage, EASY_APPLY_SCOPE, linkedinOpenApply, waitForLinkedinApply, walkEasyApply } from "./assist-lib";
 import { launchAgentPlists, runningWatchers } from "./assist-login-lib";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -46,7 +46,8 @@ async function main(who: Who | null) {
     const opened = await linkedinOpenApply(context, page);
     await sleep(3500);
     const target = opened.page;
-    const dump = await describePage(target, EASY_APPLY_SCOPE);
+    // Easy Apply has several pages: step through them with Next (never the Submit button) and describe each
+    const dump = opened.kind === "easy" ? await walkEasyApply(target, opened.scope ?? EASY_APPLY_SCOPE) : await describePage(target, EASY_APPLY_SCOPE);
     const dir = join(homedir(), ".career-agent", "probe");
     mkdirSync(dir, { recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");

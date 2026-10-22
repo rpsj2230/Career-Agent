@@ -151,3 +151,52 @@ describe("the probe's description of a page", () => {
     await context.close();
   }, 30_000);
 });
+
+import { finalStepVisible, nextStep, walkEasyApply } from "../worker/assist-lib";
+describe("a real-shaped Easy Apply window: native dialog, four pages", () => {
+  live("is found even though a hidden dialog comes earlier on the page, and is read from the visible one", async () => {
+    if (!browser) return;
+    const dir = mkdtempSync(join(tmpdir(), "li2-"));
+    const resumePath = join(dir, "resume.docx"); writeFileSync(resumePath, "x");
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto(fixture("linkedin-easy-steps"));
+    const r = await linkedinOpenApply(context, page);
+    expect(r.kind).toBe("easy");
+    const res = await fillForm(page, { applicant: { name: "Asha Rao", email: "a@x.com", phone: "+65 87161454", location: "Singapore", links: [] }, answers: [{ question: "How many years of experience do you have?", answer: "12" }], resumePath }, r.scope);
+    expect(res.filled).toEqual([]); // page 1 is already filled by LinkedIn: nothing to type, and the hidden decoy is not read
+    expect(res.unanswered).toEqual([]);
+    await context.close();
+  }, 30_000);
+  live("steps through Next and Review inside the window and fills the question page from the answer bank", async () => {
+    if (!browser) return;
+    const dir = mkdtempSync(join(tmpdir(), "li3-"));
+    const resumePath = join(dir, "resume.docx"); writeFileSync(resumePath, "x");
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto(fixture("linkedin-easy-steps"));
+    const r = await linkedinOpenApply(context, page);
+    const ctx = { applicant: { name: "Asha Rao", email: "a@x.com", phone: "+65 87161454", location: "Singapore", links: [] }, answers: [{ question: "How many years of experience do you have?", answer: "12" }], resumePath };
+    expect(await nextStep(page, r.scope)).toBe(true); // page 1 to 2
+    expect(await nextStep(page, r.scope)).toBe(true); // 2 to 3
+    const q = await fillForm(page, ctx, r.scope);
+    expect(q.filled).toContain("How many years of experience do you have?");
+    expect(await page.inputValue("#yrs")).toBe("12");
+    expect(await nextStep(page, r.scope)).toBe(true); // Review
+    expect(await finalStepVisible(page, r.scope)).toBe(true);
+    expect(await page.evaluate(() => (window as unknown as { sent: boolean }).sent)).toBe(false);
+    await context.close();
+  }, 30_000);
+  live("the probe walk records every page and never presses Submit", async () => {
+    if (!browser) return;
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto(fixture("linkedin-easy-steps"));
+    const r = await linkedinOpenApply(context, page);
+    const w = await walkEasyApply(page, r.scope!);
+    expect(w.pages.length).toBe(4);
+    expect(w.stoppedAt).toMatch(/Submit button, which was not pressed/);
+    expect(await page.evaluate(() => (window as unknown as { sent: boolean }).sent)).toBe(false);
+    await context.close();
+  }, 60_000);
+});
