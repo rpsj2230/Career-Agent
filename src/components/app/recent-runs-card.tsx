@@ -9,9 +9,9 @@ export async function RecentRunsCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Recent runs</CardTitle>
+        <CardTitle className="text-base">Run history</CardTitle>
         <CardDescription>
-          Every run, newest first: what it found, scored, matched, prepared and approved, how long it took and what went wrong. Open <b>Details</b> for the full story of one run (sources, AI models, jobs, applications, errors).
+          Every time something ran, newest first: your schedules above, and the hourly check that works through the backlog in between. For each: what it found, scored, matched, prepared and approved, how long it took and what went wrong. Open <b>Details</b> for the full story of one run (sources, AI models, jobs, applications, errors).
           {" "}<Link className="underline" href="/logs/runs">All runs and scans</Link>
         </CardDescription>
       </CardHeader>

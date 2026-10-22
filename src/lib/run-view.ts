@@ -113,3 +113,20 @@ export function modelLines(rows: UsageRow[]): ModelLine[] {
 }
 
 export const duration = (ms: number | null): string => (ms == null ? "-" : ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`);
+
+export type Problem = { id: number; at: string; level: string; message: string; company: string | null };
+export type ProblemGroup = { key: string; level: string; count: number; first: string; last: string; example: string };
+
+/** The same problem repeated for every search (a source that is down fails each of its searches) shown once, with how many times and an example. */
+export function groupProblems(rows: Problem[]): ProblemGroup[] {
+  const m = new Map<string, ProblemGroup>();
+  for (const r of rows) {
+    const key = `${r.level}|${r.message.replace(/"[^"]*"/g, '"…"').replace(/\d+/g, "#")}`;
+    const g = m.get(key);
+    if (!g) { m.set(key, { key, level: r.level, count: 1, first: r.at, last: r.at, example: r.message }); continue; }
+    g.count++;
+    if (r.at < g.first) g.first = r.at;
+    if (r.at > g.last) g.last = r.at;
+  }
+  return [...m.values()].sort((a, b) => (a.level === b.level ? b.count - a.count : a.level === "error" ? -1 : 1));
+}

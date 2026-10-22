@@ -14,6 +14,10 @@ describe("workersOverview", () => {
     expect(row({ ...base, computer: ago(10) }, "computer").state).toBe("quiet");
     expect(row({ ...base, oracle: ago(30) }, "oracle").state).toBe("quiet");
     expect(row({ ...base, github: null }, "github").state).toBe("never");
+    // GitHub's timer runs a few hours apart on a free account: between runs is normal, not a fault
+    expect(row({ ...base, github: ago(150) }, "github").state).toBe("idle");
+    expect(row({ ...base, github: ago(7 * 60) }, "github").state).toBe("idle");
+    expect(row({ ...base, github: ago(9 * 60) }, "github").state).toBe("quiet");
   });
   it("shows the counts of the last 24 hours", () => {
     expect(row(base, "oracle")).toMatchObject({ started: 30, passedOn: 3 });

@@ -266,6 +266,28 @@ describe("a service that refuses the key", () => {
     expect(out.outcomes.find((o) => o.integration === "adzuna")?.ok).toBe(true);
     expect(log.integrations.find((i) => i.id === "apify")?.r).toMatchObject({ ok: false });
   });
+  it("a service that never answers costs three tries, not one timeout per search", async () => {
+    let calls = 0;
+    const specs = [
+      ...Array.from({ length: 8 }, (_, i) => ({ integration: "mcf" as const, country: "sg", query: `q${i}`, fetch: async (): Promise<NormalizedJob[]> => { calls++; throw new Error("Could not reach api.mycareersfuture.gov.sg: The operation was aborted due to timeout"); } })),
+      { integration: "adzuna" as const, country: "in", query: "PM", fetch: async () => [job(1)] },
+    ];
+    const { deps } = fakeDeps();
+    const out = await runScans(specs, deps);
+    expect(calls).toBe(3);
+    expect(out.outcomes.filter((o) => o.integration === "mcf")).toHaveLength(3);
+    expect(out.blocked).toEqual([{ integration: "mcf", reason: expect.stringMatching(/did not answer 3 times in a row/), count: 5 }]);
+    expect(out.outcomes.find((o) => o.integration === "adzuna")?.ok).toBe(true);
+  });
+  it("a success in between resets the count, so a flaky service is still used", async () => {
+    let calls = 0;
+    const answers = [false, false, true, false, false, true, false];
+    const specs = answers.map((ok, i) => ({ integration: "mcf" as const, country: "sg", query: `q${i}`, fetch: async (): Promise<NormalizedJob[]> => { calls++; if (!ok) throw new Error("The operation was aborted due to timeout"); return [job(i + 1)]; } }));
+    const { deps } = fakeDeps();
+    const out = await runScans(specs, deps);
+    expect(calls).toBe(7);
+    expect(out.blocked).toEqual([]);
+  });
   it("does not treat a rate limit as a refusal", async () => {
     let calls = 0;
     const specs = Array.from({ length: 3 }, (_, i) => ({ integration: "jsearch" as const, country: "in", query: `q${i}`, fetch: async (): Promise<NormalizedJob[]> => { calls++; throw new Error("HTTP 429 quota used up"); } }));

@@ -14,11 +14,9 @@ import { call } from "./api";
 
 const selectClass = "h-9 rounded-md border border-input bg-transparent px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
 
-export type RunHistoryRow = { id: string; at: string; trigger: string; status: string; took: string; summary: string; error: string | null };
 export type ScheduleView = ScheduleConfig & {
-  id?: string; paused: boolean; describe: string; nextRun: string; lastRun: string; lastStatus: string | null; history?: RunHistoryRow[];
+  id?: string; paused: boolean; describe: string; nextRun: string; lastRun: string; lastStatus: string | null;
 };
-const STATUS_STYLE: Record<string, string> = { succeeded: "bg-green-600 text-white", partial: "bg-amber-500 text-white", failed: "bg-red-600 text-white", running: "bg-blue-600 text-white" };
 type Opt = { key: string; label: string };
 
 function toggle<T>(list: T[], v: T): T[] { return list.includes(v) ? list.filter((x) => x !== v) : [...list, v]; }
@@ -81,7 +79,7 @@ export function ScheduleCard({ v, countries, integrations, zones }: { v: Schedul
   const router = useRouter();
   const [edit, setEdit] = useState(false);
   const [running, setRunning] = useState(false);
-  const { id, paused, describe, nextRun, lastRun, lastStatus, history = [], ...config } = v;
+  const { id, paused, describe, nextRun, lastRun, lastStatus, ...config } = v;
   const state = !v.enabled ? "Disabled" : paused ? "Paused" : "Active";
   return (
     <Card className={v.enabled && !paused ? "" : "opacity-80"}>
@@ -110,23 +108,7 @@ export function ScheduleCard({ v, countries, integrations, zones }: { v: Schedul
           <div><span className="text-muted-foreground">Scope: </span>{v.countries.length ? v.countries.map((c) => c.toUpperCase()).join(", ") : "all countries"}; {v.integrations.length ? v.integrations.join(", ") : "all connected portals"}</div>
         </div>
         {v.mode === "scan_prepare_apply" && <p className="text-muted-foreground">Submits up to {v.max_apply} per run. {v.require_approval ? "Waits for your approval first." : "Submits automatically where the portal allows it."}</p>}
-        <details className="rounded-md border p-2" open={history.length > 0 && history[0].status !== "succeeded"}>
-          <summary className="cursor-pointer text-sm font-medium">Run history <span className="text-muted-foreground">({history.length} most recent)</span></summary>
-          {history.length === 0 ? <p className="mt-2 text-muted-foreground">It has not run yet. It starts at the next hourly check, or press Run this schedule now.</p> : (
-            <ul className="mt-2 grid gap-1">
-              {history.map((h) => (
-                <li key={h.id} className="flex flex-wrap items-center gap-2 border-b py-1 text-xs last:border-0">
-                  <span className="w-36 text-muted-foreground">{h.at}</span>
-                  <Badge className={STATUS_STYLE[h.status] ?? ""} variant={STATUS_STYLE[h.status] ? "default" : "outline"}>{h.status}</Badge>
-                  <span className="text-muted-foreground">{h.trigger} · {h.took}</span>
-                  <span>{h.summary}</span>
-                  {h.error && <span className="text-destructive">{h.error}</span>}
-                  <a className="ml-auto underline" href={`/logs/runs/${h.id}`}>Details</a>
-                </li>
-              ))}
-            </ul>
-          )}
-        </details>
+        <p className="text-xs text-muted-foreground">Every time this schedule ran, with its results, is listed under <a className="underline" href="#run-history">Run history</a> below.</p>
         {edit && <ScheduleForm initial={config} id={id} countries={countries} integrations={integrations} zones={zones} onDone={() => setEdit(false)} />}
       </CardContent>
     </Card>
