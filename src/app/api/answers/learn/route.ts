@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { logActivity } from "@/lib/activity";
 import { logConfig } from "@/lib/activity-helpers";
-import { scopedQuestion, withAnswer } from "@/lib/apply/handbacks";
+import { requeueStatus, scopedQuestion, withAnswer } from "@/lib/apply/handbacks";
 import { logEvent } from "@/lib/apply/events";
 import { COUNTRY_NAME_MAP } from "@/lib/countries";
 import { db, must } from "@/lib/db";
@@ -28,14 +28,20 @@ export async function POST(request: Request) {
 
   let requeued = 0;
   if (appIds.length) {
-    const rows = must<{ id: string; job_id: string; status: string; answers: { question: string; answer: string; source: string }[] | null }[]>(
-      await db().from("applications").select("id,job_id,status,answers").in("id", appIds), "load applications");
+    const rows = must<{ id: string; job_id: string; status: string; approved_at: string | null; answers: { question: string; answer: string; source: string }[] | null }[]>(
+      await db().from("applications").select("id,job_id,status,approved_at,answers").in("id", appIds), "load applications");
+    // the newest hand-back of each application says who handed it back
+    const hb = must<{ application_id: string; detail: { assistant?: boolean } | null }[]>(
+      await db().from("activity_log").select("application_id,detail").eq("kind", "application.needs_input").in("application_id", appIds).order("at", { ascending: false }).limit(1000), "load hand-backs");
+    const last = new Map<string, { assistant?: boolean } | null>();
+    for (const e of hb) if (!last.has(e.application_id)) last.set(e.application_id, e.detail);
     for (const a of rows.filter((r) => r.status === "needs_input")) {
-      const upd = await db().from("applications").update({ answers: withAnswer(a.answers ?? [], question, answer), status: "prepared", error: null }).eq("id", a.id).eq("status", "needs_input").select("id");
+      const status = requeueStatus(a, last.get(a.id) ?? null);
+      const upd = await db().from("applications").update({ answers: withAnswer(a.answers ?? [], question, answer), status, error: null }).eq("id", a.id).eq("status", "needs_input").select("id");
       if (upd.error || !upd.data?.length) continue;
       requeued++;
-      await logEvent(a.id, "answer_added", { question });
-      await logActivity({ kind: "application.lifecycle", message: `Answer saved for "${question}": returned to the queue`, status: "prepared", application_id: a.id, job_id: a.job_id, detail: { question } });
+      await logEvent(a.id, "answer_added", { question, to: status });
+      await logActivity({ kind: "application.lifecycle", message: `Answer saved for "${question}": ${status === "assisted_pending" ? "back in the assistant's queue" : "returned to the queue"}`, status, application_id: a.id, job_id: a.job_id, detail: { question } });
     }
   }
   return NextResponse.json({ ok: true, requeued });

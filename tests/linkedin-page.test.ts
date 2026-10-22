@@ -152,7 +152,9 @@ describe("the probe's description of a page", () => {
   }, 30_000);
 });
 
-import { finalStepVisible, nextStep, walkEasyApply } from "../worker/assist-lib";
+import { finalStepVisible, nextStep, refusedFields, uploadEasyApplyResume, walkEasyApply } from "../worker/assist-lib";
+import { skillYears } from "../src/lib/apply/skill-years";
+import { MasterProfile } from "../src/lib/types";
 describe("a real-shaped Easy Apply window: native dialog, four pages", () => {
   live("is found even though a hidden dialog comes earlier on the page, and is read from the visible one", async () => {
     if (!browser) return;
@@ -197,6 +199,76 @@ describe("a real-shaped Easy Apply window: native dialog, four pages", () => {
     expect(w.pages.length).toBe(4);
     expect(w.stoppedAt).toMatch(/Submit button, which was not pressed/);
     expect(await page.evaluate(() => (window as unknown as { sent: boolean }).sent)).toBe(false);
+    await context.close();
+  }, 60_000);
+});
+
+describe("Easy Apply questions the form asks (resume step, then a question LinkedIn validates)", () => {
+  const profile = MasterProfile.parse({ basics: { name: "Asha Rao" }, experience: [{ id: "e1", company: "Verz", title: "Director", start: "2017", end: "Present", bullets: [{ id: "b", text: "Moved delivery to Azure" }] }] });
+  const base = { applicant: { name: "Asha Rao", email: "a@x.com", phone: "+65 87161454", location: "Singapore", links: [] } };
+  live("uploads the resume written for the job, answers from the profile, and reaches the final step", async () => {
+    if (!browser) return;
+    const dir = mkdtempSync(join(tmpdir(), "li4-"));
+    const resumePath = join(dir, "Asha-Rao-Concentrix.pdf"); writeFileSync(resumePath, "x");
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto(fixture("linkedin-easy-questions"));
+    const r = await linkedinOpenApply(context, page);
+    expect(await nextStep(page, r.scope)).toBe(true); // contact to resume
+    expect(await uploadEasyApplyResume(page, r.scope!, resumePath)).toBe("Asha-Rao-Concentrix.pdf");
+    expect(await page.textContent("#chosen")).toBe("Asha-Rao-Concentrix.pdf");
+    expect(await nextStep(page, r.scope)).toBe(true); // resume to questions
+    const q = await fillForm(page, { ...base, answers: [], resumePath, skillYears: (s) => skillYears(profile, s, 2026) }, r.scope);
+    expect(q.filled).toEqual(["How many years of work experience do you have with Microsoft Azure?"]);
+    expect(await page.inputValue("#q")).toBe("9");
+    expect(await nextStep(page, r.scope)).toBe(true); // Review
+    expect(await refusedFields(page, r.scope)).toEqual([]);
+    expect(await finalStepVisible(page, r.scope)).toBe(true);
+    expect(await page.evaluate(() => (window as unknown as { sent: boolean }).sent)).toBe(false);
+    await context.close();
+  }, 40_000);
+  live("with no answer for the tool, the question is reported and the form's refusal names it", async () => {
+    if (!browser) return;
+    const dir = mkdtempSync(join(tmpdir(), "li5-"));
+    const resumePath = join(dir, "r.pdf"); writeFileSync(resumePath, "x");
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto(fixture("linkedin-easy-questions"));
+    const r = await linkedinOpenApply(context, page);
+    await nextStep(page, r.scope); await nextStep(page, r.scope);
+    const noTool = MasterProfile.parse({ basics: { name: "Asha Rao" }, experience: [] });
+    const q = await fillForm(page, { ...base, answers: [], resumePath, skillYears: (s) => skillYears(noTool, s, 2026) }, r.scope);
+    expect(q.filled).toEqual([]);
+    expect(q.unanswered).toEqual(["How many years of work experience do you have with Microsoft Azure?"]);
+    expect(q.pending).toEqual([{ label: "How many years of work experience do you have with Microsoft Azure?", type: "number", options: [], required: true }]);
+    await nextStep(page, r.scope); // LinkedIn refuses the empty box
+    expect(await refusedFields(page, r.scope)).toEqual(["How many years of work experience do you have with Microsoft Azure?"]);
+    await context.close();
+  }, 40_000);
+  live("an answer saved from the app (in a different wording) is used and typed as a plain number", async () => {
+    if (!browser) return;
+    const dir = mkdtempSync(join(tmpdir(), "li6-"));
+    const resumePath = join(dir, "r.pdf"); writeFileSync(resumePath, "x");
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto(fixture("linkedin-easy-questions"));
+    const r = await linkedinOpenApply(context, page);
+    await nextStep(page, r.scope); await nextStep(page, r.scope);
+    const q = await fillForm(page, { ...base, answers: [{ question: "Years of experience with Azure", answer: "6 years" }], resumePath }, r.scope);
+    expect(q.filled.length).toBe(1);
+    expect(await page.inputValue("#q")).toBe("6");
+    await context.close();
+  }, 40_000);
+  live("the probe walk says why it stopped when a question blocks the page", async () => {
+    if (!browser) return;
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto(fixture("linkedin-easy-questions"));
+    const r = await linkedinOpenApply(context, page);
+    const w = await walkEasyApply(page, r.scope!);
+    expect(w.pages.length).toBe(3);
+    expect(w.stoppedAt).toMatch(/a question needs an answer/);
+    expect(w.stoppedAt).toMatch(/Microsoft Azure/);
     await context.close();
   }, 60_000);
 });

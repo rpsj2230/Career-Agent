@@ -43,3 +43,15 @@ describe("saving an answer", () => {
     expect(scopedQuestion("Notice period", null)).toBe("Notice period");
   });
 });
+
+import { requeueStatus } from "../src/lib/apply/handbacks";
+describe("where an answered hand-back goes", () => {
+  it("goes straight back to the assistant when the assistant handed it back and you had approved it", () => {
+    expect(requeueStatus({ approved_at: "2026-10-22T01:00:00Z" }, { assistant: true })).toBe("assisted_pending");
+  });
+  it("returns to prepared otherwise", () => {
+    expect(requeueStatus({ approved_at: null }, { assistant: true })).toBe("prepared");
+    expect(requeueStatus({ approved_at: "2026-10-22T01:00:00Z" }, null)).toBe("prepared");
+    expect(requeueStatus({ approved_at: "2026-10-22T01:00:00Z" }, { assistant: false })).toBe("prepared");
+  });
+});

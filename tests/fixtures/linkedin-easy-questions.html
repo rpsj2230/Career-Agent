@@ -1,0 +1,29 @@
+<html><head><title>Technical Deployment Lead | Concentrix | LinkedIn</title></head><body>
+<header id="global-nav"><input type="text" role="combobox" aria-label="Search"></header>
+<main><button aria-label="Easy Apply to this job" onclick="document.getElementById('d').showModal(); show(1)">Easy Apply</button></main>
+<dialog id="d">
+  <h2>Apply to Concentrix</h2>
+  <section id="p1"><h3>Contact info</h3><label for="em">Email address*</label><select id="em" required><option>rp2230.career@gmail.com</option></select><button type="button" onclick="show(2)">Next</button></section>
+  <section id="p2" hidden><h3>Resume</h3>
+    <div role="button">PDF Old-Resume-One.pdf</div><div role="button">PDF Old-Resume-Two.pdf</div>
+    <button type="button" id="up">Upload resume</button><input id="file" type="file" hidden>
+    <div id="chosen"></div>
+    <button type="button" onclick="show(1)">Back</button><button type="button" onclick="show(3)">Next</button></section>
+  <section id="p3" hidden><h3>Additional Questions</h3>
+    <label for="q">How many years of work experience do you have with Microsoft Azure?*</label>
+    <input id="q" type="text" required aria-label="How many years of work experience do you have with Microsoft Azure?"><div id="err" hidden>Invalid input</div>
+    <button type="button" onclick="show(2)">Back</button><button type="button" onclick="review()">Review</button></section>
+  <section id="p4" hidden><h3>Review your application</h3><button type="button" onclick="window.sent = true">Submit application</button></section>
+</dialog>
+<script>
+  window.sent = false;
+  function show(n) { for (const i of [1,2,3,4]) document.getElementById('p'+i).hidden = i !== n; }
+  document.getElementById('up').onclick = () => document.getElementById('file').click();
+  document.getElementById('file').onchange = (e) => { document.getElementById('chosen').textContent = e.target.files[0].name; };
+  function review() {
+    const q = document.getElementById('q'); const ok = /^\d+(\.\d+)?$/.test(q.value.trim());
+    q.setAttribute('aria-invalid', ok ? 'false' : 'true'); document.getElementById('err').hidden = ok;
+    if (ok) show(4);
+  }
+</script>
+</body></html>
