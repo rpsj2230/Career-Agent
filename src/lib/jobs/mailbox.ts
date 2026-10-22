@@ -1,6 +1,6 @@
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
-import { ALERT_SENDER_DOMAINS, parseAlertEmail, type AlertMail } from "./email-parse";
+import { ALERT_SENDER_DOMAINS, isApplicationReceipt, parseAlertEmail, type AlertMail } from "./email-parse";
 import type { NormalizedJob } from "./normalize";
 import type { ReplyMail } from "@/lib/mail/replies";
 
@@ -87,7 +87,8 @@ export function imapSource(cfg: MailboxConfig): MailSource {
               if (!msg.source) continue;
               const parsed = await simpleParser(msg.source);
               // newsletters and mailing lists never carry a reply to an application
-              if (parsed.headers.get("list-unsubscribe") || parsed.headers.get("list") || /bulk|list|junk/i.test(String(parsed.headers.get("precedence") ?? ""))) continue;
+              // (a portal's own "your application was sent" receipt is transactional but often carries these headers: it is kept)
+              if (!isApplicationReceipt(parsed.subject) && (parsed.headers.get("list-unsubscribe") || parsed.headers.get("list") || /bulk|list|junk/i.test(String(parsed.headers.get("precedence") ?? "")))) continue;
               const from = parsed.from?.text ?? "";
               if (from.toLowerCase().includes(cfg.user.toLowerCase())) continue;
               out.push({ from, subject: parsed.subject ?? "", text: (parsed.text ?? "").slice(0, 3000), date: parsed.date ?? (msg.internalDate instanceof Date ? msg.internalDate : undefined), messageId: parsed.messageId });

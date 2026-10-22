@@ -5,7 +5,9 @@ import { AddJob } from "@/components/app/add-job";
 import { PipelineStatus } from "@/components/app/pipeline-status";
 import { currentRole } from "@/lib/role-server";
 import { ActionButton } from "@/components/app/action-button";
-import { ScoreBadge, SourceBadge, StageBadge } from "@/components/app/badges";
+import { RouteChipBadge, ScoreBadge, SourceBadge, StageBadge } from "@/components/app/badges";
+import { routeChip } from "@/lib/apply/reachable";
+import { resolveCredentials } from "@/lib/integrations/credentials";
 import { BackgroundBanner } from "@/components/app/background-banner";
 import { SearchSummary } from "@/components/app/search-summary";
 import { ListToolbar } from "@/components/app/list-toolbar";
@@ -28,6 +30,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
   const q = parseJobQuery(sp);
   const paging = parsePaging(sp);
   const [{ rows: jobs, total, totalAll, page, pages, shownFrom, shownTo, portalUnavailable, stageCounts: stageN, stageOf }, opts, c] = await Promise.all([listJobsFiltered(q, paging), filterOptions(), counts().catch(() => ({ fresh: 0 }))]);
+  const keyed = !!(await resolveCredentials().then((c) => c.creds.jsearch?.rapidapi_key).catch(() => null)); // a Google for Jobs key lets a job board's link be traced to the employer
   const appByJob = await applicationsForJobs(jobs.map((j) => j.id)).catch(() => new Map<string, { id: string; status: string }>());
   const href = (over: QParams = {}) => `/jobs${queryString(jobQueryParams(q, { page: undefined, ...over }))}`;
   const sortHeader = (key: keyof typeof JOB_SORTS, label: string) => {
@@ -103,7 +106,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
                     <ScoreBadge key="s" score={scoreOf(j)?.score} />,
                     <div key="r" className="max-w-sm"><Link href={`/jobs/${j.id}`} className="font-medium hover:underline">{j.title}</Link><div className="text-xs text-muted-foreground">{j.company}</div></div>,
                     <div key="w" className="text-sm">{j.location ?? countryLabel(j.country)}<div className="text-xs text-muted-foreground">{j.country ? countryLabel(j.country) : ""}</div></div>,
-                    <div key="f"><SourceBadge portal={j.portal} source={j.source} /><div className="mt-1 text-xs text-muted-foreground">{fmtDate(j.found_at)}</div></div>,
+                    <div key="f" className="grid gap-1"><div><SourceBadge portal={j.portal} source={j.source} /></div><div><RouteChipBadge chip={routeChip(j, { jsearchKey: keyed })} /></div><div className="text-xs text-muted-foreground">{fmtDate(j.found_at)}</div></div>,
                     <div key="n" className="grid max-w-xs gap-1">
                       <div><StageBadge stage={stage} /></div>
                       {stage === "rejected" ? <span className="text-xs text-muted-foreground">{j.skip_reason ?? "Closed out by the score or your rules."}</span>

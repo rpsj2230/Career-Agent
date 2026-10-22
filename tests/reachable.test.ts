@@ -16,3 +16,15 @@ describe("jobs the agent cannot apply for, so spends no resume on", () => {
     for (const url of ["https://www.linkedin.com/jobs/view/4480419562", "https://boards.greenhouse.io/acme/jobs/1", "https://careers.acme.com/jobs/12", "https://sg.indeed.com/viewjob?jk=1", ""]) expect(manualOnlyReason({ url, portal: "linkedin" }, { jsearchKey: false }), url).toBeNull();
   });
 });
+
+import { routeChip } from "../src/lib/apply/reachable";
+describe("the label on a job's row", () => {
+  it("names who applies for it", () => {
+    expect(routeChip({ url: "https://boards.greenhouse.io/acme/jobs/1", apply_type: "greenhouse" }, { jsearchKey: false })).toMatchObject({ text: "Cloud · automatic", tone: "cloud" });
+    expect(routeChip({ url: "https://www.linkedin.com/jobs/view/1", apply_type: "linkedin", portal: "linkedin" }, { jsearchKey: false })).toMatchObject({ text: "Your computer", tone: "computer" });
+    const hand = routeChip({ url: "https://www.adzuna.com.au/details/1", portal: "adzuna" }, { jsearchKey: false });
+    expect(hand).toMatchObject({ text: "By hand", tone: "hand" });
+    expect(hand.title).toMatch(/JSearch/);
+    expect(routeChip({ url: "https://www.adzuna.com.au/details/1", portal: "adzuna" }, { jsearchKey: true }).tone).toBe("computer");
+  });
+});

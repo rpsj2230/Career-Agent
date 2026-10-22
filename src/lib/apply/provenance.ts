@@ -26,6 +26,16 @@ const WORKERS: Record<string, { who: Who; text: string }> = {
 const day = (iso: string | null | undefined) => (iso ? iso.slice(0, 10) : null);
 
 export function applicationProvenance(app: AppFacts, events: EventRow[]): Provenance | null {
+  const base = baseProvenance(app, events);
+  if (!base) return null;
+  // the portal's own receipt email is proof that does not depend on what this app saw
+  const receipt = [...events].filter((e) => e.kind === "receipt_confirmed").sort((a, b) => b.at.localeCompare(a.at))[0];
+  if (!receipt) return base;
+  const from = typeof receipt.detail?.from === "string" && receipt.detail.from ? ` from ${receipt.detail.from}` : "";
+  return { ...base, proof: { level: "confirmed", text: `${base.proof.text} The portal's own receipt email${from} also confirms it (${day(receipt.at)}).` } };
+}
+
+function baseProvenance(app: AppFacts, events: EventRow[]): Provenance | null {
   if (app.status !== "submitted") return null;
   const sorted = [...events].sort((a, b) => a.at.localeCompare(b.at));
   const last = (kind: string) => [...sorted].reverse().find((e) => e.kind === kind);

@@ -1,3 +1,4 @@
+import { applyRoute } from "@/lib/apply/route";
 import { parseAtsUrl } from "@/lib/jobs/ats";
 import { isRedirector } from "@/lib/jobs/redirectors";
 
@@ -15,4 +16,18 @@ export function manualOnlyReason(job: { url?: string | null; portal?: string | n
   if (/(^|\.)mycareersfuture\.gov\.sg$/.test(host) || String(job.portal ?? "").toLowerCase() === "mycareersfuture") return "MyCareersFuture needs a Singpass sign-in, which the agent cannot do: apply on the site yourself";
   if (url && isRedirector(url) && !parseAtsUrl(url) && !o.jsearchKey) return "its link is a job board's listing page, which refuses the agent's browser, and no Google for Jobs key (JSearch, on the Portals page) is set to find the employer's own link: apply from the board yourself";
   return null;
+}
+
+export type RouteChip = { text: string; tone: "cloud" | "computer" | "hand"; title: string };
+
+/**
+ * One short label for a job's list row: who will apply for it. "Cloud" needs no laptop (Greenhouse, Lever, Ashby, Workable); "Your computer" is the assistant; "By hand" means
+ * the agent cannot (and so writes no resume), with the reason as the label's hover text.
+ */
+export function routeChip(job: { url?: string | null; apply_type?: string | null; portal?: string | null }, o: { jsearchKey: boolean }): RouteChip {
+  const hand = manualOnlyReason(job, o);
+  if (hand) return { text: "By hand", tone: "hand", title: hand };
+  const r = applyRoute(job);
+  if (r.kind === "cloud") return { text: "Cloud · automatic", tone: "cloud", title: r.detail };
+  return { text: "Your computer", tone: "computer", title: r.detail };
 }
