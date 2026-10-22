@@ -250,7 +250,7 @@ r = await call("/jobs?view=all&portal=linkedin"); check("portal filter shows onl
 r = await call("/jobs?view=all&country=in"); check("country filter with no matches says so", r.text.includes("Nothing here for these filters"), "empty state missing");
 r = await call("/jobs?view=all&country=sg"); check("country filter keeps matching jobs", r.text.includes("Gamma Pte Ltd") && r.text.includes("Singapore"), "rows missing");
 r = await call("/jobs?view=all&portal=x%27%3B%20delete&view2=1"); check("a hostile portal value is ignored, not executed", r.status === 200 && r.text.includes("Gamma Pte Ltd"), `${r.status}`);
-r = await call("/jobs"); check("the default view is the review queue (nothing matched yet)", r.status === 200 && r.text.includes("Nothing here for these filters"), `${r.status}`);
+r = await call("/jobs"); check("the Jobs page opens on every job, so nothing seems missing", r.status === 200 && /all jobs/.test(r.text.replace(/<!-- -->/g, "")), `${r.status}`);
 r = await call("/applications"); check("Applications list renders with its stage chips and filter panel", r.status === 200 && r.text.replace(/<!-- -->/g, "").includes("Waiting for your approval") && r.text.includes("More filters") && r.text.includes("Sort by"), `${r.status}`);
 r = await call("/?country=sg"); check("dashboard can be narrowed to one country", r.status === 200 && r.text.replace(/<!-- -->/g, "").includes("Singapore only") && r.text.includes("All countries"), `${r.status}`);
 r = await call("/reports?country=sg"); check("reports can be narrowed to one country", r.status === 200 && r.text.replace(/<!-- -->/g, "").includes("Singapore only"), `${r.status}`);
@@ -765,7 +765,7 @@ if (process.env.PLAYWRIGHT_BROWSERS_PATH || process.env.CHROMIUM_PATH) {
   // enterprise-style filters and sorting on the lists
   {
     const t = (x) => x.text.replace(/<!-- -->/g, "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
-    r = await call("/jobs?stage=all"); check("Jobs: stage chips with counts, presets, search, sort and the filter panel are there", /Not scored yet/.test(t(r)) && /Waiting for your approval/.test(t(r)) && /Needs my action/.test(t(r)) && /Matched, resume not ready/.test(t(r)) && /More filters/.test(t(r)) && /Sort by/.test(t(r)) && /Fit score/.test(t(r)) && /Date posted/.test(t(r)), r.status);
+    r = await call("/jobs?stage=all"); check("Jobs: stage chips with counts, presets, search, sort and the filter panel are there", /Not scored yet/.test(t(r)) && /Being applied for/.test(t(r)) && /Needs you/.test(t(r)) && /Good fit, no resume yet/.test(t(r)) && /Applied/.test(t(r)) && /Skipped \(poor fit\)/.test(t(r)) && /More filters/.test(t(r)) && /Sort by/.test(t(r)) && /Fit score/.test(t(r)) && /Date posted/.test(t(r)), r.status);
     r = await call("/jobs?stage=all&size=100&sort=company&dir=asc"); const asc = [r.text.indexOf("Delta"), r.text.indexOf("Gamma Pte Ltd")];
     r = await call("/jobs?stage=all&size=100&sort=company&dir=desc"); const desc = [r.text.indexOf("Delta"), r.text.indexOf("Gamma Pte Ltd")];
     check("Jobs: sorting by company A to Z and Z to A reverses the order", asc[0] > -1 && asc[1] > -1 && asc[0] < asc[1] && desc[0] > desc[1], JSON.stringify({ asc, desc }));
@@ -783,7 +783,7 @@ if (process.env.PLAYWRIGHT_BROWSERS_PATH || process.env.CHROMIUM_PATH) {
     r = await call("/api/export/applications?stage=applied"); check("the CSV export follows the stage filter", r.status === 200 && r.text.includes("FormCo") && !r.text.includes("StuckCo"), r.text.slice(0, 200));
     r = await call("/api/export/applications?sort=company&dir=asc"); check("the CSV export follows the sort order", r.status === 200 && r.text.indexOf("FormCo") > -1 && r.text.indexOf("FormCo") < r.text.indexOf("Zeta Pte"), r.text.slice(0, 200));
   }
-  r = await call("/applications"); { const tx = r.text.replace(/<!-- -->/g, ""); check("applications list says how each is applied and what to do next", /How it is applied/.test(tx) && /Next step/.test(tx) && /(Automatic · |Assistant · your computer|Manual · you submit)/.test(tx), r.status); }
+  r = await call("/applications"); { const tx = r.text.replace(/<!-- -->/g, ""); check("applications list says how each is applied and what to do next", /Sent through/.test(tx) && /What to do next/.test(tx) && /Resume/.test(tx) && /(Automatic · |Assistant · your computer|Manual · you submit)/.test(tx), r.status); }
   r = await call("/api/run/localtest", { method: "POST" }); check("the local model test refuses politely when GitHub is not connected", r.status === 409 && /GitHub/.test(r.text), `${r.status} ${r.text.slice(0, 120)}`);
   r = await call("/models"); check("the Models page shows the local model test button", /Test the local model now/.test(r.text.replace(/<!-- -->/g, "")), r.status);
   r = await call("/?country=in"); check("dashboard: another country is echoed", r.status === 200 && r.text.replace(/<!-- -->/g, "").includes("India only"), `${r.status}`);
@@ -1055,8 +1055,8 @@ r = await call("/api/models/test", { method: "POST", body: { label: "e2e-model" 
 // checkboxes and bulk actions, the backlog, model health and the clearer pages
 {
   const strip = (t) => t.replace(/<!-- -->/g, "");
-  r = await call("/jobs?view=all&size=100"); check("the Jobs page has select-all, bulk preparing, resume links and clear apply labels", /Select all on this page/.test(strip(r.text)) && /Prepare resumes for selected/.test(strip(r.text)) && /View resume/.test(strip(r.text)) && /(Automatic · |Assistant · your computer|Manual · you submit)/.test(strip(r.text)) && !/Run full cycle now/.test(strip(r.text)), r.status);
-  check("the Jobs page explains where to run the whole schedule", /Run this schedule now/.test(strip(r.text)), "hint missing");
+  r = await call("/jobs?view=all&size=100"); check("the Jobs page has select-all, bulk preparing, resume links and clear apply labels", /Select all on this page/.test(strip(r.text)) && /Prepare resumes for selected/.test(strip(r.text)) && /Where it stands/.test(strip(r.text)) && /Score/.test(strip(r.text)) && !/Run full cycle now/.test(strip(r.text)), r.status);
+  check("the Jobs page offers to search and score right now", /Search job sites now/.test(strip(r.text)) && /Score unscored jobs/.test(strip(r.text)), "buttons missing");
   r = await call("/applications?size=100"); check("the Applications page has select-all with Approve and apply selected and Skip selected", /Approve and apply selected/.test(strip(r.text)) && /Skip selected/.test(strip(r.text)) && /View resume/.test(strip(r.text)), r.status);
   r = await call("/schedules"); check("the Schedules page shows the pipeline table (last 24 hours, waiting now, limits) and the recent runs", /The pipeline at a glance/.test(strip(r.text)) && /Last 24 hours/.test(strip(r.text)) && /Waiting now/.test(strip(r.text)) && /Run history/.test(strip(r.text)) && /Why applications were not sent/.test(strip(r.text)), r.status);
   r = await call("/jobs?view=all&size=100"); check("the Jobs page shows Where everything stands with counts, percentages and the five steps", /Where everything stands/.test(strip(r.text)) && /% done/.test(strip(r.text)) && /Scoring/.test(strip(r.text)) && /Resume and cover letter/.test(strip(r.text)) && /Approval/.test(strip(r.text)) && /Sending/.test(strip(r.text)), "missing");

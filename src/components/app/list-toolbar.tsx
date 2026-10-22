@@ -21,6 +21,8 @@ export function ListToolbar(props: {
   kind: "jobs" | "apps";
   action: string;
   chips: { key: StageKey; count: number }[];
+  /** when given (the Jobs page), these few groups replace the ten stage chips */
+  groups?: { key: string; label: string; hint: string; count: number; href: string; active: boolean }[];
   presets: { label: string; stages: StageKey[]; count: number }[];
   q: ToolbarQuery;
   sorts: Record<string, { label: string; dir: "asc" | "desc" }>;
@@ -42,15 +44,21 @@ export function ListToolbar(props: {
     <div className="grid gap-3">
       <div className="flex flex-wrap gap-2" aria-label="Pipeline stage">
         <Link href={props.hrefs.all} className={chip(activeAll)}>All <span className="text-muted-foreground">{props.chips.reduce((n, c) => n + c.count, 0).toLocaleString("en-US")}</span></Link>
-        {props.presets.map((p, i) => {
-          const active = p.stages.length === q.stages.length && p.stages.every((s) => q.stages.includes(s));
-          return <Link key={p.label} href={props.hrefs.preset[i]} className={`${chip(active)} ${p.count > 0 ? "border-sky-500" : ""}`} title="Everything waiting for you">★ {p.label} <span className="font-semibold">{p.count.toLocaleString("en-US")}</span></Link>;
-        })}
-        {props.chips.map((c) => (
-          <Link key={c.key} href={props.hrefs.stage[c.key]} className={chip(q.stages.length === 1 && q.stages[0] === c.key)} title={STAGES[c.key].hint}>
-            {STAGES[c.key].label} <span className={c.count > 0 ? "font-semibold text-foreground" : "text-muted-foreground"}>{c.count.toLocaleString("en-US")}</span>
-          </Link>
-        ))}
+        {props.groups ? props.groups.map((g) => (
+          <Link key={g.key} href={g.href} className={chip(g.active)} title={g.hint}>{g.label} <span className={g.count > 0 ? "font-semibold text-foreground" : "text-muted-foreground"}>{g.count.toLocaleString("en-US")}</span></Link>
+        )) : (
+          <>
+            {props.presets.map((p, i) => {
+              const active = p.stages.length === q.stages.length && p.stages.every((s) => q.stages.includes(s));
+              return <Link key={p.label} href={props.hrefs.preset[i]} className={`${chip(active)} ${p.count > 0 ? "border-sky-500" : ""}`} title="Everything waiting for you">★ {p.label} <span className="font-semibold">{p.count.toLocaleString("en-US")}</span></Link>;
+            })}
+            {props.chips.map((c) => (
+              <Link key={c.key} href={props.hrefs.stage[c.key]} className={chip(q.stages.length === 1 && q.stages[0] === c.key)} title={STAGES[c.key].hint}>
+                {STAGES[c.key].label} <span className={c.count > 0 ? "font-semibold text-foreground" : "text-muted-foreground"}>{c.count.toLocaleString("en-US")}</span>
+              </Link>
+            ))}
+          </>
+        )}
       </div>
 
       <form method="get" action={props.action} className="grid gap-3 rounded-md border p-3">
