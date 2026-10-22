@@ -1,0 +1,13 @@
+<html><body><form>
+<label for="city">City*</label><input id="city" role="combobox" aria-autocomplete="list" aria-expanded="false" required autocomplete="off">
+<ul id="lb" role="listbox" hidden></ul><div id="chosen"></div>
+<script>
+  const input = document.getElementById('city'), lb = document.getElementById('lb');
+  const cities = ['Singapore, Singapore', 'Singapore, Singapore (Central)', 'Sinagpore Road, Delhi'];
+  input.addEventListener('input', () => {
+    lb.innerHTML = ''; const v = input.value.toLowerCase();
+    if (!v) { lb.hidden = true; return; }
+    for (const c of cities.filter((x) => x.toLowerCase().includes(v)).slice(0, 3)) { const li = document.createElement('li'); li.setAttribute('role', 'option'); li.textContent = c; li.onclick = () => { input.value = c; document.getElementById('chosen').textContent = c; lb.hidden = true; }; lb.appendChild(li); }
+    lb.hidden = false;
+  });
+</script></form></body></html>

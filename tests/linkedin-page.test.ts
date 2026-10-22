@@ -215,7 +215,7 @@ describe("Easy Apply questions the form asks (resume step, then a question Linke
     await page.goto(fixture("linkedin-easy-questions"));
     const r = await linkedinOpenApply(context, page);
     expect(await nextStep(page, r.scope)).toBe(true); // contact to resume
-    expect(await uploadEasyApplyResume(page, r.scope!, resumePath)).toBe("Asha-Rao-Concentrix.pdf");
+    expect(await uploadEasyApplyResume(page, r.scope!, resumePath)).toEqual({ status: "uploaded", name: "Asha-Rao-Concentrix.pdf" });
     expect(await page.textContent("#chosen")).toBe("Asha-Rao-Concentrix.pdf");
     expect(await nextStep(page, r.scope)).toBe(true); // resume to questions
     const q = await fillForm(page, { ...base, answers: [], resumePath, skillYears: (s) => skillYears(profile, s, 2026) }, r.scope);
@@ -379,4 +379,46 @@ describe("what a stuck form says, in the browser's own words", () => {
     expect(await windowText(page, "dialog[open]")).toMatch(/Apply to Acme.*Years of leadership/);
     await context.close();
   });
+});
+
+import { clickSubmit } from "../worker/form";
+describe("pressing Submit only inside the application window", () => {
+  live("presses the window's Submit application, not the page's search or messaging buttons", async () => {
+    if (!browser) return;
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto(fixture("linkedin-easy-submit"));
+    const r = await linkedinOpenApply(context, page, "https://www.linkedin.com/jobs/view/4480419562/");
+    expect(r.kind).toBe("easy");
+    expect(await clickSubmit(page, r.scope)).toBe(true);
+    const flags = await page.evaluate(() => ({ applied: (window as unknown as Record<string, boolean>).applied, searched: (window as unknown as Record<string, boolean>).searched, messageSent: (window as unknown as Record<string, boolean>).messageSent }));
+    expect(flags).toEqual({ applied: true, searched: false, messageSent: false });
+    await context.close();
+  }, 30_000);
+  live("does nothing when the window has no submit button", async () => {
+    if (!browser) return;
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto(fixture("linkedin-easy-native"));
+    const r = await linkedinOpenApply(context, page, "https://www.linkedin.com/jobs/view/1/");
+    expect(await clickSubmit(page, r.scope)).toBe(false);
+    await context.close();
+  }, 30_000);
+});
+
+describe("the resume step", () => {
+  live("says when there is no upload on a page, and when an upload does not take", async () => {
+    if (!browser) return;
+    const dir = mkdtempSync(join(tmpdir(), "li7-"));
+    const resumePath = join(dir, "Zebra-Quartz-Resume.pdf"); writeFileSync(resumePath, "x");
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto(fixture("linkedin-easy-questions"));
+    const r = await linkedinOpenApply(context, page, "https://www.linkedin.com/jobs/view/4480419562/");
+    expect(await uploadEasyApplyResume(page, r.scope!, resumePath)).toEqual({ status: "none" }); // the contact page has no upload
+    await nextStep(page, r.scope);
+    await page.evaluate(() => { (document.getElementById("file") as HTMLInputElement).onchange = null; }); // the page never shows the file: the upload does not take
+    expect(await uploadEasyApplyResume(page, r.scope!, resumePath)).toEqual({ status: "failed" });
+    await context.close();
+  }, 40_000);
 });
