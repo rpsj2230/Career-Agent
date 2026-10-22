@@ -278,17 +278,17 @@ export const jobIdOf = (u: string | null | undefined): string | null => (u ?? ""
  * The apply control of THIS job. A LinkedIn page also lists other jobs, whose cards carry "Easy Apply" in their names and open that job when pressed,
  * so a control is skipped when it sits inside a list of jobs or links to a different job. Returns null when there is none.
  */
-async function ownApplyControl(page: Page, name: RegExp, jobId: string | null): Promise<{ el: Locator; name: string; href: string } | null> {
+export async function ownApplyControl(page: Page, name: RegExp, jobId: string | null, alsoSkip = ""): Promise<{ el: Locator; name: string; href: string } | null> {
   for (const c of [page.getByRole("button", { name }), page.getByRole("link", { name })]) {
     const n = Math.min(await c.count().catch(() => 0), 12);
     for (let i = 0; i < n; i++) {
       const el = c.nth(i);
       if (!(await el.isVisible().catch(() => false))) continue;
-      const info = await el.evaluate((e) => ({
+      const info = await el.evaluate((e, extra) => ({
         href: (e as HTMLAnchorElement).href ?? e.closest("a")?.getAttribute("href") ?? "",
-        inList: !!e.closest("li, [role=listitem], [data-occludable-job-id], [data-job-id], .jobs-search-results-list, .scaffold-layout__list"),
+        inList: !!e.closest(`li, [role=listitem], [data-occludable-job-id], [data-job-id], .jobs-search-results-list, .scaffold-layout__list${extra ? `, ${extra}` : ""}`),
         name: (e.getAttribute("aria-label") || (e as HTMLElement).innerText || "").replace(/\s+/g, " ").trim(),
-      })).catch(() => null);
+      }), alsoSkip).catch(() => null);
       if (!info || info.inList) continue;
       const other = info.href.match(/\/jobs\/view\/(?:[^/?#]*-)?(\d{6,})/)?.[1] ?? info.href.match(/currentJobId=(\d{6,})/)?.[1];
       if (jobId && other && other !== jobId) continue;
