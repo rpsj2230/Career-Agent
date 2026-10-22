@@ -131,3 +131,23 @@ describe("other shapes of LinkedIn's Easy Apply window", () => {
     expect(accountGatedVendor("boards.greenhouse.io")).toBeNull();
   });
 });
+
+import { describePage } from "../worker/assist-lib";
+describe("the probe's description of a page", () => {
+  live("lists the window's questions and buttons without any typed value", async () => {
+    if (!browser) return;
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto(fixture("linkedin-easy-modal"));
+    await linkedinOpenApply(context, page);
+    await page.fill('input[name="email"]', "secret@example.com");
+    const d = (await describePage(page, EASY_APPLY_SCOPE)) as { url: string; containers: unknown[]; controls: { name?: string; label?: string; text?: string }[] };
+    const text = JSON.stringify(d);
+    expect(d.controls.some((c) => c.name === "email")).toBe(true);
+    expect(d.controls.some((c) => c.label === "Email address")).toBe(true);
+    expect(d.controls.some((c) => c.text === "Next")).toBe(true);
+    expect(text).not.toContain("secret@example.com");
+    expect(d.containers.length).toBeGreaterThan(0);
+    await context.close();
+  }, 30_000);
+});

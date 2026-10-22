@@ -198,3 +198,22 @@ export function accountGatedVendor(host: string): string | null {
   if (/(^|\.)oraclecloud\.com$/.test(h)) return "Oracle Recruiting";
   return null;
 }
+
+
+/**
+ * The structure of a page (its windows and controls: tags, roles, labels, names), never a typed value: what `npm run assist:probe` prints so the
+ * assistant can be fixed against a real LinkedIn page. `scope` is the CSS selector of the window to describe, with the main area as the fallback.
+ */
+export async function describePage(page: Page, scope: string): Promise<unknown> {
+  return page.evaluate((scopeSel) => {
+      const vis = (e: Element) => { const r = (e as HTMLElement).getBoundingClientRect(); const s = getComputedStyle(e as HTMLElement); return r.width > 0 && r.height > 0 && s.visibility !== "hidden" && s.display !== "none"; };
+      const short = (t: string | null | undefined, n = 60) => (t ?? "").replace(/\s+/g, " ").trim().slice(0, n);
+      const cls = (e: Element) => short(typeof (e as HTMLElement).className === "string" ? (e as HTMLElement).className : "", 80).split(" ").slice(0, 4).join(" ");
+      const labelOf = (e: HTMLInputElement) => short(e.getAttribute("aria-label") || (e.id ? document.querySelector(`label[for="${CSS.escape(e.id)}"]`)?.textContent : "") || e.closest("label")?.textContent || e.getAttribute("placeholder") || "");
+      const outline = (e: Element) => { const i = e as HTMLInputElement; return { tag: e.tagName.toLowerCase(), role: e.getAttribute("role") ?? undefined, type: i.type || undefined, name: i.name || undefined, id: short(e.id, 40) || undefined, aria: short(e.getAttribute("aria-label")) || undefined, label: labelOf(i) || undefined, cls: cls(e) || undefined, required: i.required || undefined }; };
+      const containers = [...document.querySelectorAll(`${scopeSel}, main, [aria-modal], [role=dialog]`)].filter(vis).slice(0, 8).map((c) => ({ ...outline(c), visibleControls: c.querySelectorAll("input, select, textarea, button, a[href]").length }));
+      const scope = document.querySelector(scopeSel) ?? document.querySelector("main") ?? document.body;
+      const controls = [...scope.querySelectorAll("input, select, textarea, button, a[href], [role=button]")].filter(vis).slice(0, 80).map((e) => ({ ...outline(e), text: short(e.textContent, 40) }));
+      return { url: location.href.replace(/[?#].*$/, ""), title: short(document.title, 80), containers, controls };
+  }, scope) as Promise<unknown>;
+}
