@@ -1,6 +1,7 @@
 import "server-only";
 import { assistantStatus } from "@/lib/apply/assistant-health";
 import { workerConfigured } from "@/lib/apply/dispatch";
+import { applyRoute } from "@/lib/apply/route";
 import { loadCapState } from "@/lib/apply/state";
 import { lastTick } from "@/lib/automation-health";
 import { db } from "@/lib/db";
@@ -23,7 +24,7 @@ export async function loadPipelineStatus(now = new Date()) {
   const jobs = Object.fromEntries(jobStatuses) as PipelineInput["jobs"];
   const apps = Object.fromEntries(appStatuses) as PipelineInput["apps"];
 
-  const [readiness, autoPrepare, autoapply, caps, pause, sched, tickAt, lastRun, drainRow, assistant, capState, oldest] = await Promise.all([
+  const [readiness, autoPrepare, autoapply, caps, pause, sched, tickAt, lastRun, drainRow, assistant, capState, oldestRows] = await Promise.all([
     safe(() => modelReadiness(), { usable: [] as string[], unreadable: [] as string[], message: "Could not check the models." as string | null, envOnly: [] as string[], stored: [] as string[] }),
     safe(() => getSetting("auto_prepare"), { enabled: true, per_run: 15, concurrency: 3 } as { enabled: boolean; per_run: number; concurrency?: number }),
     safe(() => getSetting("autoapply"), { enabled: false }),
@@ -35,8 +36,13 @@ export async function loadPipelineStatus(now = new Date()) {
     safe(async () => (await db().from("settings").select("value").eq("key", "drain_state").maybeSingle()).data?.value ?? null, null),
     safe(() => assistantStatus(now), null),
     safe(() => loadCapState(), { automatedToday: 0, linkedinAutomatedToday: 0, linkedinAutomatedThisWeek: 0 }),
-    safe(async () => (await db().from("applications").select("approved_at").in("status", ["approved", "submitting"]).order("approved_at", { ascending: true }).limit(1)).data?.[0]?.approved_at ?? null, null as string | null),
+    // approved applications, with the route each one takes: only the ones for the cloud worker can mean "the cloud worker stopped"
+    safe(async () => (await db().from("applications").select("status, approved_at, job:jobs(url, apply_type, portal)").in("status", ["approved", "submitting"]).order("approved_at", { ascending: true }).limit(2000)).data ?? [], [] as unknown[]),
   ]);
+  const inFlightRows = ((oldestRows ?? []) as { status: string; approved_at: string | null; job: { url: string | null; apply_type: string | null; portal: string | null } | { url: string | null; apply_type: string | null; portal: string | null }[] | null }[]).map((r) => ({ ...r, job: Array.isArray(r.job) ? r.job[0] ?? null : r.job }));
+  const forAssistant = (r: (typeof inFlightRows)[number]) => r.status === "approved" && !!r.job && applyRoute(r.job).kind !== "cloud";
+  const approvedForAssistant = inFlightRows.filter(forAssistant).length;
+  const oldest = inFlightRows.find((r) => !forAssistant(r) && r.approved_at)?.approved_at ?? null;
 
   // can the AI models be used right now, and are they failing or out of allowance?
   const usableLabels = readiness.usable;
@@ -65,7 +71,7 @@ export async function loadPipelineStatus(now = new Date()) {
   const active = sched.rows.filter((s) => s.enabled && !s.paused);
   const preparing = active.filter((s) => s.mode !== "scan");
   const input: PipelineInput = {
-    now, jobs, apps, oldestSending: oldest,
+    now, jobs, apps, approvedForAssistant, oldestSending: oldest,
     models: { usable: readiness.stored.length + readiness.envOnly.length > 0 ? usableLabels.length : 0, message: readiness.message, allFailing, allAtLimit, lastError },
     paused: pauseActive(pause), autoApply: !!autoapply.enabled,
     autoPrepare: { enabled: !!autoPrepare.enabled, per_run: autoPrepare.per_run ?? 0, concurrency: autoPrepare.concurrency ?? 3 },

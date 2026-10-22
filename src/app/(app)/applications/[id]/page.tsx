@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { applicationProvenance } from "@/lib/apply/provenance";
 import { changedSince, fmtBytes, shortHash, submissionView, summariseDiff, type DiffRow } from "@/lib/apply/detail";
 import { db, must } from "@/lib/db";
 import { countryLabel } from "@/lib/filters";
@@ -58,6 +59,7 @@ export default async function ApplicationPage({ params }: { params: Promise<{ id
   const originalView = snapProfile.success ? resumeView(snapProfile.data, masterAsTailored(snapProfile.data)) : null;
   const diff = summariseDiff(resume?.diff);
   const sub = submissionView(app);
+  const who = applicationProvenance({ status: app.status, method: app.method, submitted_at: app.submitted_at, submission: sub.kind === "record" ? sub.record : null }, events);
   const moved = changedSince(snap, live);
   const issues = [...(resume?.verification?.issues ?? []), ...(cover?.verification?.issues ?? [])];
   const emailDraft = await loadDraft(id).catch(() => null);
@@ -81,6 +83,18 @@ export default async function ApplicationPage({ params }: { params: Promise<{ id
           {app.run_id && <Link className="underline" href={`/logs/runs/${app.run_id}`}>Run that prepared it</Link>}
         </nav>
       </div>
+
+      {who && (
+        <Card id="who">
+          <CardHeader><CardTitle>Who applied, and how we know</CardTitle><CardDescription>Read from what was recorded at the time, never guessed.</CardDescription></CardHeader>
+          <CardContent className="grid gap-2 text-sm">
+            <p className="font-medium">{who.headline}{who.at ? <span className="font-normal text-muted-foreground"> · {who.at}</span> : null}</p>
+            <p className={who.proof.level === "confirmed" ? "text-green-700 dark:text-green-500" : "text-amber-600"}><b>{who.proof.level === "confirmed" ? "Confirmed by the employer: " : who.proof.level === "claimed" ? "Reported, not seen by this app: " : "Not verified: "}</b>{who.proof.text}</p>
+            {who.page && <p>Page: <a className="underline" href={who.page} target="_blank" rel="noreferrer">{who.page}</a></p>}
+            {who.proof.level !== "confirmed" && <div className="flex flex-wrap items-center gap-2"><span className="text-muted-foreground">Not sure it went through?</span><ActionButton variant="outline" endpoint={`/api/applications/${id}`} body={{ action: "reapply", confirmSubmitted: true }} confirm="Prepare a new version and apply again? Only do this if you are sure the first one did not go through." success="Back to pending approval: press Approve">Apply again</ActionButton></div>}
+          </CardContent>
+        </Card>
+      )}
 
       {app.error && <Card className="border-destructive"><CardHeader><CardTitle className="text-destructive">Last error</CardTitle></CardHeader><CardContent className="text-sm">{app.error}{app.status === "failed" && <div className="mt-3"><ActionButton variant="outline" endpoint={`/api/applications/${id}`} body={{ action: "retry" }} success="Back in the queue">Return to queue</ActionButton></div>}</CardContent></Card>}
 

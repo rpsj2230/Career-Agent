@@ -22,7 +22,9 @@ export type PipelineInput = {
   now: Date;
   jobs: { new: number; queued: number; saved: number; prepared: number; applied: number; skipped: number };
   apps: { prepared: number; approved: number; submitting: number; assisted_pending: number; needs_input: number; failed: number; submitted: number };
-  /** when the oldest application that is approved or sending was approved */
+  /** how many of the approved applications are not for the cloud worker (LinkedIn, employer sites): they wait for the assistant, so they never count as "the cloud worker stopped" */
+  approvedForAssistant?: number;
+  /** when the oldest application the CLOUD worker should send (approved for the cloud, or sending) was approved */
   oldestSending: string | null;
   models: { usable: number; message: string | null; allFailing: boolean; allAtLimit: boolean; lastError: string | null };
   paused: boolean;
@@ -106,7 +108,8 @@ export function explainPipeline(i: PipelineInput): { stages: Stage[]; blocked: n
 
   // 4. sending
   {
-    const inFlight = a.approved + a.submitting, assist = a.assisted_pending;
+    const forAssistant = Math.min(i.approvedForAssistant ?? 0, a.approved);
+    const inFlight = a.approved - forAssistant + a.submitting, assist = a.assisted_pending + forAssistant;
     const waiting = inFlight + assist, done = a.submitted;
     const reasons: Reason[] = [];
     if (inFlight > 0) {
