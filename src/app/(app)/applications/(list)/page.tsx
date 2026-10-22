@@ -32,7 +32,9 @@ export default async function ApplicationsPage({ searchParams }: { searchParams:
   const isAdmin = (await currentRole()) === "admin";
   const q = parseAppQuery(sp);
   const paging = parsePaging(sp);
-  const [{ rows, total, totalAll, page, pages, shownFrom, shownTo, portalUnavailable, stageCounts: stageN }, opts, panel] = await Promise.all([listApplicationsFiltered(q, paging), filterOptions(), assistantPanelData().catch(() => null)]);
+  const panel = await assistantPanelData().catch(() => null);
+  // the application the assistant is working on right now goes to the top of the list
+  const [{ rows, total, totalAll, page, pages, shownFrom, shownTo, portalUnavailable, stageCounts: stageN }, opts] = await Promise.all([listApplicationsFiltered(q, paging, panel?.live?.id ?? null), filterOptions()]);
   const href = (over: QParams = {}) => `/applications${queryString(appQueryParams(q, { page: undefined, ...over }))}`;
   const ACTION: StageKey[] = ["awaiting_approval", "needs_input", "failed"];
   const sortHeader = (key: keyof typeof APP_SORTS, label: string) => {

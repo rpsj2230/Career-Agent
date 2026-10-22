@@ -23,3 +23,6 @@ export function launchAgentPlists(home = homedir()): string[] {
   if (!existsSync(dir)) return [];
   return readdirSync(dir).filter((f) => /^com\.career-agent\.assistant.*\.plist$/.test(f)).map((f) => join(dir, f));
 }
+
+/** What the probe records about a control or container: structure only (tags, roles, labels, names), never a typed value. */
+export type Outline = { tag: string; role?: string; type?: string; name?: string; id?: string; aria?: string; label?: string; cls?: string; required?: boolean };

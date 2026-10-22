@@ -106,9 +106,30 @@ export async function passSafetyReminder(page: Page): Promise<boolean> {
 }
 
 /** The Easy Apply window on a LinkedIn job page. Fields are read from inside it only. */
-export const EASY_APPLY_SCOPE = '[role="dialog"], .jobs-easy-apply-modal, [data-test-modal]';
+export const EASY_APPLY_SCOPE = '[role="dialog"], dialog[open], [aria-modal="true"], .artdeco-modal, .jobs-easy-apply-modal, [data-test-modal]';
 
-export type LinkedinOpen = { kind: "easy" | "external" | "none"; page: Page; note: string };
+/** Visible form controls that are not part of the site's header, navigation or search boxes. */
+async function controlsOutsideNav(page: Page): Promise<number> {
+  return page.locator(FIELD).evaluateAll((els) => els.filter((e) => (e as HTMLElement).offsetParent !== null && !e.closest("header, nav, [role=search], form[role=search], #global-nav, .global-nav, .search-global-typeahead")).length).catch(() => 0);
+}
+
+/**
+ * After Easy Apply is pressed: wait for the application window (any dialog-like container) and say how it was found. Newer LinkedIn pages may
+ * instead move to an /apply address and show the steps in the main area, so that counts too. Returns the scope to read fields from, or why not.
+ */
+async function waitForEasyApplyWindow(page: Page, timeoutMs = 9000): Promise<{ scope: string | null; why: string }> {
+  const end = Date.now() + timeoutMs;
+  while (Date.now() < end) {
+    if (await page.locator(EASY_APPLY_SCOPE).first().isVisible().catch(() => false)) return { scope: EASY_APPLY_SCOPE, why: "a window opened" };
+    if (/\/apply\b/i.test(page.url()) && (await controlsOutsideNav(page)) >= 1) return { scope: "main", why: "the page moved to its /apply steps" };
+    await page.waitForTimeout(400).catch(() => undefined);
+  }
+  const count = async (sel: string) => page.locator(sel).count().catch(() => 0);
+  const why = `no application window found (address ${page.url().replace(/[?#].*$/, "")}; role=dialog ${await count('[role="dialog"]')}, native dialog ${await count("dialog")}, aria-modal ${await count('[aria-modal="true"]')}, form fields outside the header ${await controlsOutsideNav(page)})`;
+  return { scope: null, why };
+}
+
+export type LinkedinOpen = { kind: "easy" | "external" | "none"; page: Page; note: string; /** where Easy Apply's fields are read from */ scope?: string };
 const clickHard = async (el: ReturnType<Page["locator"]>) => {
   try { await el.click({ timeout: 5000 }); return; } catch { /* covered or animating */ }
   try { await el.click({ timeout: 3000, force: true }); return; } catch { /* last resort */ }
@@ -132,9 +153,8 @@ export async function linkedinOpenApply(context: BrowserContext, page: Page): Pr
   const external = page.getByRole("button", { name: /apply on company website|apply externally|apply on (the )?employer|^\s*apply\s*$/i }).or(page.getByRole("link", { name: /apply on company website|apply externally|apply on (the )?employer|^\s*apply\s*$/i })).first();
   if (await easy.isVisible().catch(() => false)) {
     await clickHard(easy);
-    await page.locator(EASY_APPLY_SCOPE).first().waitFor({ state: "visible", timeout: 8000 }).catch(() => undefined);
-    const open = await page.locator(EASY_APPLY_SCOPE).first().isVisible().catch(() => false);
-    return open ? { kind: "easy", page, note: "opened Easy Apply" } : { kind: "none", page, note: `clicked Easy Apply but no window opened (${await dialogWords(page)})` };
+    const w = await waitForEasyApplyWindow(page);
+    return w.scope ? { kind: "easy", page, note: `opened Easy Apply (${w.why})`, scope: w.scope } : { kind: "none", page, note: `clicked Easy Apply but ${w.why}` };
   }
   if (await external.isVisible().catch(() => false)) {
     const label = ((await external.getAttribute("aria-label").catch(() => "")) || (await external.innerText().catch(() => "")) || "Apply").replace(/\s+/g, " ").trim().slice(0, 40);
@@ -165,4 +185,16 @@ export async function applyButtonsSeen(page: Page): Promise<string[]> {
     .map((e) => ((e.getAttribute("aria-label") || (e as HTMLElement).innerText || "").replace(/\s+/g, " ").trim()))
     .filter((t) => t.length > 0 && t.length <= 48 && /apply|easy|sign in|join|continue|save/i.test(t))).catch(() => [] as string[]);
   return [...new Set(names)].slice(0, 8);
+}
+
+
+/** Employer systems that make you create or sign in to an account for each company: the assistant does not create accounts, so these are handed back with that reason. */
+export function accountGatedVendor(host: string): string | null {
+  const h = host.toLowerCase();
+  if (/myworkdayjobs\.com$|\.workday\.com$/.test(h)) return "Workday";
+  if (/(^|\.)icims\.com$/.test(h)) return "iCIMS";
+  if (/(^|\.)taleo\.net$/.test(h)) return "Taleo";
+  if (/successfactors\.(com|eu)$/.test(h)) return "SAP SuccessFactors";
+  if (/(^|\.)oraclecloud\.com$/.test(h)) return "Oracle Recruiting";
+  return null;
 }

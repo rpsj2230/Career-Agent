@@ -178,3 +178,19 @@ describe("Applications default order: still to apply first, best score first, ap
     expect(sortApps(sent, "queue", "desc").map((r) => r.id)).toEqual(["queued-low", "queued-none", "applied-high", "queued-high"]);
   });
 });
+
+describe("the list puts what is being applied for right now at the top", () => {
+  const base = { method: null, lifecycle: "none", submitted_at: null, country: "sg", apply_type: "unknown", url: "https://x.example/job", portal: "linkedin", company: "C" };
+  const rows = [
+    { ...base, id: "needs", status: "needs_input", created_at: "2026-10-01T00:00:00Z", title: "A", score: 99 },
+    { ...base, id: "queued", status: "assisted_pending", created_at: "2026-10-02T00:00:00Z", title: "B", score: 70 },
+    { ...base, id: "working", status: "assisted_pending", created_at: "2026-10-03T00:00:00Z", title: "C", score: 40 },
+    { ...base, id: "sending", status: "submitting", created_at: "2026-10-04T00:00:00Z", title: "D", score: 10 },
+    { ...base, id: "done", status: "submitted", created_at: "2026-10-05T00:00:00Z", title: "E", score: 100 },
+  ] as import("@/lib/list-query").AppLight[];
+  it("works on first, then the queue by score, then the rest, then applied", async () => {
+    const { sortApps } = await import("@/lib/list-query");
+    expect(sortApps(rows, "queue", "desc", "working").map((r) => r.id)).toEqual(["working", "sending", "queued", "needs", "done"]);
+    expect(sortApps(rows, "queue", "desc").map((r) => r.id)).toEqual(["sending", "queued", "working", "needs", "done"]);
+  });
+});
