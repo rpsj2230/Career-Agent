@@ -1,5 +1,5 @@
 /** Who can apply, whether each worker is reporting in, and what it handles, for the Workers panel. */
-export type Beat = { at?: string; portals?: string[]; version?: string } | null | undefined;
+export type Beat = { at?: string; portals?: string[]; version?: string; signedIn?: string[] } | null | undefined;
 export type WorkersInput = {
   now: Date;
   computer: Beat;
@@ -12,7 +12,7 @@ export type WorkersInput = {
   /** the version of the app that is live now (the commit it was built from), to compare with what each worker reports running */
   latest?: string;
 };
-export type WorkerRow = { id: "github" | "oracle" | "computer"; name: string; where: string; state: "working" | "idle" | "quiet" | "never" | "off"; seen: string; handles: string[]; started: number; passedOn: number; version: { state: "current" | "outdated" | "unknown"; text: string } | null };
+export type WorkerRow = { id: "github" | "oracle" | "computer"; name: string; where: string; state: "working" | "idle" | "quiet" | "never" | "off"; seen: string; handles: string[]; started: number; passedOn: number; version: { state: "current" | "outdated" | "unknown"; text: string } | null; /** whether the worker's browser is signed in to LinkedIn, when it reports it */ signin?: { ok: boolean; text: string } | null };
 
 const ago = (ms: number): string => {
   const m = Math.max(0, Math.round(ms / 60_000));
@@ -30,6 +30,11 @@ export function versionStatus(b: Beat, latest?: string): WorkerRow["version"] {
   if (!latest) return { state: "unknown", text: `running ${short(running)} (the live version is not known here)` };
   const same = latest.startsWith(running) || running.startsWith(latest);
   return same ? { state: "current", text: `running the latest version (${short(running)})` } : { state: "outdated", text: `running ${short(running)}, the latest is ${short(latest)}: update it` };
+}
+/** Whether the assistant's own browser holds a LinkedIn sign-in (only a worker that reports it is judged). */
+export function signinStatus(b: Beat): WorkerRow["signin"] {
+  if (!b?.at || !b.signedIn) return null;
+  return b.signedIn.includes("linkedin") ? { ok: true, text: "Signed in to LinkedIn" } : { ok: false, text: "Not signed in to LinkedIn, so LinkedIn jobs cannot be applied for: on the computer run npm run assist:login and sign in" };
 }
 const PORTAL_NAMES: Record<string, string> = { linkedin: "LinkedIn", indeed: "Indeed", naukri: "Naukri" };
 
@@ -54,7 +59,7 @@ export function workersOverview(i: WorkersInput): WorkerRow[] {
         ...(oracleAlive && oraclePortals.length ? [`${oraclePortals.join(", ")} only if the always-on machine passes them on or stops`] : []),
         i.cloud.enabled ? `Employers' own pages that wait more than ${i.cloud.fallback_minutes} minutes for the cloud workers` : "Employers' own pages",
       ],
-      started: n(i.started24h, "computer"), passedOn: 0, version: versionStatus(i.computer, i.latest),
+      started: n(i.started24h, "computer"), passedOn: 0, version: versionStatus(i.computer, i.latest), signin: signinStatus(i.computer),
     },
   ];
 }

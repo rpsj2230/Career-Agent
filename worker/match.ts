@@ -88,3 +88,15 @@ export function detectBlock(url: string, bodyText: string, hasCaptchaFrame: bool
   if (/\/(login|signin|sign-in)\b/i.test(url)) return "login";
   return null;
 }
+
+/** Does the browser hold a LinkedIn sign-in? LinkedIn sets the `li_at` cookie when you are signed in; without it a job page is the public, signed-out view with no Easy Apply. */
+export function linkedinSignedIn(cookies: { name: string; domain: string; expires?: number }[], nowSec = Date.now() / 1000): boolean {
+  return cookies.some((c) => c.name === "li_at" && /(^|\.)linkedin\.com$/i.test(c.domain.replace(/^\./, "")) && (!c.expires || c.expires < 0 || c.expires > nowSec));
+}
+
+/** A job board's "Access Denied" / "request could not be satisfied" page: the site refused this browser, so nothing on it can be read or clicked. */
+export function boardDenied(title: string, bodyText: string): boolean {
+  const t = (title || "").trim();
+  if (/^(access denied|error: the request could not be satisfied|403 forbidden|request blocked|you have been blocked)/i.test(t)) return true;
+  return /the request could not be satisfied|you don'?t have permission to access|access denied/i.test((bodyText || "").slice(0, 600)) && (bodyText || "").length < 1200;
+}

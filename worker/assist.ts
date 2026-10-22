@@ -44,7 +44,7 @@ import { autoDecision, humanPause, withinHours, type AutoCaps, type AutoState } 
 import { answerPending } from "./ai-answers";
 import { acquireWatcherLock, lockPathFor } from "./assist-lock";
 import { clickSubmit, fillForm, looksLikeSearchForm } from "./form";
-import { CONFIRMATION, detectBlock, type Answer } from "./match";
+import { boardDenied, CONFIRMATION, detectBlock, linkedinSignedIn, type Answer } from "./match";
 
 const need = (k: string) => { const v = process.env[k]; if (!v) throw new Error(`${k} is not set. Put it in .env.local (see the README, "Apply assistant").`); return v; };
 /** A public JSON page (an employer's job board list), or null when it is missing, slow or not JSON. Only fixed, public hosts are ever asked. */
@@ -78,6 +78,12 @@ let current: Round = { at: new Date().toISOString(), submitted: 0, handedBack: 0
 let lastRound: Round | null = null;
 const leftFor = (reason: string) => { current.left[reason] = (current.left[reason] ?? 0) + 1; };
 
+/** Portals the assistant's browser held a sign-in for on its last round (null until the first round has looked). Reported with the heartbeat. */
+let signedIn: string[] | null = null;
+/** Portals this round gave up on (not signed in, or the site refuses this browser), with the plain reason, so the rest of that portal's queue is not tried one by one. */
+const portalOff = new Map<string, { reason: string; handBack: boolean }>();
+const deniedCount = new Map<string, number>();
+
 /** The code this worker runs (a commit), so the app can say whether it is up to date. */
 const VERSION = (() => {
   if (process.env.GITHUB_SHA) return process.env.GITHUB_SHA;
@@ -96,7 +102,7 @@ async function heartbeat(sb: SupabaseClient) {
     return;
   }
   try {
-    await sb.from("settings").upsert({ key: "assistant_heartbeat", value: { at: new Date().toISOString(), version: VERSION, mode: AUTO ? "hands-free" : "assist", watching: WATCH, hours: process.env.ASSIST_HOURS ?? "", tz: Intl.DateTimeFormat().resolvedOptions().timeZone, ...(lastRound ? { round: lastRound } : {}) }, updated_at: new Date().toISOString() });
+    await sb.from("settings").upsert({ key: "assistant_heartbeat", value: { at: new Date().toISOString(), version: VERSION, ...(signedIn ? { signedIn } : {}), mode: AUTO ? "hands-free" : "assist", watching: WATCH, hours: process.env.ASSIST_HOURS ?? "", tz: Intl.DateTimeFormat().resolvedOptions().timeZone, ...(lastRound ? { round: lastRound } : {}) }, updated_at: new Date().toISOString() });
   } catch { /* the heartbeat is a courtesy, never a reason to stop */ }
 }
 
@@ -154,6 +160,16 @@ async function blocked(page: Page) {
   return detectBlock(page.url(), body, captcha);
 }
 
+/** "adzuna" for any adzuna.* address: the key a refused job board is remembered by. */
+const boardKey = (url: string): string => { try { const h = new URL(url).hostname.replace(/^www\./, "").split("."); return `board:${h.length > 2 && h[h.length - 2].length <= 3 ? h[h.length - 3] : h[h.length - 2] ?? ""}`; } catch { return ""; } };
+
+/** LinkedIn's signed-out view: a sign-in link and no signed-in navigation bar. */
+async function linkedinSignedOutView(page: Page): Promise<boolean> {
+  const signInLink = (await page.locator('a[href*="/login"], a[href*="/signup"], button:has-text("Sign in")').count().catch(() => 0)) > 0;
+  const navBar = (await page.locator('#global-nav, nav.global-nav, .global-nav').count().catch(() => 0)) > 0;
+  return signInLink && !navBar;
+}
+
 type Outcome = "done" | "later" | "skipped" | "quit" | "stop";
 class Handback extends Error {
   constructor(message: string, public stopAll = false, public block: "login" | "captcha" | "checkpoint" | "board" | null = null) { super(message); }
@@ -168,6 +184,18 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
   if (auto) {
     const d = autoDecision(job.portal, auto.caps, auto.state);
     if (!d.go) { say(`  Left for later: ${d.reason}.`); leftFor(d.reason); return "later"; }
+  }
+
+  // a portal this round already found unusable (not signed in, or it refuses this browser) is not tried one application at a time
+  const off = portalOff.get(String(job.portal ?? "").toLowerCase()) ?? portalOff.get(boardKey(job.url));
+  if (off) {
+    if (!off.handBack) { say(`  Left for later: ${off.reason}.`); leftFor(off.reason); return "later"; }
+    await sb.from("applications").update({ status: "needs_input", error: off.reason }).eq("id", app.id);
+    await sb.from("apply_events").insert({ application_id: app.id, kind: "needs_input", detail: { message: off.reason } });
+    await logAct(sb, { kind: "application.needs_input", level: "warn", message: `Needs you: ${off.reason}`, status: "needs_input", application_id: app.id, job_id: job.id, company: job.company, country: job.country, portal: job.portal, detail: { assistant: true, message: off.reason } });
+    say(`  Handed back to you: ${off.reason}`);
+    current.handedBack++;
+    return "later";
   }
 
   const { data: profileRow } = await sb.from("profile").select("data").eq("id", 1).single();
@@ -220,6 +248,15 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
 
   try {
     await page.goto(job.url, { waitUntil: "domcontentloaded", timeout: 45_000 });
+    // a job board that answers "Access Denied" has refused this browser: after two such answers its other jobs are handed back at once
+    if (isRedirector(job.url) && boardDenied(await page.title().catch(() => ""), await page.innerText("body").catch(() => ""))) {
+      const key = boardKey(job.url), n = (deniedCount.get(key) ?? 0) + 1;
+      deniedCount.set(key, n);
+      if (n >= 2) {
+        let host = ""; try { host = new URL(job.url).hostname.replace(/^www\./, ""); } catch { /* keep blank */ }
+        portalOff.set(key, { reason: `${host || "The job board"} answers "Access Denied" to the assistant's browser, so this job can only be applied for on the employer's own site (open the link and apply there)`, handBack: true });
+      }
+    }
     for (let attempt = 0; attempt < 3; attempt++) {
       const b = await blocked(page);
       if (!b) break;
@@ -329,7 +366,16 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
     let problem: string | null = null;
     if (unanswered.length) problem = `Needs you: ${unanswered.join("; ")}`;
     else if (await looksLikeSearchForm(page)) problem = "The link opens a job board's listing or search page, not an application form; apply on the employer's own site";
-    else if (entered.length === 0) problem = "No application form was found on this page (it may need a sign-in, or the role may be closed); apply on the employer's site";
+    else if (entered.length === 0) {
+      if (String(job.portal ?? "").toLowerCase() === "linkedin" && (await linkedinSignedOutView(page))) {
+        const reason = "LinkedIn shows its signed-out page in the assistant's browser (its saved sign-in is missing or has expired): run  npm run assist:login , sign in to LinkedIn, close the window";
+        portalOff.set("linkedin", { reason, handBack: false });
+        say(`  Left for later: ${reason}.`); leftFor(reason);
+        await page.close().catch(() => undefined);
+        return "later";
+      }
+      problem = String(job.portal ?? "").toLowerCase() === "linkedin" ? "LinkedIn shows no Easy Apply form for this job (it may apply on the company's site through another page, or the role may be closed); apply from the job page" : "No application form was found on this page (it may need a sign-in, or the role may be closed); apply on the employer's site";
+    }
     else if (!(await finalStepVisible(page))) problem = "Could not reach the final step of the form";
     if (problem) { await handBack(problem); await page.close().catch(() => undefined); return "later"; }
     const baseline = CONFIRMATION.test(await page.innerText("body").catch(() => ""));
@@ -474,6 +520,16 @@ async function batch(sb: SupabaseClient, who: Who | null): Promise<number> {
   });
   await context.addInitScript({ content: "window.__name = window.__name || function (t) { return t; };" });
   if (await applyStorageState(context, process.env.ASSIST_STORAGE_STATE, profileDir)) say("Sign-ins loaded from the exported file.");
+  // is the assistant's browser signed in to LinkedIn? Without it every LinkedIn job is the public, signed-out page with no Easy Apply button
+  portalOff.clear(); deniedCount.clear();
+  try {
+    signedIn = linkedinSignedIn(await context.cookies("https://www.linkedin.com")) ? ["linkedin"] : [];
+    if (!signedIn.includes("linkedin")) {
+      const reason = "The assistant's browser is not signed in to LinkedIn: run  npm run assist:login , sign in to LinkedIn, close the window";
+      portalOff.set("linkedin", { reason, handBack: false });
+      say(`  ${reason}. LinkedIn applications wait until then.`);
+    }
+  } catch { signedIn = null; }
   let done = 0, attempted = false;
   // a cloud run must end inside its runner time limit: no new application is started after this many minutes (the rest waits for the next run)
   const stopAt = Number(process.env.ASSIST_MAX_MINUTES) > 0 ? Date.now() + Number(process.env.ASSIST_MAX_MINUTES) * 60_000 : Infinity;
