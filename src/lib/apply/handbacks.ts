@@ -2,6 +2,8 @@
  * Questions the agent could not answer. When an application is handed back ("Needs you: ..."), the unanswered questions are
  * collected here, grouped by wording across all applications, so each can be answered once and used from then on.
  */
+import { sensitiveKind } from "./safety";
+
 export type HandbackApp = { id: string; title: string; company: string; country: string | null; unanswered: string[] };
 export type HandbackGroup = { key: string; question: string; count: number; apps: { id: string; title: string; company: string }[]; countries: string[] };
 
@@ -11,7 +13,9 @@ export function cleanQuestion(raw: string): string | null {
   if (!s) return null;
   if (/you must tick this yourself/i.test(s)) return null; // consent boxes are never answered for you
   if (/\((locator|strict mode|error|timeout|Error:)/i.test(s) || /^file upload$/i.test(s)) return null;
-  const q = s.replace(/\s*[✱*]+\s*$/u, "").replace(/\s*\((required|optional)\)\s*$/i, "").replace(/\s*\*$/, "").trim();
+  if (sensitiveKind(s)) return null; // a password, a payment or identity number, a code: never typed into this app
+  const q = s.replace(/\s*\(a required box that is not a plain agreement\)\s*$/i, "").replace(/\s*[✱*]+\s*$/u, "").replace(/\s*\((required|optional)\)\s*$/i, "").replace(/\s*\*$/, "").trim();
+  if (/^(yes|no)$/i.test(q)) return null; // an option of a question, not the question
   return q.length >= 3 && q.length <= 300 ? q : null;
 }
 

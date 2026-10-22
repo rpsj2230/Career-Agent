@@ -18,6 +18,7 @@ import { mainProfileInUse, scopedDb } from "../src/lib/scoped-db";
 import { profilesEnabled } from "../src/lib/scope";
 import { notifyProfile } from "../src/lib/notify-profile";
 import { clickSubmit, fillForm } from "./form";
+import { sensitiveReason } from "../src/lib/apply/safety";
 import { CONFIRMATION, detectBlock, type Answer } from "./match";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -162,7 +163,9 @@ async function processInner(sb: SupabaseClient, appId: string) {
         await checkBlock();
         const r = await fillForm(page, ctx);
         entered.push(...r.entries); steps++;
-        if (r.unanswered.length) { unansweredNow.push(...r.unanswered); throw new Handback("needs_input", `Needs you: ${r.unanswered.join("; ")}`); }
+        if (r.blocked.length) throw new Handback("needs_input", sensitiveReason(r.blocked[0].kind, new URL(page.url()).hostname.replace(/^www\./, "")));
+        if (r.blocked.length) throw new Handback("needs_input", sensitiveReason(r.blocked[0].kind, new URL(page.url()).hostname.replace(/^www\./, "")));
+      if (r.unanswered.length) { unansweredNow.push(...r.unanswered); throw new Handback("needs_input", `Needs you: ${r.unanswered.join("; ")}`); }
         const submit = page.getByRole("button", { name: /submit application/i });
         if (await submit.isVisible().catch(() => false)) { await submit.click(); break; }
         const next = page.getByRole("button", { name: /^(next|review|continue)/i }).first();

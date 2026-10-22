@@ -2,7 +2,7 @@
  * Why applications were handed back to you instead of being sent, grouped into a few plain reasons with what to do about each.
  * Pure (no database): src/lib/handback-store.ts reads the applications.
  */
-export type ReasonId = "job_board" | "no_form" | "captcha" | "sign_in" | "question" | "submit" | "other";
+export type ReasonId = "job_board" | "no_form" | "captcha" | "sign_in" | "question" | "submit" | "unsafe" | "other";
 
 export type ReasonInfo = { id: ReasonId; title: string; why: string; action: string };
 
@@ -37,6 +37,11 @@ export const REASONS: Record<ReasonId, ReasonInfo> = {
     why: "The Submit button was missing, covered, or the site did not confirm the application.",
     action: "Open it and press Submit yourself, then check your email for a confirmation.",
   },
+  unsafe: {
+    id: "unsafe", title: "A page the assistant refused to use",
+    why: "The page asked for a password (an account to create), payment or identity numbers, offered a file or a program to download, or did not look like the employer's own page.",
+    action: "Check the page yourself. The assistant never creates accounts, types a password, pays anything or installs anything; apply there by hand only if it is the real employer.",
+  },
   other: {
     id: "other", title: "Something else",
     why: "The worker stopped for a reason that is shown on the application itself.",
@@ -46,6 +51,7 @@ export const REASONS: Record<ReasonId, ReasonInfo> = {
 
 export function classifyHandback(error: string | null | undefined): ReasonId {
   const e = error ?? "";
+  if (/create an account|types? a password|never downloads|did not touch this page|payment or bank details|identity or tax number|wants a verification code/i.test(e)) return "unsafe";
   if (/job board|listing or search page/i.test(e)) return "job_board";
   if (/captcha|security check|verify you are human/i.test(e)) return "captcha";
   if (/asked for a sign-?in|sign-?in page|log ?in to|singpass/i.test(e)) return "sign_in";
