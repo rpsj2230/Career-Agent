@@ -9,7 +9,7 @@ import { assignIds, ExtractedProfile } from "./ids";
  */
 const Prefs = z.object({
   countries: z.array(z.string()).optional(), roles: z.array(z.string()).optional(), payCountry: z.string().optional(),
-  currentCtc: z.string().optional(), expectedCtc: z.string().optional(), noticePeriod: z.string().optional(), visaStatus: z.string().optional(), relocate: z.boolean().optional(),
+  currentCtc: z.string().optional(), expectedCtc: z.string().optional(), noticePeriod: z.string().optional(), visaStatus: z.string().optional(), relocate: z.boolean().optional(), languages: z.string().optional(),
 }).partial();
 const File = ExtractedProfile.extend({ preferences: Prefs.optional() });
 

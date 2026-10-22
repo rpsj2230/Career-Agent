@@ -20,6 +20,7 @@ import { notifyProfile } from "../src/lib/notify-profile";
 import { clickSubmit, fillForm } from "./form";
 import { sensitiveReason } from "../src/lib/apply/safety";
 import { dropShots } from "./shots";
+import { defaultToolYears, skillYears } from "../src/lib/apply/skill-years";
 import { CONFIRMATION, detectBlock, type Answer } from "./match";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -107,7 +108,7 @@ async function processInner(sb: SupabaseClient, appId: string) {
     name: profile.basics.name, email: profile.basics.email, phone: profile.basics.phone, location: profile.basics.location,
     links: profile.basics.links, currentCompany: profile.experience[0]?.company,
   };
-  const ctx = { applicant, answers: (app.answers as Answer[]) ?? [], resumePath, coverPath };
+  const ctx = { applicant, answers: (app.answers as Answer[]) ?? [], resumePath, coverPath, skillYears: (s: string) => skillYears(profile, s), defaultYears: (s: string) => defaultToolYears(profile, s), languages: profile.preferences.languages };
 
   // Everything below is recorded so the application page can show exactly what was sent.
   let baselineConfirmation = false;

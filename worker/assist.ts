@@ -243,6 +243,7 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
     answers: app.answers ?? [], resumePath: files.resume.path, coverPath: files.cover?.path,
     skillYears: (skill: string) => skillYears(profile, skill),
     defaultYears: (skill: string) => defaultToolYears(profile, skill),
+    languages: profile.preferences.languages,
   };
 
   const startedAt = new Date().toISOString();

@@ -20,7 +20,7 @@ export function yearsSkill(label: string): string | null {
     l.match(/^(.{2,120}?)\s+(?:experience|expertise)\s*\(?(?:in )?years?\)?$/) ??
     l.match(/(?:years?|yrs?)\s+(?:with|in|using|of)\s+(.{2,120})$/);
   if (!m) return null;
-  let s = m[1].replace(/\b(do|did|have|you|your|please|required|total|professional|relevant|overall)\b/g, " ").replace(/[^a-z0-9+#. ]/g, " ").replace(/\s+/g, " ").trim();
+  let s = m[1].replace(/\b(do|did|have|you|your|please|required|total|professional|relevant|overall)\b/g, " ").replace(/[^a-z0-9+#.,\- ]/g, " ").replace(/\s*,\s*/g, ", ").replace(/\s+/g, " ").trim();
   s = s.replace(FILLER, "").replace(/^microsoft\s+/, "").replace(/\s+(experience|skills?|platform|technology|tools?)$/, "").trim();
   s = ALIASES[s] ?? s;
   return s.length >= 2 && s.length <= 100 ? s : null;
@@ -33,8 +33,18 @@ const yearOf = (s: string | undefined, nowYear: number): number | null => {
   return y ? +y : null;
 };
 
+/** Words that describe the doing rather than the field: "designing and delivering training" is about training. */
+const STOP = new Set(["designing", "delivering", "design", "deliver", "managing", "leading", "building", "using", "developing", "implementing", "running", "experience", "initiatives", "projects", "programs", "programmes", "working", "handling", "driving", "creating", "and", "or", "of", "the", "in", "with", "for", "to", "a", "an"]);
+
+/** The fields a question names: "training, workshops, and change management" is three, and a role that names any of them counts. */
+function termsOf(skill: string): string[] {
+  const chunks = skill.split(/,|\s+(?:and|or)\s+/).map((c) => c.split(/\s+/).filter((w) => w && !STOP.has(w)).join(" ")).filter((c) => c.length >= 2);
+  return chunks.length ? chunks : [skill];
+}
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const mentions = (text: string, skill: string) => new RegExp(`(^|[^a-z0-9])${esc(skill).replace(/ /g, "[ -]?")}($|[^a-z0-9])`, "i").test(text);
+/** A word matches by its stem when it is long ("training" finds "trained", "trainings"), and exactly when it is short ("ai", "sql"). */
+const wordPattern = (w: string) => (w.length > 5 ? `${esc(w.replace(/(ings?|ments?|ed|es|s)$/, ""))}\\w*` : `${esc(w)}\\b`);
+const termRegex = (term: string) => new RegExp(`(^|[^a-z0-9])${term.split(/[\s-]+/).map(wordPattern).join("[\\s-]+")}`, "i");
 
 /**
  * Whole years the profile shows work with this skill: from the first start to the last end of the roles that mention it by name (title or bullet).
@@ -42,11 +52,11 @@ const mentions = (text: string, skill: string) => new RegExp(`(^|[^a-z0-9])${esc
  */
 export function skillYears(p: MasterProfile, skill: string, nowYear = new Date().getFullYear()): string | null {
   const alias = Object.entries(ALIASES).filter(([, v]) => v === skill).map(([k]) => k);
-  const names = [skill, ...alias];
+  const terms = [...new Set([skill, ...alias].flatMap(termsOf))].map(termRegex);
   let min = Infinity, max = -Infinity;
   for (const e of p.experience) {
     const text = [e.title, ...e.bullets.map((b) => b.text)].join(" \n ");
-    if (!names.some((n) => mentions(text, n))) continue;
+    if (!terms.some((re) => re.test(text))) continue;
     const start = yearOf(e.start, nowYear), end = yearOf(e.end, nowYear);
     if (start !== null) min = Math.min(min, start);
     if (end !== null) max = Math.max(max, end);

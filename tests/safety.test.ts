@@ -206,3 +206,20 @@ describe("never press Apply on a page that is not the job", () => {
     expect(isRetryable(m)).toBe(false);
   });
 });
+
+describe("language questions in a form", () => {
+  live("are answered from the languages you know: a choice, a text box, and a language you do not know", async () => {
+    if (!browser) return;
+    const page = await browser.newPage();
+    await page.setContent(`
+      <label for="a">What is your level of proficiency in English?*</label><select id="a" required><option value="Select an option">Select an option</option><option>None</option><option>Basic</option><option>Conversational</option><option>Fluent</option><option>Native</option></select>
+      <label for="b">What is your level of proficiency in Chinese?*</label><select id="b" required><option value="Select an option">Select an option</option><option>None</option><option>Basic</option><option>Conversational</option><option>Fluent</option><option>Native</option></select>
+      <label for="c">Please rate your Hindi language skills*</label><input id="c" required>`);
+    const r = await fillForm(page, { applicant: { name: "Asha Rao", email: "a@x.com", phone: "1", location: "SG", links: [] }, answers: [{ question: "What is your level of proficiency in English?", answer: "Fluent" }], resumePath: "/dev/null", languages: "English: fluent; Hindi: fluent" });
+    expect(await page.inputValue("#a")).toBe("Fluent");
+    expect(await page.inputValue("#b")).toBe("None");
+    expect(await page.inputValue("#c")).toBe("Fluent (read, write and speak)");
+    expect(r.unanswered).toEqual([]);
+    await page.close();
+  });
+});

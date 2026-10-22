@@ -75,7 +75,7 @@ import { parkMillis } from "../src/lib/llm/spread";
 describe("a long years question, and failing models", () => {
   it("reads the field in a long 'years in designing and delivering ...' question, so the default rule answers it", () => {
     const q = "How many years of experience do you have in designing and delivering training, workshops, and change management initiatives?";
-    expect(yearsSkill(q)).toBe("designing and delivering training workshops and change management initiatives");
+    expect(yearsSkill(q)).toBe("designing and delivering training, workshops, and change management initiatives");
   });
   it("puts a question to a model once per application, not on every page", () => {
     const asked = new Set<string>();
