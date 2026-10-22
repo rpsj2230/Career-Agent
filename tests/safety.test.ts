@@ -176,3 +176,33 @@ describe("hand-backs an older assistant could not read", () => {
     expect(staleOldReading(rows, new Set(["a", "c"]))).toEqual(["b"]);
   });
 });
+
+import { onJobPage } from "../worker/assist-lib";
+import { mentionsCompany } from "../src/lib/apply/safety";
+describe("never press Apply on a page that is not the job", () => {
+  const job = "https://www.linkedin.com/jobs/view/4480419562";
+  it("accepts the job's own page and a results page showing this job", () => {
+    expect(onJobPage("https://www.linkedin.com/jobs/view/4480419562/", job)).toBe(true);
+    expect(onJobPage("https://www.linkedin.com/jobs/view/4480419562/?trackingId=x", job)).toBe(true);
+    expect(onJobPage("https://www.linkedin.com/jobs/view/marketing-ai-lead-at-searchability-4480419562/", job)).toBe(true);
+    expect(onJobPage("https://www.linkedin.com/jobs/search-results/?currentJobId=4480419562&origin=x", job)).toBe(true);
+  });
+  it("refuses the search results LinkedIn sends a removed job to, and another job", () => {
+    expect(onJobPage("https://www.linkedin.com/jobs/search-results/", job)).toBe(false);
+    expect(onJobPage("https://www.linkedin.com/jobs/view/4480419563/", job)).toBe(false);
+    expect(onJobPage("https://www.linkedin.com/jobs/search-results/?currentJobId=4480419999", job)).toBe(false);
+    expect(onJobPage("https://www.linkedin.com/jobs/view/44804195620/", job)).toBe(false); // a longer number is another job
+  });
+  it("has nothing to compare for a link it cannot read", () => {
+    expect(onJobPage("https://anything.example/x", "https://example.com/job/1")).toBe(true);
+  });
+  it("tells an Easy Apply window for this employer from one for another", () => {
+    expect(mentionsCompany("Apply to Searchability®\n1/4 pages\nContact info", "Searchability®")).toBe(true);
+    expect(mentionsCompany("Apply to Concentrix\n3/4 pages", "Searchability®")).toBe(false);
+  });
+  it("classes a removed job with the closed ones and never retries it", () => {
+    const m = "LinkedIn moved the assistant from this job to /jobs/search-results/ before anything was pressed, so nothing was pressed; the job may still be open: open it and apply";
+    expect(classifyHandback(m)).toBe("no_form");
+    expect(isRetryable(m)).toBe(false);
+  });
+});
