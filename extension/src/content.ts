@@ -2,6 +2,7 @@ import { matchAnswer, standardValue, type Answer } from "../../worker/match";
 import { languageAnswer } from "../../src/lib/apply/languages";
 import { CONSENT_BOX } from "../../src/lib/apply/consent";
 import { sensitiveKind } from "../../src/lib/apply/safety";
+import { declineOption } from "../../src/lib/apply/demographics";
 import { asCount, defaultToolYears, skillYears, wantsNumber, yearsSkill } from "../../src/lib/apply/skill-years";
 import type { FillData } from "../../src/lib/apply/fill-data";
 import type { MasterProfile } from "../../src/lib/types";
@@ -70,7 +71,7 @@ export function fillPage(data: FillData): FillReport {
     if (banked) return banked;
     const skill = yearsSkill(label);
     if (skill) return skillYears(profile, skill) ?? defaultToolYears(profile, skill);
-    return languageAnswer(label, options, data.languages);
+    return languageAnswer(label, options, data.languages) ?? declineOption(label, options);
   };
   for (const el of controls) {
     const type = el.tagName === "SELECT" ? "select" : el.tagName === "TEXTAREA" ? "textarea" : (el.type || "text").toLowerCase();

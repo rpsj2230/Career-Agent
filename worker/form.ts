@@ -4,6 +4,7 @@ import type { FieldEntry } from "../src/lib/apply/submission";
 import { asCount, wantsNumber, yearsSkill } from "../src/lib/apply/skill-years";
 import { sensitiveKind, type Sensitive } from "../src/lib/apply/safety";
 import { languageAnswer } from "../src/lib/apply/languages";
+import { declineOption } from "../src/lib/apply/demographics";
 import { matchAnswer, standardValue, type Answer, type Applicant } from "./match";
 
 export type FillContext = {
@@ -204,7 +205,7 @@ export async function fillForm(page: Page, ctx: FillContext, scope?: string): Pr
       }
       if (f.type === "checkboxgroup") {
         if (f.hasValue) continue;
-        const answer = matchAnswer(f.label, ctx.answers) ?? languageAnswer(label, f.options.map((o) => o.text), ctx.languages);
+        const answer = matchAnswer(f.label, ctx.answers) ?? languageAnswer(label, f.options.map((o) => o.text), ctx.languages) ?? declineOption(label, f.options.map((o) => o.text));
         const i = answer ? pickOption(f.options, answer) : -1;
         if (i >= 0) { await tick(at(f.options[i].idx)); filled.push(label); entries.push({ label, value: f.options[i].text, kind: "checkbox", source: "answers" }); }
         else ask({ ...f, type: "radio" }, label);
@@ -219,7 +220,7 @@ export async function fillForm(page: Page, ctx: FillContext, scope?: string): Pr
       }
       if (f.hasValue) continue;
       // the visible label decides first (a field named "_systemfield_name" labelled "Name"); the field's own name is the fallback
-      const langAns = languageAnswer(label, f.options.map((o) => o.text), ctx.languages);
+      const langAns = languageAnswer(label, f.options.map((o) => o.text), ctx.languages) ?? declineOption(label, f.options.map((o) => o.text));
       const std = standardValue(label, ctx.applicant) ?? standardValue(probe, ctx.applicant);
       const banked = std ?? matchAnswer(label, ctx.answers);
       const skill = banked == null ? yearsSkill(label) : null;
@@ -231,7 +232,7 @@ export async function fillForm(page: Page, ctx: FillContext, scope?: string): Pr
       const source: FieldEntry["source"] = std != null || derived != null || (banked == null && standing == null && langAns != null) ? "profile" : standing != null ? "rule" : "answers";
 
       if (f.type === "radio") {
-        const answer = matchAnswer(f.label, ctx.answers) ?? languageAnswer(label, f.options.map((o) => o.text), ctx.languages);
+        const answer = matchAnswer(f.label, ctx.answers) ?? languageAnswer(label, f.options.map((o) => o.text), ctx.languages) ?? declineOption(label, f.options.map((o) => o.text));
         const i = answer ? pickOption(f.options, answer) : -1;
         if (i >= 0) { await at(f.options[i].idx).check(); filled.push(label); entries.push({ label, value: f.options[i].text, kind: "radio", source: "answers" }); }
         else ask(f, label);

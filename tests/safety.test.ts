@@ -285,3 +285,30 @@ describe("reading the form back after filling it", () => {
     await page.close();
   });
 });
+
+import { declineOption, isDemographic } from "../src/lib/apply/demographics";
+describe("voluntary self-identification questions", () => {
+  it("are recognised, and answered with the option that declines to say", () => {
+    for (const q of ["Gender", "What is your race/ethnicity?", "Are you a protected veteran?", "Please indicate your disability status", "Date of birth", "Sexual orientation"]) expect(isDemographic(q), q).toBe(true);
+    expect(isDemographic("What is your level of proficiency in English?")).toBe(false);
+    expect(isDemographic("How many years of leadership experience?")).toBe(false);
+    expect(declineOption("Gender", ["Male", "Female", "Non-binary", "I don't wish to answer"])).toBe("I don't wish to answer");
+    expect(declineOption("Veteran status", ["I am a veteran", "I am not a veteran", "Decline to self-identify"])).toBe("Decline to self-identify");
+    expect(declineOption("Gender", ["Male", "Female"])).toBeNull(); // nothing declines: it stays for the owner
+    expect(declineOption("Why do you want this role?", ["Prefer not to say"])).toBeNull();
+  });
+  live("fills a self-identification dropdown and radio group on a form, but a saved answer wins", async () => {
+    if (!browser) return;
+    const page = await browser.newPage();
+    await page.setContent(`
+      <label for="g">Gender*</label><select id="g" required><option value="Select an option">Select an option</option><option>Male</option><option>Female</option><option>Decline to self-identify</option></select>
+      <fieldset><legend>Veteran status*</legend><label><input type="radio" name="v" value="1"> I am a veteran</label><label><input type="radio" name="v" value="2"> I am not a veteran</label><label><input type="radio" name="v" value="3"> I prefer not to say</label></fieldset>
+      <label for="r">Race*</label><select id="r" required><option value="Select an option">Select an option</option><option>Asian</option><option>White</option><option>Prefer not to say</option></select>`);
+    const r = await fillForm(page, { applicant: { name: "A", email: "a@x.com", phone: "1", location: "SG", links: [] }, answers: [{ question: "Race", answer: "Asian" }], resumePath: "/dev/null" });
+    expect(await page.inputValue("#g")).toBe("Decline to self-identify");
+    expect(await page.isChecked("input[value='3']")).toBe(true);
+    expect(await page.inputValue("#r")).toBe("Asian"); // the owner's saved answer wins
+    expect(r.unanswered).toEqual([]);
+    await page.close();
+  });
+});
