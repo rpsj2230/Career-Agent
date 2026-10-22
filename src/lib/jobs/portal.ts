@@ -58,3 +58,13 @@ export const PORTAL_LABELS: Record<string, string> = {
   ziprecruiter: "ZipRecruiter", bayt: "Bayt", naukrigulf: "Naukrigulf", gulftalent: "GulfTalent", seek: "SEEK", jobstreet: "JobStreet", jobsdb: "JobsDB", mycareersfuture: "MyCareersFuture", mcf: "MyCareersFuture", mailbox: "Alert emails",
 };
 export const portalLabel = (key: string | null | undefined) => (key ? PORTAL_LABELS[key] ?? key.charAt(0).toUpperCase() + key.slice(1) : "Unknown");
+
+const VIA_LABELS: Record<string, string> = {
+  mailbox: "Email alerts (your mailbox)", apify: "Hosted scrapers (Apify)", mcf: "MyCareersFuture", jsearch: "JSearch", adzuna: "Adzuna",
+  greenhouse: "Greenhouse boards", lever: "Lever boards", ashby: "Ashby boards", workable: "Workable boards", recruitee: "Recruitee boards",
+  remotive: "Remotive", remoteok: "RemoteOK", jobicy: "Jobicy", arbeitnow: "Arbeitnow", manual: "Added by hand",
+};
+/** The way a job reached the app (the part of its source before the colon), in plain words. */
+export const viaLabel = (via: string): string => VIA_LABELS[via] ?? portalLabel(via);
+/** "apify:curious_coder~linkedin" -> "apify". */
+export const viaOf = (source: string | null | undefined): string | null => (source ? source.split(":")[0] || null : null);

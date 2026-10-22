@@ -29,16 +29,17 @@ export type AppListRow = {
 };
 
 /** Distinct portals and countries that exist in the data, for the filter drop-downs. */
-export async function filterOptions(): Promise<{ portals: { key: string; n: number }[]; countries: { key: string; n: number }[] }> {
+export async function filterOptions(): Promise<{ portals: { key: string; n: number }[]; vias: { key: string; n: number }[]; countries: { key: string; n: number }[] }> {
   const tally = (rows: { [k: string]: string | null }[], col: string) => {
     const m = new Map<string, number>();
     for (const r of rows) { const k = r[col]; if (k) m.set(k, (m.get(k) ?? 0) + 1); }
     return [...m].map(([key, n]) => ({ key, n })).sort((a, b) => b.n - a.n);
   };
-  let res = await fetchAll<{ [k: string]: string | null }>((a, b) => db().from("jobs").select("portal,country").order("id").range(a, b), 100_000);
-  if (res.error) res = await fetchAll<{ [k: string]: string | null }>((a, b) => db().from("jobs").select("country").order("id").range(a, b), 100_000);
+  let res = await fetchAll<{ [k: string]: string | null }>((a, b) => db().from("jobs").select("portal,country,source").order("id").range(a, b), 100_000);
+  if (res.error) res = await fetchAll<{ [k: string]: string | null }>((a, b) => db().from("jobs").select("country,source").order("id").range(a, b), 100_000);
   const rows = res.data;
-  return { portals: tally(rows, "portal"), countries: tally(rows, "country") };
+  const withVia = rows.map((r) => ({ ...r, via: r.source ? r.source.split(":")[0] : null }));
+  return { portals: tally(rows, "portal"), vias: tally(withVia, "via"), countries: tally(rows, "country") };
 }
 
 export async function counts(country?: string) {
@@ -100,7 +101,7 @@ export async function applicationsForJobs(jobIds: string[]): Promise<Map<string,
 
 type RawJob = {
   id: string; title: string; company: string; country: string | null; location: string | null; status: string; found_at: string; posted_at: string | null;
-  apply_type: string; url: string; portal?: string | null;
+  apply_type: string; url: string; source?: string | null; portal?: string | null;
   job_scores: { score: number } | { score: number }[] | null;
   application: { status: string } | { status: string }[] | null;
 };
@@ -123,7 +124,7 @@ async function tableTotal(table: "jobs" | "applications", floor: number): Promis
 
 export async function listJobsFiltered(q: JobQuery, paging: { page: number; size: number } = { page: 1, size: 25 }): Promise<JobsPage> {
   const load = async (withPortal: boolean) => fetchAll<RawJob>((a, b) => {
-    let x = db().from("jobs").select(`id,title,company,country,location,status,found_at,posted_at,apply_type,url${withPortal ? ",portal" : ""},job_scores(score),application:applications(status)`);
+    let x = db().from("jobs").select(`id,title,company,country,location,status,found_at,posted_at,apply_type,url,source${withPortal ? ",portal" : ""},job_scores(score),application:applications(status)`);
     if (q.countries.length) x = x.in("country", q.countries);
     if (withPortal && q.portals.length) x = x.in("portal", q.portals);
     if (q.from) x = x.gte("found_at", `${q.from}T00:00:00Z`);
@@ -136,7 +137,7 @@ export async function listJobsFiltered(q: JobQuery, paging: { page: number; size
   if (res.error) throw new Error(`list jobs: ${res.error.message}`);
   const light: JobLight[] = res.data.map((r) => ({
     id: r.id, title: r.title, company: r.company, country: r.country, location: r.location, status: r.status, found_at: r.found_at, posted_at: r.posted_at,
-    portal: r.portal ?? null, apply_type: r.apply_type, url: r.url, score: one(r.job_scores)?.score ?? null, appStatus: one(r.application)?.status ?? null,
+    portal: r.portal ?? null, source: r.source ?? null, apply_type: r.apply_type, url: r.url, score: one(r.job_scores)?.score ?? null, appStatus: one(r.application)?.status ?? null,
   }));
   const otherFilters = filterJobsExceptStage(light, q);
   const counts = stageCounts(otherFilters);

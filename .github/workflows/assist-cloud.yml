@@ -36,6 +36,8 @@ jobs:
           ASSIST_HEADLESS: "1"
           ASSIST_NO_HEARTBEAT: "1"
           ASSIST_WORKER: github
+          # a sign-in page, CAPTCHA or job-board link this runner cannot get past is passed to the assistant on your computer, not handed to you
+          ASSIST_FAILOVER: "1"
           # employer sites have no account to protect: a short pause between applications, so a run gets through many more
           ASSIST_AUTO_PAUSE_MS: "4000"
           ASSIST_LIMIT: "60"

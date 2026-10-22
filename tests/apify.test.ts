@@ -72,8 +72,16 @@ describe("runActor", () => {
     expect(r.calls[0].init.headers.Authorization).toBe("Bearer tok");
     expect(JSON.parse(r.calls[0].init.body!)).toEqual({ q: "Product Manager", n: 40 });
   });
-  it.each([[401, /rejected the token/], [404, /no actor/], [402, /out of credit/], [400, /rejected the input/], [500, /HTTP 500/]])("explains HTTP %s", async (status, re) => {
+  it.each([[401, /rejected the token/], [403, /refused \(forbidden/], [404, /no actor/], [402, /out of credit/], [400, /rejected the input/], [500, /HTTP 500/]])("explains HTTP %s", async (status, re) => {
     await expect(runActor("tok", actor, vars, respond(status).f)).rejects.toThrow(re);
+  });
+  it("tells a refused actor from a bad token, in Apify's own words", async () => {
+    const body = (type: string, message: string) => ({ error: { type, message } });
+    await expect(runActor("tok", actor, vars, respond(403, body("actor-is-not-rented", "You must rent this actor to run it")).f)).rejects.toThrow(/paid rental and its rental or trial is not active.*actor-is-not-rented/);
+    await expect(runActor("tok", actor, vars, respond(403, body("usage-limit", "Monthly usage hard limit exceeded")).f)).rejects.toThrow(/usage limit is reached.*Monthly usage hard limit exceeded/);
+    await expect(runActor("tok", actor, vars, respond(403, body("forbidden", "Insufficient permissions for the actor")).f)).rejects.toThrow(/no permission to run/);
+    await expect(runActor("tok", actor, vars, respond(403, {}).f)).rejects.toThrow(/token itself may be fine/);
+    await expect(runActor("tok", actor, vars, respond(401, body("token-not-found", "User was not found or authentication token is not valid")).f)).rejects.toThrow(/rejected the token \(Apify says: token-not-found/);
   });
   it("explains an unreachable network and tolerates a non-list answer", async () => {
     await expect(runActor("tok", actor, vars, async () => { throw new Error("ECONNRESET"); })).rejects.toThrow(/Could not reach Apify/);

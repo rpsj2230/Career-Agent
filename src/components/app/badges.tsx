@@ -20,5 +20,6 @@ export const StatusBadge = ({ status }: { status: string }) => (
 /** Where the posting lives. The tooltip names the integration that fetched it. */
 export function SourceBadge({ portal, source }: { portal?: string | null; source?: string | null }) {
   const via = source?.split(":")[0];
-  return <Badge variant="outline" title={via ? `Found via ${via}` : undefined}>{portalLabel(portal ?? via)}</Badge>;
+  const fromEmail = via === "mailbox";
+  return <Badge variant="outline" title={via ? `Found via ${via}` : undefined}>{portalLabel(portal ?? via)}{fromEmail ? " · email" : ""}</Badge>;
 }

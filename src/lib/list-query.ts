@@ -84,7 +84,7 @@ export const JOB_SORTS = {
 export type JobSortKey = keyof typeof JOB_SORTS;
 
 export type JobQuery = {
-  stages: StageKey[]; portals: string[]; countries: string[]; methods: RouteKind[];
+  stages: StageKey[]; portals: string[]; /** how the job reached the app: mailbox, adzuna, apify, ... */ vias: string[]; countries: string[]; methods: RouteKind[];
   q?: string; scoreMin?: number; scoreMax?: number; from?: string; to?: string;
   sort: JobSortKey; dir: "asc" | "desc";
 };
@@ -99,7 +99,7 @@ export function parseJobQuery(sp: SP): JobQuery {
   const portal = all(sp.portal), country = all(sp.country);
   const q = safeSearch(first(sp.q));
   return {
-    stages, portals: code(portal, /^[a-z0-9]{1,40}$/), countries: code(country, /^[a-z]{2}$/),
+    stages, portals: code(portal, /^[a-z0-9]{1,40}$/), vias: code(all(sp.via), /^[a-z0-9]{1,40}$/), countries: code(country, /^[a-z]{2}$/),
     methods: uniq(all(sp.method).filter((m): m is RouteKind => (ROUTE_KINDS as readonly string[]).includes(m))),
     q: q || undefined, scoreMin: score(first(sp.score_min)), scoreMax: score(first(sp.score_max)), from: date(first(sp.from)), to: date(first(sp.to)), sort, dir,
   };
@@ -108,7 +108,7 @@ export function parseJobQuery(sp: SP): JobQuery {
 // ---------------------------------------------------------------- jobs
 export type JobLight = {
   id: string; title: string; company: string; country: string | null; location: string | null; status: string; found_at: string; posted_at: string | null;
-  portal: string | null; apply_type: string; url: string; score: number | null; appStatus: string | null;
+  portal: string | null; source?: string | null; apply_type: string; url: string; score: number | null; appStatus: string | null;
 };
 export const routeOf = (r: Pick<JobLight, "apply_type" | "url" | "portal">): ApplyRoute => applyRoute({ apply_type: r.apply_type, url: r.url, portal: r.portal });
 
@@ -119,6 +119,7 @@ const day = (iso: string) => iso.slice(0, 10);
 export function filterJobsExceptStage(rows: JobLight[], q: JobQuery): JobLight[] {
   return rows.filter((r) =>
     (!q.portals.length || (r.portal !== null && q.portals.includes(r.portal))) &&
+    (!q.vias.length || (r.source != null && q.vias.includes(r.source.split(":")[0]))) &&
     (!q.countries.length || (r.country !== null && q.countries.includes(r.country.toLowerCase()))) &&
     (!q.methods.length || q.methods.includes(routeOf(r).kind)) &&
     (q.scoreMin === undefined || (r.score !== null && r.score >= q.scoreMin)) &&
@@ -235,7 +236,7 @@ export function queryString(params: Link): string {
 export function jobQueryParams(q: JobQuery, over: Link = {}): Link {
   const defaultStages = q.stages.length === JOB_DEFAULT_STAGES.length && JOB_DEFAULT_STAGES.every((s) => q.stages.includes(s));
   const base: Link = {
-    stage: q.stages.length === 0 ? "all" : defaultStages ? undefined : q.stages, portal: q.portals, country: q.countries, method: q.methods,
+    stage: q.stages.length === 0 ? "all" : defaultStages ? undefined : q.stages, portal: q.portals, via: q.vias, country: q.countries, method: q.methods,
     q: q.q, score_min: q.scoreMin, score_max: q.scoreMax, from: q.from, to: q.to,
     sort: q.sort === "score" ? undefined : q.sort, dir: q.dir === JOB_SORTS[q.sort].dir ? undefined : q.dir,
   };
@@ -252,7 +253,7 @@ export function appQueryParams(q: AppQuery, over: Link = {}): Link {
 
 // ---------------------------------------------------------------- the "active filters" pills: each says what is applied and how to take just that one off
 export type Pill = { label: string; over: Link };
-export function activePills(kind: "jobs" | "apps", q: JobQuery | AppQuery, names: { portal: (k: string) => string; country: (k: string) => string; stage: (k: StageKey) => string }, defaultStages: StageKey[] = []): Pill[] {
+export function activePills(kind: "jobs" | "apps", q: JobQuery | AppQuery, names: { portal: (k: string) => string; via?: (k: string) => string; country: (k: string) => string; stage: (k: StageKey) => string }, defaultStages: StageKey[] = []): Pill[] {
   const out: Pill[] = [];
   const isDefault = q.stages.length === defaultStages.length && defaultStages.every((s) => q.stages.includes(s));
   if (q.stages.length && !isDefault) for (const s of q.stages) out.push({ label: names.stage(s), over: { stage: q.stages.filter((x) => x !== s).length ? q.stages.filter((x) => x !== s) : "all", page: undefined } });
@@ -262,6 +263,7 @@ export function activePills(kind: "jobs" | "apps", q: JobQuery | AppQuery, names
   if (q.q) out.push({ label: `Search: “${q.q}”`, over: { q: undefined, page: undefined } });
   if (kind === "jobs") {
     const j = q as JobQuery;
+    for (const v of j.vias) out.push({ label: `Found via: ${names.via ? names.via(v) : v}`, over: { via: j.vias.filter((x) => x !== v), page: undefined } });
     if (j.scoreMin !== undefined) out.push({ label: `Score ≥ ${j.scoreMin}`, over: { score_min: undefined, page: undefined } });
     if (j.scoreMax !== undefined) out.push({ label: `Score ≤ ${j.scoreMax}`, over: { score_max: undefined, page: undefined } });
     if (j.from) out.push({ label: `Found from ${j.from}`, over: { from: undefined, page: undefined } });

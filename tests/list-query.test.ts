@@ -128,3 +128,26 @@ describe("log order and filter pills", () => {
     expect(pills[0].over).toMatchObject({ country: ["ae"] });
   });
 });
+
+describe("found via", () => {
+  const rows = [
+    job({ id: "a", source: "mailbox", portal: "linkedin" }), job({ id: "b", source: "adzuna", portal: "adzuna" }),
+    job({ id: "c", source: "apify:curious_coder~linkedin", portal: "linkedin" }), job({ id: "d", source: null }),
+  ];
+  it("reads the filter from the address and keeps only valid names", () => {
+    expect(parseJobQuery({ via: ["mailbox", "Bad Name!", "apify"] }).vias).toEqual(["mailbox", "apify"]);
+    expect(parseJobQuery({}).vias).toEqual([]);
+  });
+  it("keeps the jobs that reached the app that way, whatever the portal they are on", () => {
+    const q = (vias: string[]) => ({ ...parseJobQuery({ stage: "all" }), vias });
+    expect(filterJobs(rows, q(["mailbox"])).map((r) => r.id)).toEqual(["a"]);
+    expect(filterJobs(rows, q(["apify"])).map((r) => r.id)).toEqual(["c"]);
+    expect(filterJobs(rows, q(["mailbox", "adzuna"])).map((r) => r.id)).toEqual(["a", "b"]);
+    expect(filterJobs(rows, q([])).map((r) => r.id)).toEqual(["a", "b", "c", "d"]);
+  });
+  it("is part of the address and of the removable pills", () => {
+    const q = { ...parseJobQuery({ stage: "all", via: ["mailbox"] }) };
+    expect(jobQueryParams(q)).toMatchObject({ via: ["mailbox"] });
+    expect(activePills("jobs", q, { portal: (k) => k, via: (k) => `via ${k}`, country: (k) => k, stage: (k) => k }).map((p) => p.label)).toContain("Found via: via mailbox");
+  });
+});

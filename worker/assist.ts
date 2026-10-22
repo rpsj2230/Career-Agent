@@ -30,6 +30,7 @@ import { chromium, type BrowserContext, type Page } from "playwright";
 import { confirmationSnippet, type FieldEntry, type SubmissionRecord } from "../src/lib/apply/submission";
 import { MasterProfile } from "../src/lib/types";
 import { isRedirector } from "../src/lib/jobs/redirectors";
+import { alternativeRoutes } from "../src/lib/jobs/alt-routes";
 import { finalStepVisible, leaveJobBoard, nextStep, openApplyForm } from "./assist-lib";
 import { requestPending, type AssistantRequest } from "../src/lib/apply/assistant-request";
 import { autoDecision, humanPause, withinHours, type AutoCaps, type AutoState } from "./assist-policy";
@@ -39,6 +40,10 @@ import { clickSubmit, fillForm, looksLikeSearchForm } from "./form";
 import { CONFIRMATION, detectBlock, type Answer } from "./match";
 
 const need = (k: string) => { const v = process.env[k]; if (!v) throw new Error(`${k} is not set. Put it in .env.local (see the README, "Apply assistant").`); return v; };
+/** A public JSON page (an employer's job board list), or null when it is missing, slow or not JSON. Only fixed, public hosts are ever asked. */
+const fetchJson = async (url: string): Promise<unknown | null> => {
+  try { const r = await fetch(url, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(6000) }); return r.ok ? await r.json() : null; } catch { return null; }
+};
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const sha256 = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
 
@@ -131,7 +136,7 @@ async function blocked(page: Page) {
 
 type Outcome = "done" | "later" | "skipped" | "quit" | "stop";
 class Handback extends Error {
-  constructor(message: string, public stopAll = false, public block: "login" | "captcha" | "checkpoint" | null = null) { super(message); }
+  constructor(message: string, public stopAll = false, public block: "login" | "captcha" | "checkpoint" | "board" | null = null) { super(message); }
 }
 
 /** One application: open it, fill it, then either wait for you (assist) or press Submit within the limits (hands-free). */
@@ -202,12 +207,26 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
       await waitForHuman(page, b === "login" ? "This portal wants you to sign in." : b === "captcha" ? "There is a CAPTCHA." : "The portal shows a security check.");
     }
     // a job board's listing page has no form: follow its Apply link to the employer's own site first
-    const board = await leaveJobBoard(page, isRedirector);
+    let board = await leaveJobBoard(page, isRedirector);
     page = board.page;
+    if (!board.left) {
+      // other ways to the employer's own form: a link named in the job description, then the same job on the employer's own job board
+      const routes = await alternativeRoutes({ title: job.title, company: job.company, location: job.location, description: job.description }, { getJson: fetchJson }).catch(() => []);
+      for (const alt of routes) {
+        await page.goto(alt.url, { waitUntil: "domcontentloaded", timeout: 45_000 }).catch(() => undefined);
+        await page.waitForLoadState("networkidle", { timeout: 8000 }).catch(() => undefined);
+        if (isRedirector(page.url()) || (await looksLikeSearchForm(page))) continue;
+        say(`  Found another way in: ${alt.how}`);
+        await sb.from("jobs").update({ url: alt.url, ...(alt.ats === "greenhouse" || alt.ats === "lever" ? { apply_type: alt.ats } : {}) }).eq("id", job.id);
+        await logAct(sb, { kind: "job.link_resolved", message: `Found the employer's own application page for ${job.title} at ${job.company}: ${alt.how}`, application_id: app.id, job_id: job.id, company: job.company, portal: job.portal, detail: { url: alt.url, how: alt.how, assistant: true } });
+        board = { page, left: true };
+        break;
+      }
+    }
     if (!board.left && auto) {
       const title = (await board.page.title().catch(() => "")).replace(/\s+/g, " ").trim().slice(0, 70);
       let host = ""; try { host = new URL(board.page.url()).hostname; } catch { /* keep blank */ }
-      throw new Handback(`The link stays on the job board (its Apply link did not lead to the employer's own page; the page on ${host || "the board"} is titled "${title || "no title"}"); apply on the employer's own site`);
+      throw new Handback(`The link stays on the job board (its Apply link did not lead to the employer's own page, and the employer's own board has no matching job; the page on ${host || "the board"} is titled "${title || "no title"}"); apply on the employer's own site`, false, "board");
     }
     const opened = await openApplyForm(page);
     const fresh = context.pages().filter((p) => !before.has(p) && p !== page);
@@ -242,8 +261,8 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
       // (your computer) instead of handing it to you, and leaves that portal alone for a few hours
       if (FAILOVER && e.block) {
         await sb.from("apply_events").insert({ application_id: app.id, kind: "worker_declined", detail: { worker: WORKER, reason: e.block, portal: job.portal ?? null } });
-        if (job.portal) blockedPortals.set(String(job.portal).toLowerCase(), Date.now() + 6 * 3_600_000);
-        leftFor(`${job.portal ?? "this site"} showed a ${e.block === "login" ? "sign-in page" : e.block === "captcha" ? "CAPTCHA" : "security check"} to this worker: passed to another worker`);
+        if (job.portal && e.block !== "board") blockedPortals.set(String(job.portal).toLowerCase(), Date.now() + 6 * 3_600_000);
+        leftFor(e.block === "board" ? `${job.portal ?? "the job board"} did not lead to the employer's form from this worker: passed to another worker` : `${job.portal ?? "this site"} showed a ${e.block === "login" ? "sign-in page" : e.block === "captcha" ? "CAPTCHA" : "security check"} to this worker: passed to another worker`);
         say(`  Passed on to another worker: ${e.message}`);
         await page.close().catch(() => undefined);
         return "later";
