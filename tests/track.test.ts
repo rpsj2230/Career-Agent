@@ -17,12 +17,12 @@ vi.mock("@/lib/db", () => ({
       let patch: Row | null = null, upsert: Row | null = null;
       const run = () => {
         if (upsert) { const i = (tables[t] ?? []).findIndex((r) => r.key === upsert!.key); if (i >= 0) tables[t][i] = upsert; else (tables[t] ??= []).push(upsert); return { data: [upsert], error: null }; }
-        const rows = (tables[t] ?? []).filter((r) => filters.every(([k, v]) => r[k] === v));
+        const rows = (tables[t] ?? []).filter((r) => filters.every(([k, v]) => (Array.isArray(v) ? v.includes(r[k]) : r[k] === v)));
         if (patch) { rows.forEach((r) => Object.assign(r, patch)); return { data: rows, error: null }; }
         return { data: rows, error: null };
       };
       const c: Record<string, unknown> = {
-        select: () => c, eq: (k: string, v: unknown) => { filters.push([k, v]); return c; }, gte: () => c, limit: () => c, maybeSingle: () => Promise.resolve({ data: run().data?.[0] ?? null, error: null }),
+        select: () => c, in: (k: string, v: unknown[]) => { filters.push([k, v]); return c; }, insert: (row: Row) => { (tables[t] ??= []).push(row); return { select: () => Promise.resolve({ data: [row], error: null }) }; }, eq: (k: string, v: unknown) => { filters.push([k, v]); return c; }, gte: () => c, limit: () => c, maybeSingle: () => Promise.resolve({ data: run().data?.[0] ?? null, error: null }),
         update: (p: Row) => { patch = p; return c; }, upsert: (p: Row) => { upsert = p; return c; }, then: (f: (v: unknown) => unknown) => Promise.resolve(run()).then(f),
       };
       return c;
@@ -70,5 +70,24 @@ describe("trackReplies", () => {
   });
   it("a mailbox failure never throws", async () => {
     await expect(trackReplies({ fetchRecent: async () => [], fetchReplies: async () => { throw new Error("IMAP down"); } })).resolves.toMatchObject({ updated: [] });
+  });
+});
+
+
+describe("receipt emails confirm an application", () => {
+  const receipt = (subject: string, from = "LinkedIn <jobs-noreply@linkedin.com>", date = new Date("2026-10-03T00:00:00Z")) => ({ from, subject, text: "Your application was sent.", date, messageId: `r-${subject}` });
+  it("records the portal's receipt for the application it names, once", async () => {
+    tables.apply_events = [];
+    const r = await trackReplies(source([receipt("Your application was sent to Acme Pte Ltd"), receipt("Your application was sent to Acme Pte Ltd", undefined, new Date("2026-10-04T00:00:00Z"))].map((m, i) => ({ ...m, messageId: `m${i}` }))));
+    expect(r.updated).toEqual([]); // a receipt is not a reply
+    const events = tables.apply_events.filter((e) => e.kind === "receipt_confirmed");
+    expect(events).toHaveLength(1);
+    expect(events[0].application_id).toBe("a1");
+    expect((events[0].detail as { from: string }).from).toBe("linkedin.com");
+  });
+  it("ignores a receipt that predates the application, or names no company of yours", async () => {
+    tables.apply_events = [];
+    await trackReplies(source([receipt("Your application was sent to Acme Pte Ltd", undefined, new Date("2026-09-01T00:00:00Z")), receipt("Your application was sent to Initech")]));
+    expect(tables.apply_events.filter((e) => e.kind === "receipt_confirmed")).toHaveLength(0);
   });
 });

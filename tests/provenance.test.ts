@@ -41,3 +41,19 @@ describe("who applied", () => {
     expect(p.who).toBe("you");
   });
 });
+
+
+describe("a portal's receipt email", () => {
+  it("upgrades the proof of a submission to confirmed, and says where it came from", () => {
+    const p = applicationProvenance({ status: "submitted", submitted_at: "2026-10-22T10:00:00Z", submission: null }, [
+      { kind: "submitted_hands_free", at: "2026-10-22T10:00:00Z", detail: {} },
+      { kind: "receipt_confirmed", at: "2026-10-22T10:05:00Z", detail: { from: "linkedin.com" } },
+    ]);
+    expect(p?.proof.level).toBe("confirmed");
+    expect(p?.proof.text).toMatch(/receipt email from linkedin\.com also confirms it \(2026-10-22\)/);
+  });
+  it("changes nothing when there is no receipt", () => {
+    const p = applicationProvenance({ status: "submitted", submitted_at: "2026-10-22T10:00:00Z", submission: null }, [{ kind: "submitted_hands_free", at: "2026-10-22T10:00:00Z", detail: {} }]);
+    expect(p?.proof.level).toBe("unchecked");
+  });
+});

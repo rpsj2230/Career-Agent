@@ -6,6 +6,7 @@ import { resolveCredentials } from "@/lib/integrations/credentials";
 import { imapSource, type MailSource } from "@/lib/jobs/mailbox";
 import { getSetting } from "@/lib/settings";
 import { classifyReply, matchApplication, nextLifecycle, type AppRef } from "./replies";
+import { matchReceipt } from "./receipts";
 
 const SEEN_KEY = "replies_seen";
 
@@ -25,11 +26,21 @@ export async function trackReplies(source?: MailSource): Promise<{ checked: numb
     const seenRow = must<{ value: { ids: string[] } } | null>(await db().from("settings").select("value").eq("key", SEEN_KEY).maybeSingle(), "load seen replies");
     const seen = new Set(seenRow?.value?.ids ?? []);
     const mails = await src.fetchReplies({ sinceDays: 30, max: 250 });
+    // applications that already have a receipt on record are not confirmed twice
+    const hadReceipt = new Set(((await db().from("apply_events").select("application_id").eq("kind", "receipt_confirmed").in("application_id", apps.map((a) => a.ref.id))).data ?? []).map((e: { application_id: string }) => e.application_id));
     for (const m of mails) {
       const id = m.messageId ?? `${m.from}|${m.subject}|${m.date?.toISOString()}`;
       if (seen.has(id)) continue;
       seen.add(id);
       out.checked++;
+      const receipt = matchReceipt(m, apps.map((a) => a.ref), hadReceipt);
+      if (receipt) {
+        const row = apps.find((a) => a.ref.id === receipt.id)!;
+        hadReceipt.add(receipt.id);
+        must(await db().from("apply_events").insert({ application_id: receipt.id, kind: "receipt_confirmed", detail: { subject: m.subject.slice(0, 160), from: (m.from.match(/@([\w.-]+)/)?.[1] ?? "").slice(0, 80), received: m.date?.toISOString() ?? null } }).select("id"), "record receipt");
+        await logActivity({ kind: "application.lifecycle", message: `Confirmed by the portal's own receipt email: ${row.ref.company}`, status: "submitted", application_id: receipt.id, job_id: row.jobId, company: row.ref.company, detail: { via: "mailbox", subject: m.subject.slice(0, 160) } });
+        continue;
+      }
       const reply = classifyReply(m);
       if (!reply) continue;
       const app = matchApplication(m, apps.map((a) => a.ref));

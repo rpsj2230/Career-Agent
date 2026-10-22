@@ -39,3 +39,9 @@ const STAGE_BADGE: Record<StageKey, { label: string; cls: string }> = {
   saved: { label: "Saved", cls: "bg-violet-600 text-white" },
 };
 export const StageBadge = ({ stage }: { stage: StageKey }) => <Badge className={STAGE_BADGE[stage].cls}>{STAGE_BADGE[stage].label}</Badge>;
+
+const CHIP_CLASS = { cloud: "bg-green-600 text-white", computer: "", hand: "bg-amber-500 text-white" } as const;
+/** Who applies for a job: the cloud, the assistant on your computer, or you by hand (see lib/apply/reachable.ts). */
+export const RouteChipBadge = ({ chip }: { chip: { text: string; tone: "cloud" | "computer" | "hand"; title: string } }) => (
+  <Badge variant={chip.tone === "computer" ? "outline" : "default"} className={CHIP_CLASS[chip.tone]} title={chip.title}>{chip.text}</Badge>
+);
