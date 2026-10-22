@@ -1,4 +1,4 @@
-import type { BrowserContext, Page } from "playwright";
+import type { BrowserContext, Locator, Page } from "playwright";
 
 /**
  * Page helpers for the local assist runner (worker/assist.ts). They move through an application form on the way to the
@@ -166,7 +166,7 @@ async function waitForEasyApplyWindow(page: Page, timeoutMs = 9000): Promise<{ s
     await page.waitForTimeout(400).catch(() => undefined);
   }
   const count = async (sel: string) => page.locator(sel).count().catch(() => 0);
-  const why = `no application window found (address ${page.url().replace(/[?#].*$/, "")}; role=dialog ${await count('[role="dialog"]')}, native dialog ${await count("dialog")}, aria-modal ${await count('[aria-modal="true"]')}, form fields outside the header ${await controlsOutsideNav(page)})`;
+  const why = `no application window found (address ${page.url().replace(/[?#].*$/, "")}${page.url().match(/currentJobId=\d+/)?.[0] ? ` showing ${page.url().match(/currentJobId=\d+/)![0]}` : ""}; role=dialog ${await count('[role="dialog"]')}, native dialog ${await count("dialog")}, aria-modal ${await count('[aria-modal="true"]')}, form fields outside the header ${await controlsOutsideNav(page)})`;
   return { scope: null, why };
 }
 
@@ -189,19 +189,23 @@ async function dialogWords(page: Page): Promise<string> {
  * Open a LinkedIn application on its own terms, and say what happened. Easy Apply opens a window on the page; "Apply on company website"
  * opens the company's page in a new tab, sometimes after a "safety reminders" window. Never presses the button that sends an application.
  */
-export async function linkedinOpenApply(context: BrowserContext, page: Page): Promise<LinkedinOpen> {
-  const easy = page.getByRole("button", { name: /easy apply/i }).or(page.getByRole("link", { name: /easy apply/i })).first();
-  const external = page.getByRole("button", { name: /apply on company website|apply externally|apply on (the )?employer|^\s*apply\s*$/i }).or(page.getByRole("link", { name: /apply on company website|apply externally|apply on (the )?employer|^\s*apply\s*$/i })).first();
-  if (await easy.isVisible().catch(() => false)) {
-    await clickHard(easy);
+export async function linkedinOpenApply(context: BrowserContext, page: Page, jobUrl?: string | null): Promise<LinkedinOpen> {
+  const jobId = jobIdOf(jobUrl);
+  const easy = await ownApplyControl(page, /^\s*easy apply/i, jobId) ?? await ownApplyControl(page, /easy apply/i, jobId);
+  const EXTERNAL = /apply on company website|apply externally|apply on (the )?employer|^\s*apply\s*$/i;
+  const external = easy ? null : await ownApplyControl(page, EXTERNAL, jobId);
+  if (easy) {
+    const urlBefore = page.url();
+    await clickHard(easy.el);
     const w = await waitForEasyApplyWindow(page);
-    return w.scope ? { kind: "easy", page, note: `opened Easy Apply (${w.why})`, scope: w.scope } : { kind: "none", page, note: `clicked Easy Apply but ${w.why}` };
+    if (w.scope) return { kind: "easy", page, note: `opened Easy Apply (${w.why})`, scope: w.scope };
+    return { kind: "none", page, note: `clicked "${easy.name}"${easy.href ? ` (link to ${easy.href.slice(0, 80)})` : ""} on ${pathOf(urlBefore)} but ${w.why}` };
   }
-  if (await external.isVisible().catch(() => false)) {
-    const label = ((await external.getAttribute("aria-label").catch(() => "")) || (await external.innerText().catch(() => "")) || "Apply").replace(/\s+/g, " ").trim().slice(0, 40);
+  if (external) {
+    const label = external.name.slice(0, 40) || "Apply";
     const popup = context.waitForEvent("page", { timeout: 12_000 }).catch(() => null);
     const before = page.url();
-    await clickHard(external);
+    await clickHard(external.el);
     await passSafetyReminder(page);
     const opened = await popup;
     if (opened) { await opened.waitForLoadState("domcontentloaded").catch(() => undefined); return { kind: "external", page: opened, note: `clicked "${label}", the company page opened in a new tab` }; }
@@ -209,6 +213,35 @@ export async function linkedinOpenApply(context: BrowserContext, page: Page): Pr
     return { kind: "none", page, note: `clicked "${label}" but no new page opened (${await dialogWords(page)})` };
   }
   return { kind: "none", page, note: "no Easy Apply or company-website button was visible" };
+}
+
+const pathOf = (u: string) => { try { return new URL(u).pathname; } catch { return u.slice(0, 60); } };
+/** The number in a LinkedIn job link, or null. */
+export const jobIdOf = (u: string | null | undefined): string | null => (u ?? "").match(/\/jobs\/view\/(?:[^/?#]*-)?(\d{6,})/)?.[1] ?? (u ?? "").match(/currentJobId=(\d{6,})/)?.[1] ?? null;
+
+/**
+ * The apply control of THIS job. A LinkedIn page also lists other jobs, whose cards carry "Easy Apply" in their names and open that job when pressed,
+ * so a control is skipped when it sits inside a list of jobs or links to a different job. Returns null when there is none.
+ */
+async function ownApplyControl(page: Page, name: RegExp, jobId: string | null): Promise<{ el: Locator; name: string; href: string } | null> {
+  for (const c of [page.getByRole("button", { name }), page.getByRole("link", { name })]) {
+    const n = Math.min(await c.count().catch(() => 0), 12);
+    for (let i = 0; i < n; i++) {
+      const el = c.nth(i);
+      if (!(await el.isVisible().catch(() => false))) continue;
+      const info = await el.evaluate((e) => ({
+        href: (e as HTMLAnchorElement).href ?? e.closest("a")?.getAttribute("href") ?? "",
+        inList: !!e.closest("li, [role=listitem], [data-occludable-job-id], [data-job-id], .jobs-search-results-list, .scaffold-layout__list"),
+        name: (e.getAttribute("aria-label") || (e as HTMLElement).innerText || "").replace(/\s+/g, " ").trim(),
+      })).catch(() => null);
+      if (!info || info.inList) continue;
+      const other = info.href.match(/\/jobs\/view\/(?:[^/?#]*-)?(\d{6,})/)?.[1] ?? info.href.match(/currentJobId=(\d{6,})/)?.[1];
+      if (jobId && other && other !== jobId) continue;
+      if (/\/jobs\/(search|collections)/.test(info.href) && !/openSDUIApplyFlow|\/apply/.test(info.href)) continue;
+      return { el, name: info.name, href: info.href };
+    }
+  }
+  return null;
 }
 
 export type LinkedinState = { applied: string | null; closed: boolean };
@@ -268,6 +301,16 @@ export function guardDownloads(context: BrowserContext, onBlocked: (name: string
   const watch = (p: Page) => p.on("download", (d) => { onBlocked(d.suggestedFilename() || "a file"); void d.cancel().catch(() => undefined); });
   context.pages().forEach(watch);
   context.on("page", watch);
+}
+
+/**
+ * Is the browser still on the job we meant to apply for? LinkedIn sends a removed or closed job to its search results, where an "Easy Apply" button
+ * belongs to some other job: pressing it would apply to the wrong one. True on the job's own page, or on a results page that shows this job (currentJobId).
+ */
+export function onJobPage(currentUrl: string, jobUrl: string | null | undefined): boolean {
+  const id = (jobUrl ?? "").match(/\/jobs\/view\/(?:[^/?#]*-)?(\d{6,})/)?.[1] ?? (jobUrl ?? "").match(/currentJobId=(\d{6,})/)?.[1];
+  if (!id) return true; // not a LinkedIn job link we can read: nothing to compare
+  return new RegExp(`/jobs/view/(?:[^/?#]*-)?${id}(?:[/?#]|$)|currentJobId=${id}(?:&|$)`).test(currentUrl);
 }
 
 /** Employer systems that make you create or sign in to an account for each company: the assistant does not create accounts, so these are handed back with that reason. */

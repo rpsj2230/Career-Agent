@@ -31,7 +31,7 @@ import { chromium, type BrowserContext, type Page } from "playwright";
 import { confirmationSnippet, type FieldEntry, type SubmissionRecord } from "../src/lib/apply/submission";
 import { MasterProfile } from "../src/lib/types";
 import { defaultToolYears, skillYears } from "../src/lib/apply/skill-years";
-import { destinationTrust, sensitiveReason } from "../src/lib/apply/safety";
+import { destinationTrust, mentionsCompany, sensitiveReason } from "../src/lib/apply/safety";
 import { isRedirector } from "../src/lib/jobs/redirectors";
 import { atsLinksIn, findOnEmployerBoards } from "../src/lib/jobs/alt-routes";
 import { careersSiteRoutes, googleJobsRoutes, isJobBoardHost, type Found, type RouteId } from "../src/lib/jobs/more-routes";
@@ -40,7 +40,7 @@ import { resolveCredentials } from "../src/lib/integrations/credentials";
 import { summariseAttempts, type RouteAttempt } from "../src/lib/apply/route-chain";
 import { contactEmailsFor } from "../src/lib/apply/contact-email";
 import { loadDraft } from "../src/lib/apply/email-store";
-import { accountGatedVendor, applyButtonsSeen, guardDownloads, buttonsShown, linkedinSessionAlive, linkedinSignedOutView, EASY_APPLY_SCOPE, finalStepVisible, leaveJobBoard, linkedinOpenApply, nextStep, openApplyForm, parseLinkedinState, refusedFields, uploadEasyApplyResume, waitForLinkedinApply } from "./assist-lib";
+import { accountGatedVendor, applyButtonsSeen, onJobPage, guardDownloads, buttonsShown, linkedinSessionAlive, linkedinSignedOutView, EASY_APPLY_SCOPE, finalStepVisible, leaveJobBoard, linkedinOpenApply, nextStep, openApplyForm, parseLinkedinState, refusedFields, uploadEasyApplyResume, waitForLinkedinApply } from "./assist-lib";
 import { requestPending, type AssistantRequest } from "../src/lib/apply/assistant-request";
 import { autoDecision, humanPause, withinHours, type AutoCaps, type AutoState } from "./assist-policy";
 import { answerPending } from "./ai-answers";
@@ -373,14 +373,25 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
         return "later";
       }
       if (st.closed) throw new Handback("LinkedIn says this role is no longer accepting applications");
+      if (!onJobPage(page.url(), job.url)) throw new Handback(`LinkedIn moved the assistant from this job to its search results before anything was pressed, so nothing was pressed; the job may still be open: open it and apply`);
     }
     let opened: "already" | "clicked" | "none";
     if (onLinkedin) {
+      // LinkedIn sends a removed or closed job to its search results, where an Easy Apply button belongs to some other job: never press it
+      if (!onJobPage(page.url(), job.url)) {
+        let where = ""; try { where = new URL(page.url()).pathname; } catch { /* keep blank */ }
+        throw new Handback(`LinkedIn moved the assistant from this job to ${where || "another page"} before anything was pressed, so nothing was pressed; the job may still be open: open it and apply`);
+      }
       stepNow(sb, "opening the application on LinkedIn");
-      const r = await linkedinOpenApply(context, page);
+      const r = await linkedinOpenApply(context, page, job.url);
       openNote = r.note;
       say(`  LinkedIn: ${r.note}.`);
-      if (r.kind === "easy") { formScope = r.scope ?? EASY_APPLY_SCOPE; opened = "clicked"; }
+      if (r.kind === "easy") {
+        formScope = r.scope ?? EASY_APPLY_SCOPE; opened = "clicked";
+        // the window must be for this employer: a window for another company means the click landed on another job
+        const heading = await page.locator(`${formScope} >> visible=true`).first().innerText({ timeout: 4000 }).catch(() => "");
+        if (heading && !mentionsCompany(heading.slice(0, 400), job.company)) throw new Handback(`The Easy Apply window that opened was not for ${job.company} ("${heading.replace(/\s+/g, " ").trim().slice(0, 60)}"), so it was closed without filling anything`);
+      }
       else if (r.kind === "external") { page = r.page; opened = "clicked"; await logAct(sb, { kind: "job.link_resolved", message: `LinkedIn sent the assistant to the company's own page for ${job.title} at ${job.company}`, application_id: app.id, job_id: job.id, company: job.company, portal: job.portal, detail: { how: r.note, assistant: true } }); }
       else opened = "none";
     } else opened = await openApplyForm(page);

@@ -306,3 +306,29 @@ describe("telling a signed-out LinkedIn page from a signed-in one", () => {
     await page.close();
   });
 });
+
+describe("pressing only this job's own Apply button", () => {
+  const jobUrl = "https://www.linkedin.com/jobs/view/4480419562/";
+  live("skips the Easy Apply links on other jobs' cards and presses the real button", async () => {
+    if (!browser) return;
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto(fixture("linkedin-split-view"));
+    const r = await linkedinOpenApply(context, page, jobUrl);
+    expect(r.kind).toBe("easy");
+    expect(await page.title()).not.toBe("WRONG JOB OPENED");
+    expect(await page.locator("#d").evaluate((d) => (d as HTMLDialogElement).open)).toBe(true);
+    await context.close();
+  }, 30_000);
+  live("presses nothing when the only Easy Apply on the page belongs to another job", async () => {
+    if (!browser) return;
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto(fixture("linkedin-list-only"));
+    const r = await linkedinOpenApply(context, page, jobUrl);
+    expect(r.kind).toBe("none");
+    expect(r.note).toMatch(/no Easy Apply or company-website button was visible/);
+    expect(await page.title()).not.toBe("WRONG JOB OPENED");
+    await context.close();
+  }, 30_000);
+});

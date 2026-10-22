@@ -38,7 +38,8 @@ const KNOWN_ATS = /(^|\.)(greenhouse\.io|lever\.co|ashbyhq\.com|workable\.com|re
 /** Words that mark a page as a scam, an advert or a trap, whoever it says it is. */
 const SPAM = /(you('ve| have)\s+won|claim\s+your\s+(prize|reward|gift)|congratulations[^.]{0,40}(winner|selected\s+for\s+a\s+prize)|download\s+(and\s+install|the|our)\s+(app|extension|plugin|software|installer)|install\s+(the|our)\s+(app|extension|plugin|software)|enable\s+(push\s+)?notifications\s+to|update\s+your\s+(browser|flash|chrome)|(registration|processing|application|training|security)\s+(fee|deposit)|pay\s+(a\s+)?(fee|deposit)\s+to\s+(apply|start)|casino|betting|crypto\s+(giveaway|wallet\s+connect)|verify\s+you\s+are\s+human\s+by\s+(installing|downloading|running))/i;
 
-const mentions = (text: string, company: string) => {
+/** Does this text name the company (its first distinctive word)? */
+export const mentionsCompany = (text: string, company: string) => {
   const w = company.toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/&/g, " and ").replace(/[^a-z0-9]+/g, " ").split(/\s+/)
     .filter((x) => x.length > 2 && !["pty", "ltd", "inc", "llc", "llp", "plc", "the", "and", "pte", "pvt", "limited", "private", "corp", "group", "company"].includes(x));
   return w.length > 0 && text.toLowerCase().includes(w[0]);
@@ -54,7 +55,7 @@ export function destinationTrust(o: { host: string; title: string; body: string;
   const spam = text.match(SPAM);
   if (spam) return { ok: false, why: `the page on ${h || "this site"} reads like a scam or an advert ("${spam[0].slice(0, 40)}")` };
   if (KNOWN_ATS.test(h)) return { ok: true, why: "a known applicant-tracking system" };
-  if (mentions(`${h} ${text}`, o.company)) return { ok: true, why: `the page names ${o.company}` };
+  if (mentionsCompany(`${h} ${text}`, o.company)) return { ok: true, why: `the page names ${o.company}` };
   return { ok: false, why: `the page on ${h || "this site"} does not mention ${o.company} and is not a known application system` };
 }
 

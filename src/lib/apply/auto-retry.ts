@@ -5,7 +5,7 @@
  */
 export const MAX_AUTO_RETRIES = 2;
 
-const NEVER_RETRY = /create (an )?account|types? a password|never downloads|did not touch this page|payment or bank details|identity or tax number|already applied|applied to .* recently|no longer|closed|expired|duplicate|not found|captcha|security check|verification|rejected|not eligible/i;
+const NEVER_RETRY = /create (an )?account|types? a password|never downloads|did not touch this page|was not for|payment or bank details|identity or tax number|already applied|applied to .* recently|no longer|closed|expired|duplicate|not found|captcha|security check|verification|rejected|not eligible/i;
 const RETRYABLE = /signed-in linkedin session|apply through the local assistant|timed? ?out|timeout|navigation|net::|econn|enotfound|could not reach|temporar|try again|rate.?limit|worker stopped|did not finish|browser|crash|target closed|session/i;
 
 /** Would a second try plausibly work? A failure with no recorded reason is tried again. */

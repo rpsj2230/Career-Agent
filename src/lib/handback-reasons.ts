@@ -55,7 +55,7 @@ export function classifyHandback(error: string | null | undefined): ReasonId {
   if (/job board|listing or search page/i.test(e)) return "job_board";
   if (/captcha|security check|verify you are human/i.test(e)) return "captcha";
   if (/asked for a sign-?in|sign-?in page|log ?in to|singpass/i.test(e)) return "sign_in";
-  if (/no application form was found|role may be closed/i.test(e)) return "no_form";
+  if (/no application form was found|role may be closed|moved the assistant from this job/i.test(e)) return "no_form";
   if (/^needs you:|required (box|question)|could not be answered/i.test(e)) return "question";
   if (/submit button|pressed submit|confirmation|final step/i.test(e)) return "submit";
   return "other";
