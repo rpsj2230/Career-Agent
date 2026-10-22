@@ -44,6 +44,7 @@ import { autoDecision, humanPause, withinHours, type AutoCaps, type AutoState } 
 import { answerPending } from "./ai-answers";
 import { acquireWatcherLock, lockPathFor } from "./assist-lock";
 import { clickSubmit, fillForm, looksLikeSearchForm } from "./form";
+import { NO_FORM, pushRecent, staleLinkedinNoForm, type Live, type Recent } from "../src/lib/apply/assistant-live";
 import { boardDenied, CONFIRMATION, detectBlock, linkedinSignedIn, type Answer } from "./match";
 
 const need = (k: string) => { const v = process.env[k]; if (!v) throw new Error(`${k} is not set. Put it in .env.local (see the README, "Apply assistant").`); return v; };
@@ -78,6 +79,19 @@ let current: Round = { at: new Date().toISOString(), submitted: 0, handedBack: 0
 let lastRound: Round | null = null;
 const leftFor = (reason: string) => { current.left[reason] = (current.left[reason] ?? 0) + 1; };
 
+/** The application being worked on right now, and the latest results. Reported with the heartbeat so the app can show what is happening. */
+let live: Live | null = null;
+let recent: Recent[] = [];
+let lastBeat = 0;
+const noteRecent = (r: Omit<Recent, "at">) => { recent = pushRecent(recent, { ...r, at: new Date().toISOString() }); };
+
+/** Say what the assistant is doing now (at most one extra beat every 4 seconds). Never throws. */
+const stepNow = (sb: SupabaseClient, text: string) => {
+  if (!live) return;
+  live = { ...live, step: text };
+  if (Date.now() - lastBeat > 4000) { lastBeat = Date.now(); void heartbeat(sb); }
+};
+
 /** Portals the assistant's browser held a sign-in for on its last round (null until the first round has looked). Reported with the heartbeat. */
 let signedIn: string[] | null = null;
 /** Portals this round gave up on (not signed in, or the site refuses this browser), with the plain reason, so the rest of that portal's queue is not tried one by one. */
@@ -102,7 +116,7 @@ async function heartbeat(sb: SupabaseClient) {
     return;
   }
   try {
-    await sb.from("settings").upsert({ key: "assistant_heartbeat", value: { at: new Date().toISOString(), version: VERSION, ...(signedIn ? { signedIn } : {}), mode: AUTO ? "hands-free" : "assist", watching: WATCH, hours: process.env.ASSIST_HOURS ?? "", tz: Intl.DateTimeFormat().resolvedOptions().timeZone, ...(lastRound ? { round: lastRound } : {}) }, updated_at: new Date().toISOString() });
+    await sb.from("settings").upsert({ key: "assistant_heartbeat", value: { at: new Date().toISOString(), version: VERSION, ...(signedIn ? { signedIn } : {}), ...(live ? { live } : {}), ...(recent.length ? { recent } : {}), mode: AUTO ? "hands-free" : "assist", watching: WATCH, hours: process.env.ASSIST_HOURS ?? "", tz: Intl.DateTimeFormat().resolvedOptions().timeZone, ...(lastRound ? { round: lastRound } : {}) }, updated_at: new Date().toISOString() });
   } catch { /* the heartbeat is a courtesy, never a reason to stop */ }
 }
 
@@ -180,6 +194,8 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
   const { data: job } = await sb.from("jobs").select("*").eq("id", app.job_id).single();
   if (!job) { say("  (job missing, skipped)"); return "later"; }
   say(`\n[${i}/${total}] ${job.title} at ${job.company}  (${job.portal ?? job.source})\n  ${job.url}`);
+  live = { id: app.id, title: job.title, company: job.company, portal: String(job.portal ?? job.source ?? ""), step: "starting", since: new Date().toISOString() };
+  lastBeat = Date.now(); void heartbeat(sb);
 
   if (auto) {
     const d = autoDecision(job.portal, auto.caps, auto.state);
@@ -189,11 +205,12 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
   // a portal this round already found unusable (not signed in, or it refuses this browser) is not tried one application at a time
   const off = portalOff.get(String(job.portal ?? "").toLowerCase()) ?? portalOff.get(boardKey(job.url));
   if (off) {
-    if (!off.handBack) { say(`  Left for later: ${off.reason}.`); leftFor(off.reason); return "later"; }
+    if (!off.handBack) { say(`  Left for later: ${off.reason}.`); leftFor(off.reason); noteRecent({ title: job.title, company: job.company, portal: String(job.portal ?? ""), outcome: "left", note: off.reason }); return "later"; }
     await sb.from("applications").update({ status: "needs_input", error: off.reason }).eq("id", app.id);
     await sb.from("apply_events").insert({ application_id: app.id, kind: "needs_input", detail: { message: off.reason } });
     await logAct(sb, { kind: "application.needs_input", level: "warn", message: `Needs you: ${off.reason}`, status: "needs_input", application_id: app.id, job_id: job.id, company: job.company, country: job.country, portal: job.portal, detail: { assistant: true, message: off.reason } });
     say(`  Handed back to you: ${off.reason}`);
+    noteRecent({ title: job.title, company: job.company, portal: String(job.portal ?? ""), outcome: "handed_back", note: off.reason });
     current.handedBack++;
     return "later";
   }
@@ -231,6 +248,7 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
     const { error } = await sb.from("applications").update({ ...patch, submission: rec }).eq("id", app.id);
     if (error) await sb.from("applications").update(patch).eq("id", app.id);
     await sb.from("jobs").update({ status: "applied" }).eq("id", job.id);
+    noteRecent({ title: job.title, company: job.company, portal: String(job.portal ?? ""), outcome: "submitted", note: "confirmed by the page" });
     await sb.from("apply_events").insert({ application_id: app.id, kind: method === "automated" ? "submitted_hands_free" : "submitted_with_assistant", detail: { fields: entered.length } });
     await logAct(sb, { kind: "application.submitted", message: `${method === "automated" ? "Submitted automatically by the apply assistant" : "Submitted by you with the apply assistant"}: ${job.title} at ${job.company}`, status: "submitted", application_id: app.id, job_id: job.id, company: job.company, country: job.country, portal: job.portal, detail: { method, assistant: true, fields: entered.length } });
   };
@@ -243,10 +261,12 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
     await sb.from("apply_events").insert({ application_id: app.id, kind: "needs_input", detail: { message } });
     await logAct(sb, { kind: "application.needs_input", level: "warn", message: `Needs you: ${message}`, status: "needs_input", application_id: app.id, job_id: job.id, company: job.company, country: job.country, portal: job.portal, detail: { assistant: true, message } });
     say(`  Handed back to you: ${message}`);
+    noteRecent({ title: job.title, company: job.company, portal: String(job.portal ?? ""), outcome: "handed_back", note: message });
     current.handedBack++;
   };
 
   try {
+    stepNow(sb, "opening the job page");
     await page.goto(job.url, { waitUntil: "domcontentloaded", timeout: 45_000 });
     // a job board that answers "Access Denied" has refused this browser: after two such answers its other jobs are handed back at once
     if (isRedirector(job.url) && boardDenied(await page.title().catch(() => ""), await page.innerText("body").catch(() => ""))) {
@@ -288,6 +308,7 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
       return false;
     };
     if (!board.left) {
+      stepNow(sb, "looking for another way to the employer's form");
       const listing = await page.content().catch(() => null);
       const chain: [RouteId, () => Promise<Found[]>][] = [
         ["description-link", async () => atsLinksIn(job.description)],
@@ -321,6 +342,7 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
     if (opened === "none" && !auto) say("  No apply button found on this page. The form may be on the employer's site: use the open window.");
 
     for (let step = 0; step < 8; step++) {
+      stepNow(sb, `filling the form (page ${step + 1})`);
       if (await looksLikeSearchForm(page)) break; // a job board's search box is not an application: nothing is typed into it
       let r = await fillForm(page, fctx);
       if (r.pending.length) {
@@ -378,11 +400,13 @@ async function assistOne(sb: SupabaseClient, context: BrowserContext, app: AppRo
     }
     else if (!(await finalStepVisible(page))) problem = "Could not reach the final step of the form";
     if (problem) { await handBack(problem); await page.close().catch(() => undefined); return "later"; }
+    stepNow(sb, "pressing Submit");
     const baseline = CONFIRMATION.test(await page.innerText("body").catch(() => ""));
     let pressed = false;
     try { pressed = await clickSubmit(page); }
     catch (e) { await handBack(`Could not press the submit button (${e instanceof Error ? e.message.split("\n")[0] : e})`); await page.close().catch(() => undefined); return "later"; }
     if (!pressed) { await handBack("Could not find the submit button"); await page.close().catch(() => undefined); return "later"; }
+    stepNow(sb, "waiting for the employer's confirmation");
     const ok = await page.waitForFunction(({ src, needFormGone }) => {
       if (!new RegExp(src, "i").test(document.body.innerText)) return false;
       if (!needFormGone) return true;
@@ -530,6 +554,25 @@ async function batch(sb: SupabaseClient, who: Who | null): Promise<number> {
       say(`  ${reason}. LinkedIn applications wait until then.`);
     }
   } catch { signedIn = null; }
+  // LinkedIn applications handed back as "no application form" while the browser was signed out are put back in the queue once (they are taken next round)
+  if (signedIn?.includes("linkedin")) {
+    try {
+      const rows = ((await sb.from("applications").select("id, job_id, error").eq("status", "needs_input").like("error", `${NO_FORM}%`).limit(300)).data ?? []) as { id: string; job_id: string; error: string | null }[];
+      if (rows.length) {
+        const jobs = ((await sb.from("jobs").select("id, portal").in("id", [...new Set(rows.map((r) => r.job_id))])).data ?? []) as { id: string; portal: string | null }[];
+        const retried = new Set((((await sb.from("apply_events").select("application_id").eq("kind", "auto_retry").in("application_id", rows.map((r) => r.id))).data ?? []) as { application_id: string }[]).map((e) => e.application_id));
+        const ids = staleLinkedinNoForm(rows, new Map(jobs.map((j) => [j.id, j.portal])), retried);
+        if (ids.length) {
+          const upd = await sb.from("applications").update({ status: "assisted_pending", error: null }).in("id", ids).eq("status", "needs_input").select("id");
+          const back = ((upd.data ?? []) as { id: string }[]).map((r) => r.id);
+          if (back.length) {
+            await sb.from("apply_events").insert(back.map((id) => ({ application_id: id, kind: "auto_retry", detail: { reason: "LinkedIn is signed in now; the earlier 'no application form' was the signed-out page" } })));
+            say(`  Put ${back.length} LinkedIn application(s) back in the queue: they were handed back while the browser was signed out.`);
+          }
+        }
+      }
+    } catch { /* a courtesy: the rest of the round goes on */ }
+  }
   let done = 0, attempted = false;
   // a cloud run must end inside its runner time limit: no new application is started after this many minutes (the rest waits for the next run)
   const stopAt = Number(process.env.ASSIST_MAX_MINUTES) > 0 ? Date.now() + Number(process.env.ASSIST_MAX_MINUTES) * 60_000 : Infinity;
@@ -556,7 +599,7 @@ async function batch(sb: SupabaseClient, who: Who | null): Promise<number> {
         await sb.from("apply_events").insert({ application_id: app.id, kind: "needs_input", detail: { message, worker: WORKER } });
         current.handedBack++;
       }
-      finally { await release(sb, app.id); } // anything not finished or handed back goes back to the queue for the next round, or for another worker
+      finally { live = null; await release(sb, app.id); } // anything not finished or handed back goes back to the queue for the next round, or for another worker
       if (r === "done") done++;
       if (r === "quit") break;
       if (r === "stop") {
