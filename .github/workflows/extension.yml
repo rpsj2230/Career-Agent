@@ -1,0 +1,70 @@
+name: Extension zip
+
+# The browser extension is downloaded from the app as a zip that is built from extension/ and kept in this repository (public/downloads/career-agent-extension.zip).
+# Whenever the extension, or any code it is built from, changes on main: rebuild it, commit the zip if it differs, keep a copy as a workflow artifact for 90 days,
+# and publish (or refresh) a GitHub release for the extension's version, so there is always a copy on GitHub that does not depend on the app being up.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "extension/**"
+      - "scripts/build-extension.mjs"
+      - "worker/match.ts"
+      - "src/lib/apply/**"
+      - "src/lib/extension/**"
+      - "package-lock.json"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: extension-zip
+  cancel-in-progress: false
+
+jobs:
+  zip:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ZIP: public/downloads/career-agent-extension.zip
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build the extension
+        run: node scripts/build-extension.mjs
+      - name: Commit the zip when it changed
+        run: |
+          if git diff --quiet -- "$ZIP"; then echo "The committed zip is already current."; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$ZIP"
+          git commit -m "Rebuild the extension zip [skip ci]"
+          for i in 1 2 3; do
+            if git push origin HEAD:main; then exit 0; fi
+            git pull --rebase origin main
+          done
+          echo "::error::Could not push the rebuilt zip to main."; exit 1
+      - name: Keep a copy as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: career-agent-extension
+          path: public/downloads/career-agent-extension.zip
+          retention-days: 90
+      - name: Publish the zip as a release for this version
+        run: |
+          version=$(node -p "require('./extension/manifest.json').version")
+          tag="extension-v$version"
+          cp "$ZIP" "career-agent-extension-$version.zip"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "career-agent-extension-$version.zip" --clobber
+          else
+            gh release create "$tag" "career-agent-extension-$version.zip" --title "Career Agent extension $version" --notes "The browser extension, version $version. Unzip it into a folder you keep, then in Brave or Chrome open the extensions page, switch on Developer mode, Load unpacked and choose that folder. Steps: extension/README.md."
+          fi

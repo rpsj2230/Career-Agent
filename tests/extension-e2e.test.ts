@@ -49,11 +49,15 @@ function handler(req: IncomingMessage, res: ServerResponse) {
   if (url.pathname === "/api/extension/data") {
     const queue = seen.queue ? [{ id: APP_ID, company: "Acme", title: "Head of Ops", formUrl: `${base}/form`, note: "Waiting for you or the assistant", resume: { name: "Resume-Acme.docx" }, cover: null }] : [];
     res.writeHead(200, { ...cors, "Content-Type": "application/json" });
-    return res.end(JSON.stringify({ ...buildFillData(profile, [{ question: "What is your notice period?", answer: "60 days" }]), queue, latestExtensionVersion: "9.9.9" }));
+    return res.end(JSON.stringify({ ...buildFillData(profile, [{ question: "What is your notice period?", answer: "60 days" }]), queue, defaultResume: { name: "Master-Resume.pdf" }, latestExtensionVersion: "9.9.9" }));
   }
   if (url.pathname === "/api/extension/file" && url.searchParams.get("application") === APP_ID) {
     res.writeHead(200, { ...cors, "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
     return res.end(Buffer.from("TAILORED RESUME FOR ACME"));
+  }
+  if (url.pathname === "/api/extension/file" && url.searchParams.get("kind") === "master") {
+    res.writeHead(200, { ...cors, "Content-Type": "application/pdf" });
+    return res.end(Buffer.from("MY DEFAULT RESUME"));
   }
   if (url.pathname === "/api/extension/mark" && req.method === "POST") {
     let body = ""; req.on("data", (c) => (body += c)); req.on("end", () => { seen.marked.push(JSON.parse(body).applicationId); seen.queue = false; res.writeHead(200, { ...cors, "Content-Type": "application/json" }); res.end("{}"); });
@@ -111,6 +115,50 @@ describe("the extension in a real browser", () => {
     expect(seen.auth.every((a) => a.endsWith(":ok"))).toBe(true);
   }, 60_000);
 
+  live("a page that is not one of your applications is filled from your data with your default resume", async () => {
+    expect(ctx, "the browser with the extension must start").toBeDefined();
+    if (!ctx) return;
+    const sw = ctx.serviceWorkers()[0];
+    const popup = await ctx.newPage();
+    await popup.goto(`chrome-extension://${new URL(sw.url()).host}/popup.html`);
+    await popup.evaluate(([origin, token]) => chrome.storage.local.set({ link: { origin, token } }), [base, TOKEN]);
+    await popup.evaluate(() => CA.refresh());
+    const other = await ctx.newPage();
+    await other.goto(`${base}/form`);
+    const tabId = await popup.evaluate(async (u) => Math.max(...(await chrome.tabs.query({ url: u })).map((t) => t.id)), `${base}/form`); // the newest tab: the first test left its own form page open
+    const report = await popup.evaluate(([id]) => CA.fillTab(id, { id: "default", isDefault: true, resume: { name: "Master-Resume.pdf" }, cover: null }), [tabId]);
+    expect((report as { files: { attached: string[]; missing: string[] } }).files, JSON.stringify(report)).toMatchObject({ attached: ["Master-Resume.pdf"] });
+    expect(await other.inputValue("#n")).toBe("Asha Rao");
+    expect(await other.evaluate(async () => { const f = (document.getElementById("r") as HTMLInputElement).files!; return f.length ? [f[0].name, await f[0].text()] : null; })).toEqual(["Master-Resume.pdf", "MY DEFAULT RESUME"]);
+    expect(await other.evaluate(() => (window as unknown as { submitted: boolean }).submitted)).toBe(false);
+
+    // the popup offers the default resume, and says why it is chosen
+    await popup.reload();
+    await popup.waitForSelector("#forapp option", { state: "attached" });
+    expect(await popup.$$eval("#forapp option", (o) => o.map((x) => x.textContent))).toContain("Upload my default resume (Master-Resume.pdf)");
+    expect(await popup.inputValue("#forapp")).toBe("default");
+    expect(await popup.textContent("#forappNote")).toMatch(/not one of your applications: your default resume is used/);
+  }, 60_000);
+
+  live("only the default mode runs by itself: manual only hides the automatic panel and stops the timer", async () => {
+    expect(ctx, "the browser with the extension must start").toBeDefined();
+    if (!ctx) return;
+    const sw = ctx.serviceWorkers()[0];
+    const popup = await ctx.newPage();
+    await popup.goto(`chrome-extension://${new URL(sw.url()).host}/popup.html`);
+    await popup.evaluate(([origin, token]) => chrome.storage.local.set({ link: { origin, token }, settings: { autoRun: true, mode: "fallback" } }), [base, TOKEN]);
+    await popup.reload();
+    await popup.waitForSelector('input[name="mode"]');
+    expect(await popup.isVisible("#panel-fallback")).toBe(true);
+    await popup.click('input[value="manual"]');
+    await popup.waitForFunction(() => document.getElementById("panel-fallback")!.hidden);
+    expect(await popup.evaluate(async () => (await chrome.storage.local.get("settings")).settings.mode)).toBe("manual");
+    expect(await popup.evaluate(async () => (await chrome.alarms.getAll()).some((a: { name: string }) => a.name === "queue"))).toBe(false);
+    await popup.click('input[value="fallback"]');
+    await popup.waitForFunction(() => !document.getElementById("panel-fallback")!.hidden);
+    expect(await popup.evaluate(async () => (await chrome.alarms.getAll()).some((a: { name: string }) => a.name === "queue"))).toBe(true);
+  }, 60_000);
+
   live("a revoked or wrong link code is reported in words and the last copy of the data is kept", async () => {
     expect(ctx, "the browser with the extension must start").toBeDefined();
     if (!ctx) return;
@@ -125,5 +173,5 @@ describe("the extension in a real browser", () => {
   }, 30_000);
 });
 
-declare const chrome: { storage: { local: { set(o: unknown): Promise<void>; get(k: string): Promise<Record<string, any>> } }; runtime: { sendMessage(m: unknown): Promise<unknown> } }; // eslint-disable-line @typescript-eslint/no-explicit-any
-declare const CA: { refresh(): Promise<{ source: string; error?: string }> };
+declare const chrome: { storage: { local: { set(o: unknown): Promise<void>; get(k: string): Promise<Record<string, any>> } }; runtime: { sendMessage(m: unknown): Promise<unknown> }; tabs: { query(q: unknown): Promise<{ id: number }[]> }; alarms: { getAll(): Promise<{ name: string }[]> } }; // eslint-disable-line @typescript-eslint/no-explicit-any
+declare const CA: { refresh(): Promise<{ source: string; error?: string }>; fillTab(tabId: number, item: unknown): Promise<unknown> };

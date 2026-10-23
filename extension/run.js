@@ -24,7 +24,8 @@ const CA = {
 
   async file(item, kind) {
     if (!item || !item[kind]) return null;
-    const res = await CA.api("/api/extension/file?application=" + encodeURIComponent(item.id) + "&kind=" + kind);
+    // the default resume (not one of your applications) comes from the Resumes page; everything else is the file prepared for that application
+    const res = await CA.api(item.isDefault ? "/api/extension/file?kind=master" : "/api/extension/file?application=" + encodeURIComponent(item.id) + "&kind=" + kind);
     const bytes = new Uint8Array(await res.arrayBuffer());
     let bin = "";
     for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
