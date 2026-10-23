@@ -27,10 +27,21 @@ async function main(who: Who | null) {
   }
   let chromiumFound = false;
   try { const b = browserFromMachine(); chromiumFound = b.executablePath ? existsSync(b.executablePath) : b.channel ? true : existsSync(chromium.executablePath()); } catch { /* not installed or not found */ }
+  const localName = process.env.LOCAL_MODEL?.trim() || null;
+  let ollamaReachable = false, downloaded = false;
+  try {
+    const res = await fetch(`${(process.env.OLLAMA_URL ?? "http://127.0.0.1:11434").replace(/\/+$/, "")}/api/tags`, { signal: AbortSignal.timeout(3000) });
+    if (res.ok) {
+      ollamaReachable = true;
+      const names = ((await res.json()) as { models?: { name?: string }[] }).models?.map((m) => m.name ?? "") ?? [];
+      downloaded = !!localName && names.some((n) => n === localName || n === `${localName}:latest`);
+    }
+  } catch { /* Ollama is not running */ }
   const profileDir = browserDirFor(who);
   const lines = assistChecks({
     hasUrl: !!url, hasKey: !!key, dbOk, dbError, heartbeatAgeMs: hb?.at ? Date.now() - new Date(hb.at).getTime() : null, watching: !!hb?.watching,
     autoApplyOn, localAutoOn, waiting, chromiumFound, profileExists: existsSync(profileDir), signedIn: hb?.signedIn ?? null,
+    localModel: { name: localName, ollamaReachable, downloaded },
   });
   for (const l of lines) console.log(`${l.ok ? "  OK   " : "  FIX  "} ${l.label}${l.ok || !l.fix ? "" : `\n         → ${l.fix}`}`);
   const bad = lines.filter((l) => !l.ok).length;
