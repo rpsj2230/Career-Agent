@@ -35,15 +35,33 @@ async function renderAuto(fillData) {
   $("runAuto").disabled = !!autoRunning;
 }
 
-const MODES = ["fallback", "manual"];
+const MODES = ["fallback", "manual", "filter"];
 const modeOf = (settings) => (MODES.includes(settings.mode) ? settings.mode : "fallback");
+
+async function renderFilter(fillData, settings) {
+  const { filterRun } = await chrome.storage.local.get("filterRun");
+  $("filterMax").value = settings.filterMax || 10;
+  const lines = [];
+  const f = fillData && fillData.filter;
+  if (f) for (const [name, label] of [["linkedin", "LinkedIn"], ["naukri", "Naukri"]]) lines.push(f[name].allowed ? `${label}: ${f[name].remaining} more allowed today.` : `${label}: not allowed now: ${f[name].why}`);
+  if (filterRun) {
+    const done = filterRun.results || [];
+    lines.push(`${filterRun.running ? "Running now" : "Last run"} ${new Date(filterRun.at).toLocaleString()}: ${done.filter((r) => r.outcome === "submitted").length} sent, ${done.filter((r) => r.outcome === "blocked" || r.outcome === "unconfirmed").length} given back to you, ${done.filter((r) => r.outcome === "skipped").length} skipped.`);
+    if (filterRun.stopped) lines.push(`Stopped: ${filterRun.stopped}`);
+    for (const r of done.slice(-12)) lines.push(`- ${r.company}: ${OUTCOME[r.outcome] || r.outcome}${r.why ? ` (${r.why})` : ""}`);
+  }
+  $("filterOut").textContent = lines.join("\n");
+  $("runFilter").disabled = !!(filterRun && filterRun.running);
+}
 
 async function render() {
   const { fillData, syncedAt, settings = {} } = await chrome.storage.local.get(["fillData", "syncedAt", "settings"]);
   const mode = modeOf(settings);
   for (const r of document.querySelectorAll('input[name="mode"]')) r.checked = r.value === mode;
   $("panel-fallback").hidden = mode !== "fallback";
+  $("panel-filter").hidden = mode !== "filter";
   await renderAuto(fillData);
+  await renderFilter(fillData, settings);
   const link = await CA.link();
   $("status").textContent = link ? `Linked to ${new URL(link.origin).host}${syncedAt ? ` · data from ${new Date(syncedAt).toLocaleTimeString()}` : ""}` : fillData ? "Not linked: using the pasted data file." : "Not linked yet. Open \"Link to Career Agent\" below.";
   $("status").className = link ? "ok" : "warn";
@@ -120,6 +138,18 @@ for (const r of document.querySelectorAll('input[name="mode"]')) {
     render();
   };
 }
+$("runFilter").onclick = async () => {
+  if (!(await CA.link())) return say("Link Career Agent first (this mode needs the link code).", "warn");
+  if (!(await ensureAllSites())) return say("Allowed sites are needed for this mode. Nothing was opened.", "warn");
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab || !/linkedin\.com\/jobs|naukri\.com/i.test(tab.url || "")) return say("Open LinkedIn Jobs (with the Easy Apply filter on) or a Naukri job list in this tab first, then press the button again.", "warn");
+  const max = Math.max(1, Math.min(25, parseInt($("filterMax").value, 10) || 10));
+  const { settings = {} } = await chrome.storage.local.get("settings");
+  await chrome.storage.local.set({ settings: { ...settings, filterMax: max } });
+  chrome.runtime.sendMessage({ type: "run-filter", tabId: tab.id, max });
+  window.close();
+};
+$("stopFilter").onclick = async () => { await chrome.runtime.sendMessage({ type: "stop-filter" }); say("Stopping after the job it is working on.", "ok"); };
 $("autoRun").onchange = saveSettings;
 $("includeAssistant").onchange = saveSettings;
 

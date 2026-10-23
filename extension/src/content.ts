@@ -7,6 +7,7 @@ import { declineOption } from "../../src/lib/apply/demographics";
 import { asCount, defaultToolYears, skillYears, wantsNumber, yearsSkill } from "../../src/lib/apply/skill-years";
 import type { FillData } from "../../src/lib/apply/fill-data";
 import type { MasterProfile } from "../../src/lib/types";
+import "./sites";
 
 /**
  * Fills the form on the page you are looking at, from your own data, and stops. It never presses a button, never submits, never types a password, a payment or an identity number,
@@ -58,8 +59,7 @@ export function fillPage(data: FillData): FillReport {
   const profile = { experience: data.experience.map((e, i) => ({ id: `e${i}`, company: "", title: e.title, start: e.start, end: e.end, bullets: e.bullets.map((t, j) => ({ id: `b${i}.${j}`, text: t })) })) } as unknown as MasterProfile;
   const answers: Answer[] = data.answers;
   // inside a window (a dialog) only its own fields count; otherwise the whole page
-  const dialog = [...document.querySelectorAll('[role="dialog"], dialog[open], [aria-modal="true"]')].find(visible);
-  const root: ParentNode = dialog ?? document;
+  const root: ParentNode = windowRoot();
   const controls = [...root.querySelectorAll<HTMLInputElement>("input, textarea, select")].filter((e) => {
     const t = (e.type || "").toLowerCase();
     return !["hidden", "submit", "button", "image", "reset", "file"].includes(t) && !e.disabled && !e.readOnly && visible(e) && !e.closest("header, nav, [role=search]");
@@ -167,7 +167,13 @@ const NEXT_BTN = /^(next|continue|save (and|&) continue|save (and|&) next|procee
 const CAPTCHA = 'iframe[src*="recaptcha"], iframe[src*="hcaptcha"], iframe[src*="turnstile"], iframe[src*="captcha"], .g-recaptcha, .h-captcha, .cf-turnstile, [data-sitekey]';
 
 const buttonText = (el: Element) => ((el as HTMLInputElement).value || (el as HTMLElement).innerText || el.getAttribute("aria-label") || "").replace(/\s+/g, " ").trim();
-function windowRoot(): ParentNode { return [...document.querySelectorAll('[role="dialog"], dialog[open], [aria-modal="true"]')].find(visible) ?? document; }
+/** A site's own window (a side panel that is not a dialog) can be named by the caller; it is kept on the page itself because this script is injected again before every step. */
+type ScopeWindow = Window & { __careerAgentScopeSel?: string | null };
+function windowRoot(): ParentNode {
+  const named = (window as ScopeWindow).__careerAgentScopeSel;
+  const mine = named ? [...document.querySelectorAll(named)].find(visible) : null;
+  return mine ?? [...document.querySelectorAll('[role="dialog"], dialog[open], [aria-modal="true"]')].find(visible) ?? document;
+}
 function findButton(re: RegExp): HTMLElement | null {
   const all = [...windowRoot().querySelectorAll<HTMLElement>('button, input[type="submit"], input[type="button"], [role="button"]')]
     .filter((b) => visible(b) && !(b as HTMLButtonElement).disabled && b.getAttribute("aria-disabled") !== "true" && !b.closest("header, nav, [role=search]") && re.test(buttonText(b)));
@@ -229,6 +235,7 @@ export function advance(o: AdvanceOpts): Advance {
 }
 
 declare global { interface Window { __careerAgentFill?: (data: FillData) => FillReport; __careerAgentAttach?: (resume: FileSpec | null, cover: FileSpec | null) => AttachReport; __careerAgentAdvance?: (o: AdvanceOpts) => Advance; __careerAgentConfirmed?: (baseline: boolean) => string | null; __careerAgentState?: () => ReturnType<typeof pageState> } }
+(window as unknown as { __careerAgentSetScope: (sel: string | null) => void }).__careerAgentSetScope = (sel) => { (window as ScopeWindow).__careerAgentScopeSel = sel; };
 window.__careerAgentFill = fillPage;
 window.__careerAgentAttach = attachFiles;
 window.__careerAgentAdvance = advance;
