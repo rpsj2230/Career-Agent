@@ -152,8 +152,11 @@ export function sortJobs(rows: JobLight[], sort: JobSortKey, dir: "asc" | "desc"
   const sign = dir === "asc" ? 1 : -1;
   const num = (a: number | null, b: number | null) => (a === null && b === null ? 0 : a === null ? 1 : b === null ? -1 : (a - b) * sign);
   const key = (r: JobLight): number | null => (sort === "score" ? r.score : sort === "found" ? Date.parse(r.found_at) : sort === "posted" ? (r.posted_at ? Date.parse(r.posted_at) : null) : sort === "stage" ? STAGE_RANK[jobStage(r.status, r.appStatus)] : null);
+  // by score, a job that is already applied for (or skipped) goes below every job still to be dealt with, whatever its score: the top of the list is what needs attention
+  const finished = (r: JobLight) => (["applied", "rejected"].includes(jobStage(r.status, r.appStatus)) ? 1 : 0);
   return [...rows].sort((a, b) => {
     let c = 0;
+    if (sort === "score" && finished(a) !== finished(b)) return finished(a) - finished(b);
     if (sort === "company") c = cmpText(a.company, b.company) * sign;
     else if (sort === "title") c = cmpText(a.title, b.title) * sign;
     else if (sort === "country") c = (a.country === null ? (b.country === null ? 0 : 1) : b.country === null ? -1 : cmpText(a.country, b.country) * sign);

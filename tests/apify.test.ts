@@ -138,3 +138,37 @@ describe("presets and country limits", () => {
     expect(f.maxJobs).toBe(25);
   });
 });
+
+import { checkActorAccess, explainRefusal } from "@/lib/jobs/apify";
+
+describe("testing whether a scraper can really run", () => {
+  const actor = ApifyActor.parse({ id: "harvestapi/linkedin-job-search", portal: "linkedin", enabled: true, input: { jobTitles: ["{{title}}"], maxItems: "{{max_items}}" } });
+  const reply = (status: number, body: unknown) => ({ ok: status >= 200 && status < 300, status, json: async () => body });
+  const NOT_APPROVED = { error: { type: "full-permission-actor-not-approved", message: "This Actor requires full access to your account. You must approve its permissions before running it: https://console.apify.com/actors/zn01OAlzP853oqn4Z?approvePermissions=1. Create a token with full access under Apify > Settings > Integrations." } };
+
+  it("says Apify needs your approval, with the link whole, when the token is fine but the actor is not approved (the case the old test could not see)", async () => {
+    const f: ApifyFetch = async (url) => (url.includes("/runs?") ? reply(403, NOT_APPROVED) : reply(200, { data: {} }));
+    const r = await checkActorAccess("tok", actor, f);
+    expect(r).toMatchObject({ ok: false });
+    const m = (r as { message: string }).message;
+    expect(m).toMatch(/needs YOUR approval/);
+    expect(m).toContain("https://console.apify.com/actors/zn01OAlzP853oqn4Z?approvePermissions=1");
+    expect(m).toMatch(/choose a different actor/);
+  });
+  it("starts a real run to find out and stops it again at once when it was allowed", async () => {
+    const calls: string[] = [];
+    const f: ApifyFetch = async (url, init) => { calls.push(`${init.method} ${url.replace("https://api.apify.com/v2/", "").split("?")[0]}`); return url.includes("/runs?") ? reply(201, { data: { id: "run1" } }) : reply(200, {}); };
+    expect(await checkActorAccess("tok", actor, f)).toEqual({ ok: true });
+    expect(calls).toEqual(["POST acts/harvestapi~linkedin-job-search/runs", "POST actor-runs/run1/abort"]);
+  });
+  it("counts a refusal of the sample input as allowed, and names a missing actor, a rental that ended and no credit", async () => {
+    expect(await checkActorAccess("tok", actor, async () => reply(400, {}))).toEqual({ ok: true });
+    expect(await checkActorAccess("tok", actor, async () => reply(404, {}))).toMatchObject({ ok: false, message: expect.stringContaining("has no actor") });
+    expect(await checkActorAccess("tok", actor, async () => reply(402, {}))).toMatchObject({ ok: false, message: expect.stringContaining("out of credit") });
+    expect(await checkActorAccess("tok", actor, async () => { throw new Error("offline"); })).toMatchObject({ ok: false, message: expect.stringContaining("Could not reach Apify") });
+  });
+  it("explainRefusal gives the approval link even when Apify's own text is long", async () => {
+    const msg = await explainRefusal(403, { json: async () => NOT_APPROVED }, "harvestapi~linkedin-job-search", "tok", async () => reply(200, {}));
+    expect(msg).toContain("approvePermissions=1");
+  });
+});

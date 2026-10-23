@@ -42,7 +42,10 @@ export async function GET() {
     return {
       profile: p?.name ?? null,
       // Autopilot works every hour whatever is waiting: finishing unfinished searches, scoring, writing, approving; otherwise only when something is backed up
-      drain: !paused && due.length === 0 && (drain.drain || !!autopilot.enabled), drainReason: paused ? "Everything is paused (Settings)." : autopilot.enabled ? `Autopilot: hourly round. ${drain.reason}` : drain.reason, paused, backlog: counts, daily: delivered,
+      drain: !paused && due.length === 0 && (drain.drain || !!autopilot.enabled),
+      // another round right away only while rounds are getting somewhere: Autopilot starts a round every hour, but a round that found, scored or wrote nothing is not followed by another one
+      follow: !paused && due.length === 0 && (drain.drain || (!!autopilot.enabled && ((stateRow.data?.value as DrainState | null)?.noProgress ?? 0) === 0)),
+      drainReason: paused ? "Everything is paused (Settings)." : autopilot.enabled ? `Autopilot: hourly round. ${drain.reason}` : drain.reason, paused, backlog: counts, daily: delivered,
       due: due.length, schedules: due.map((s) => s.name), total: rows.length, missing, seeded: !!seeded, swept, staleSources: stale.length, assistantAlerted,
     };
   }, { onError: (p, e) => console.error(`${p ? `[${p.name}] ` : ""}hourly check failed:`, e) });
@@ -53,7 +56,7 @@ export async function GET() {
   const healed = await healKeys().catch(() => 0); // give saved model keys the copy the GitHub runner can read
   const first = ok[0];
   return NextResponse.json({
-    drain: ok.some((r) => r.drain), drainReason: ok.map((r) => (r.profile ? `${r.profile}: ` : "") + r.drainReason).join(" | "), paused: ok.length > 0 && ok.every((r) => r.paused),
+    drain: ok.some((r) => r.drain), follow: ok.some((r) => r.follow), drainReason: ok.map((r) => (r.profile ? `${r.profile}: ` : "") + r.drainReason).join(" | "), paused: ok.length > 0 && ok.every((r) => r.paused),
     backlog: { unscored: sum((r) => r.backlog.unscored), unprepared: sum((r) => r.backlog.unprepared) }, daily: first?.daily, healedKeys: healed, due,
     schedules: ok.flatMap((r) => r.schedules), total: sum((r) => r.total), missing: ok.some((r) => r.missing), seeded: ok.some((r) => r.seeded), swept: sum((r) => r.swept),
     staleSources: sum((r) => r.staleSources), assistantAlerted: ok.some((r) => r.assistantAlerted), profiles: ok.map((r) => ({ profile: r.profile, due: r.due, drain: r.drain })), failedProfiles: per.filter((r) => r.error).map((r) => r.profile?.name ?? null),

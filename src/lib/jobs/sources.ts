@@ -1,6 +1,6 @@
 import { ADZUNA_COUNTRIES, explainHttpFailure, type IntegrationId } from "@/lib/integrations/catalog";
 import { countryQueries, type EffectiveCountry } from "@/lib/country-config";
-import { ApifyActor, mapApifyItem, runActor, templateVars, type ApifyFetch } from "./apify";
+import { ApifyActor, checkActorAccess, mapApifyItem, runActor, templateVars, type ApifyFetch } from "./apify";
 import { imapSource, scanMailbox, type MailboxConfig, type MailSource } from "./mailbox";
 import { mapAshby, mapRecruitee, mapWorkable, mapMcf, mapAdzuna, mapArbeitnow, mapGreenhouse, mapJobicy, mapJSearch, mapLever, mapRemoteOk, mapRemotive } from "./map";
 import type { NormalizedJob } from "./normalize";
@@ -301,8 +301,13 @@ export async function testIntegration(id: IntegrationId, creds: IntegrationCreds
         const r = await (deps.apifyFetch ?? (fetch as unknown as ApifyFetch))("https://api.apify.com/v2/users/me", { method: "GET", headers: { Authorization: `Bearer ${creds.apify.token}` }, signal: AbortSignal.timeout(15_000) });
         if (r.status === 401 || r.status === 403) return { ok: false, message: "Apify rejected the token. Copy it again from Apify > Settings > Integrations." };
         if (!r.ok) return { ok: false, message: `Apify returned HTTP ${r.status}.` };
-        const n = (s.apify_actors ?? []).filter((a) => a.enabled).length;
-        return { ok: true, message: n ? `Apify accepted the token. ${n} scraper(s) are set up and will run on each scan.` : "Apify accepted the token, but no scrapers are set up yet. Add one under Scrapers below." };
+        const actors = (s.apify_actors ?? []).filter((a) => a.enabled);
+        if (!actors.length) return { ok: true, message: "Apify accepted the token, but no scrapers are set up yet. Add one under Scrapers below." };
+        // a valid token is not enough: each scraper is started the way a scan starts it (and stopped at once), so a refusal that a real scan would meet is met here
+        const checks = await Promise.all(actors.slice(0, 5).map(async (a) => ({ a, r: await checkActorAccess(creds.apify!.token, a, deps.apifyFetch) })));
+        const bad = checks.filter((c) => !c.r.ok);
+        if (bad.length) return { ok: false, message: `The token is valid, but ${bad.length === 1 ? "a scraper" : `${bad.length} scrapers`} cannot run: ${bad.map((c) => `${c.a.portal} (${c.a.id}): ${(c.r as { message: string }).message}`).join(" | ")}` };
+        return { ok: true, message: `Apify accepted the token and ${actors.length === 1 ? "the scraper" : `all ${actors.length} scrapers`} can run (each was started and stopped to check). They will run on each scan.` };
       }
       case "mcf": {
         const d = await get(`https://api.mycareersfuture.gov.sg/v2/jobs?${new URLSearchParams({ search: "manager", limit: "1", page: "0" })}`);

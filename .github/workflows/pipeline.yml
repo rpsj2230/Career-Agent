@@ -143,7 +143,8 @@ jobs:
           if [ "$n" -ge 12 ]; then echo "12 rounds in a row; the next hourly check carries on."; exit 0; fi
           body=$(curl --fail-with-body -sS -m 60 -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/due" || true)
           echo "$body"
-          drain=$(echo "$body" | jq -r '.drain // false' 2>/dev/null || echo false)
+          # "follow" is true only while rounds are making progress (an older app that does not say counts as no)
+          drain=$(echo "$body" | jq -r '.follow // false' 2>/dev/null || echo false)
           if [ "$drain" = "true" ]; then
             gh workflow run pipeline.yml --repo "$GITHUB_REPOSITORY" --ref "${GITHUB_REF_NAME}" -f chain=$((n + 1))
             echo "Started follow-on round $((n + 1))."

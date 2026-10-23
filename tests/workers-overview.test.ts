@@ -49,3 +49,15 @@ describe("worker versions", () => {
     expect(rows(null, "fff0000")).toBeNull();
   });
 });
+
+describe("what to do about an outdated worker", () => {
+  const base = { now: new Date("2026-10-22T10:00:00Z"), computer: { at: "2026-10-22T09:59:00Z", version: "ae6252e" }, oracle: null, github: { at: "2026-10-22T07:59:00Z", version: "5aa6c7c" }, cloud: { enabled: true, fallback_minutes: 90 }, started24h: {}, declined24h: {}, latest: "eecf2b0aaaa" } as WorkersInput;
+  const find = (id: string) => workersOverview(base).find((r) => r.id === id)!.version!;
+  it("gives your computer the exact command, and tells you the cloud runner needs nothing", () => {
+    expect(find("computer")).toMatchObject({ state: "outdated", command: "git pull && npm install && bash scripts/autostart/install.sh", text: expect.stringContaining("update it") });
+    const g = find("github");
+    expect(g.state).toBe("outdated");
+    expect(g.command).toBeUndefined();
+    expect(g.text).toMatch(/nothing to do, it fetches the newest code at its next run/);
+  });
+});

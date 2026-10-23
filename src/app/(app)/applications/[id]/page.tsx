@@ -110,8 +110,8 @@ export default async function ApplicationPage({ params }: { params: Promise<{ id
             <CardHeader>
               <CardTitle>Finish this one yourself</CardTitle>
               <CardDescription>
-                Employers do not keep a half-filled form, so there is no link to a form that is already part-filled: the link opens the form from the start.
-                Everything the assistant already knew is listed here to paste in, and the resume and cover letter are ready to upload. Press &ldquo;I have submitted it&rdquo; when done.
+
+                Employers do not keep a half-filled form, so no link can reopen one where it stopped: the link opens the form from the start. <b>The quick way is the browser extension</b>: open the form, press its button, and it fills everything it knows (including the resume) in one go, outlining only what is left for you; or open this application from the extension&apos;s list &ldquo;Applications waiting for you&rdquo;. Without the extension, everything the assistant already knew is listed below to paste in, and the resume and cover letter are ready to upload. Press &ldquo;I have submitted it&rdquo; when done.
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-3 text-sm">

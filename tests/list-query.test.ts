@@ -80,6 +80,22 @@ describe("sorting jobs", () => {
   });
 });
 
+describe("sorting jobs by score", () => {
+  it("puts applied and skipped jobs below everything still to be dealt with, in either direction, and leaves other sorts alone", () => {
+    const rows = [
+      job({ id: "a", score: 95, status: "applied", appStatus: "submitted" }),
+      job({ id: "b", score: 60, status: "queued" }),
+      job({ id: "c", score: 90, status: "skipped" }),
+      job({ id: "d", score: 80, status: "prepared", appStatus: "needs_input" }),
+    ];
+    const ids = (s: Parameters<typeof sortJobs>[1], d: "asc" | "desc") => sortJobs(rows, s, d).map((r) => r.id).join("");
+    expect(ids("score", "desc")).toBe("dbac"); // the 95 that is applied is not first
+    expect(ids("score", "asc")).toBe("bdca");
+    expect(ids("company", "asc")).toBeTruthy();
+    expect(sortJobs(rows, "stage", "asc")[0].id).not.toBeUndefined();
+  });
+});
+
 describe("applications", () => {
   const apps: AppLight[] = [
     { id: "1", status: "prepared", method: null, lifecycle: "none", submitted_at: null, created_at: "2026-10-10T00:00:00Z", title: "PM", company: "Acme", country: "sg", portal: "adzuna", apply_type: "greenhouse", url: "https://boards.greenhouse.io/a/jobs/1" },

@@ -225,7 +225,7 @@ r = await call("/api/settings", { method: "PUT", body: { key: "apify", value: { 
 r = await call("/api/settings", { method: "PUT", body: { key: "apify", value: { actors: [{ id: "someone~linkedin-jobs", portal: "linkedin", input: { keywords: "{{title}}", location: "{{location}}", rows: "{{max_items}}" }, max_items: 20 }] } } }); check("a scraper is saved", r.status === 200, `${r.status} ${r.text}`);
 r = await call("/api/integrations/apify/scan", { method: "POST" }); check("a scan without the token says what to connect", r.status !== 200 || /token|connect|needs/i.test(r.text), `${r.status} ${r.text}`);
 r = await call("/api/integrations/apify/credentials", { method: "PUT", body: { values: { token: "APIFY-TOKEN-123" } } }); check("Apify token saved", r.status === 200, r.status);
-r = await call("/api/integrations/apify/test", { method: "POST" }); check("Apify Test accepts the token and counts the scrapers", r.status === 200 && /accepted the token/.test(r.text) && /1 scraper/.test(r.text), `${r.status} ${r.text}`);
+r = await call("/api/integrations/apify/test", { method: "POST" }); check("Apify Test accepts the token and checks that the scraper can run", r.status === 200 && /accepted the token/.test(r.text) && /the scraper can run/.test(r.text), `${r.status} ${r.text}`);
 r = await call("/api/integrations/apify/scan", { method: "POST" }); check("the Apify scan stores the scraped jobs (an item with no link is skipped)", r.status === 200 && /2 new/.test(r.text), `${r.status} ${r.text}`);
 const li1 = mock.rowsOf("jobs").find((j) => j.external_id === "li-1001"), li2 = mock.rowsOf("jobs").find((j) => j.external_id === "li-1002");
 check("a scraped LinkedIn job keeps LinkedIn as its portal and its own page as the link", li1?.portal === "linkedin" && li1.source.startsWith("apify:someone~linkedin-jobs") && li1.url === "https://www.linkedin.com/jobs/view/1001" && li1.country === "sg", JSON.stringify(li1));
@@ -1076,7 +1076,7 @@ r = await call("/api/models/test", { method: "POST", body: { label: "e2e-model" 
   r = await call("/logs"); check("the logs page names its link as run history", /Run history/.test(strip(r.text)), r.status);
 
   const due = await fetch(`${BASE}/api/cron/due`, { headers: { Authorization: `Bearer ${SECRET}` } }).then(async (x) => ({ status: x.status, json: await x.json().catch(() => null) }));
-  check("the hourly check reports the backlog and whether to work through it", due.status === 200 && typeof due.json?.backlog?.unscored === "number" && typeof due.json?.backlog?.unprepared === "number" && typeof due.json?.drain === "boolean", JSON.stringify(due.json)?.slice(0, 200));
+  check("the hourly check reports the backlog and whether to work through it", due.status === 200 && typeof due.json?.backlog?.unscored === "number" && typeof due.json?.backlog?.unprepared === "number" && typeof due.json?.drain === "boolean" && typeof due.json?.follow === "boolean", JSON.stringify(due.json)?.slice(0, 200));
 
   // bulk approve: two prepared applications at once
   const open2 = mock.rowsOf("applications").filter((x) => x.status === "prepared").slice(0, 2);
@@ -1100,7 +1100,7 @@ r = await call("/api/models/test", { method: "POST", body: { label: "e2e-model" 
   r = await call("/settings"); check("Settings has the pause switch", /Pause everything/.test(strip(r.text)), r.status);
   r = await call("/api/settings", { method: "PUT", body: { key: "automation_pause", value: { paused: true, since: new Date().toISOString(), note: "" } } }); check("pausing is saved", r.status === 200, `${r.status} ${r.text}`);
   const pdue = await fetch(`${BASE}/api/cron/due`, { headers: { Authorization: `Bearer ${SECRET}` } }).then(async (x) => ({ status: x.status, json: await x.json().catch(() => null) }));
-  check("while paused the hourly check reports nothing due and no backlog work", pdue.json?.paused === true && pdue.json?.due === 0 && pdue.json?.drain === false, JSON.stringify(pdue.json)?.slice(0, 200));
+  check("while paused the hourly check reports nothing due and no backlog work", pdue.json?.paused === true && pdue.json?.due === 0 && pdue.json?.drain === false && pdue.json?.follow === false, JSON.stringify(pdue.json)?.slice(0, 200));
   const pw = await runWorker(); check("while paused the worker does nothing by itself", pw.code === 0 && /Everything is paused/.test(pw.text), `${pw.code} ${pw.text.slice(-200)}`);
   r = await call("/"); check("the dashboard says everything is paused", /Everything is paused/.test(strip(r.text)), r.status);
   check("...and Where everything stands names the cause: a Setting, with the Pause switch as the fix", /Where everything stands/.test(strip(r.text)) && /Setting/.test(strip(r.text)) && /Pause everything/.test(strip(r.text)), "pipeline status missing");
