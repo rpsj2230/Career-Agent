@@ -13,8 +13,30 @@ function describe(report) {
   return lines.join("\n");
 }
 
+const OUTCOME = { submitted: "sent", unconfirmed: "pressed Submit, not confirmed: check the open tab", blocked: "given back to you", skipped: "skipped" };
+
+async function renderAuto(fillData) {
+  const { settings = {}, autoLast, autoRunning } = await chrome.storage.local.get(["settings", "autoLast", "autoRunning"]);
+  $("autoRun").checked = !!settings.autoRun;
+  $("includeAssistant").checked = !!settings.includeAssistant;
+  const auto = fillData && fillData.autoSubmit;
+  const lines = [];
+  if (autoRunning) lines.push("Running now...");
+  else if (auto && !auto.allowed) lines.push(`Not allowed now: ${auto.why}`);
+  else if (auto) lines.push(`Allowed: ${auto.remainingToday} more application(s) today.`);
+  if (autoLast) {
+    lines.push(`Last run ${new Date(autoLast.at).toLocaleString()} (${autoLast.trigger === "timer" ? "by itself" : "by you"}): ${autoLast.results.filter((r) => r.outcome === "submitted").length} sent, ${autoLast.results.filter((r) => r.outcome !== "submitted").length} not.`);
+    if (autoLast.stopped) lines.push(`Stopped: ${autoLast.stopped}`);
+    for (const r of autoLast.results.slice(0, 12)) lines.push(`- ${r.company}: ${OUTCOME[r.outcome] || r.outcome}${r.why ? ` (${r.why})` : ""}`);
+  }
+  $("autoOut").textContent = lines.join("\n");
+  $("autoOut").className = "note " + (auto && !auto.allowed ? "warn" : "");
+  $("runAuto").disabled = !!autoRunning;
+}
+
 async function render() {
   const { fillData, syncedAt } = await chrome.storage.local.get(["fillData", "syncedAt"]);
+  await renderAuto(fillData);
   const link = await CA.link();
   $("status").textContent = link ? `Linked to ${new URL(link.origin).host}${syncedAt ? ` · data from ${new Date(syncedAt).toLocaleTimeString()}` : ""}` : fillData ? "Not linked: using the pasted data file." : "Not linked yet. Open \"Link to Career Agent\" below.";
   $("status").className = link ? "ok" : "warn";
@@ -68,6 +90,24 @@ async function openOne(id) {
   chrome.runtime.sendMessage({ type: "open-and-fill", id });
   window.close();
 }
+
+async function saveSettings() {
+  const { settings = {} } = await chrome.storage.local.get("settings");
+  const next = { ...settings, autoRun: $("autoRun").checked, includeAssistant: $("includeAssistant").checked };
+  if (next.autoRun && !(await ensureAllSites())) { $("autoRun").checked = false; next.autoRun = false; say("Allowed sites are needed for the automatic mode.", "warn"); }
+  if (next.autoRun && !(await CA.link())) { $("autoRun").checked = false; next.autoRun = false; say("Link Career Agent first (the automatic mode needs the link code).", "warn"); }
+  await chrome.storage.local.set({ settings: next });
+  chrome.runtime.sendMessage({ type: "settings-changed" });
+}
+$("autoRun").onchange = saveSettings;
+$("includeAssistant").onchange = saveSettings;
+
+$("runAuto").onclick = async () => {
+  if (!(await CA.link())) return say("Link Career Agent first (the automatic mode needs the link code).", "warn");
+  if (!(await ensureAllSites())) return say("Allowed sites are needed for the automatic mode. Nothing was opened.", "warn");
+  chrome.runtime.sendMessage({ type: "run-automatic" });
+  window.close();
+};
 
 $("next").onclick = async () => {
   const { fillData } = await chrome.storage.local.get("fillData");

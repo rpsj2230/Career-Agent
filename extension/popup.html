@@ -10,6 +10,7 @@
   #out, .note { white-space: pre-wrap; } .warn { color: #b45309; } .ok { color: #166534; } small { color: #555; }
   .item { border: 1px solid #ddd; border-radius: 6px; padding: 8px; margin-top: 6px; }
   .item b { display: block; } .row { display: flex; gap: 6px; margin-top: 6px; }
+  label.check { display: flex; gap: 6px; align-items: flex-start; margin-top: 6px; }
   h4 { margin: 14px 0 0; font-size: 12px; text-transform: uppercase; color: #555; }
 </style></head><body>
   <div id="status"></div>
@@ -20,8 +21,15 @@
   <select id="forapp"></select>
   <p id="out"></p>
 
+  <h4>Automatic mode</h4>
+  <small>Works through the applications the assistant could not finish: opens each, fills it, attaches its resume, presses Next and Submit, waits for the employer's confirmation, closes the tab, and goes on to the next. It stops and gives the application back to you, with the reason, at anything only you should do (a captcha, a password, a question it cannot answer, a page it does not trust). It only runs when Auto-Apply is on in Career Agent and the daily limit is not used up.</small>
+  <label class="check"><input type="checkbox" id="autoRun"> <span>Run by itself every 30 minutes while the browser is open</span></label>
+  <label class="check"><input type="checkbox" id="includeAssistant"> <span>Also take applications still waiting for the Mac assistant</span></label>
+  <button id="runAuto" class="block" style="margin-top:6px">Run the waiting list now</button>
+  <div id="autoOut" class="note"></div>
+
   <h4>Applications waiting for you</h4>
-  <button id="next" class="block">Open the next one and fill it</button>
+  <button id="next" class="block">Open the next one and fill it (you press Submit)</button>
   <div id="queue"></div>
 
   <details id="linkbox"><summary>Link to Career Agent (once)</summary>
@@ -34,6 +42,6 @@
     <textarea id="data" rows="4" placeholder="Paste the contents of career-agent-fill-data.json"></textarea>
     <div class="row"><button class="secondary" id="save">Save</button></div>
   </details>
-  <p><small>It fills what it can, outlines in orange what you must answer, attaches the resume made for the application, and never presses Submit, never types a password, a payment or an identity number.</small></p>
+  <p><small>It never types a password, a payment or an identity number, and never creates an account.</small></p>
   <script src="lib.js"></script><script src="run.js"></script><script src="popup.js"></script>
 </body></html>

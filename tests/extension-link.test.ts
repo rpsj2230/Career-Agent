@@ -62,7 +62,7 @@ describe("the extension package", () => {
   it("manifest version equals the version the app announces, and asks for no standing access to all sites", () => {
     const m = JSON.parse(readFileSync("extension/manifest.json", "utf8"));
     expect(m.version).toBe(EXTENSION_VERSION);
-    expect(m.permissions).toEqual(["activeTab", "scripting", "storage"]);
+    expect(m.permissions).toEqual(["activeTab", "scripting", "storage", "alarms"]);
     expect(m.host_permissions).toBeUndefined();
     expect(m.optional_host_permissions).toContain("https://*/*");
   });

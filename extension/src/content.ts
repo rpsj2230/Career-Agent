@@ -1,7 +1,8 @@
-import { matchAnswer, standardValue, type Answer } from "../../worker/match";
+import { CONFIRMATION, matchAnswer, standardValue, type Answer } from "../../worker/match";
 import { languageAnswer } from "../../src/lib/apply/languages";
 import { CONSENT_BOX } from "../../src/lib/apply/consent";
-import { sensitiveKind } from "../../src/lib/apply/safety";
+import { destinationTrust, sensitiveKind } from "../../src/lib/apply/safety";
+import { confirmationSnippet } from "../../src/lib/apply/submission";
 import { declineOption } from "../../src/lib/apply/demographics";
 import { asCount, defaultToolYears, skillYears, wantsNumber, yearsSkill } from "../../src/lib/apply/skill-years";
 import type { FillData } from "../../src/lib/apply/fill-data";
@@ -154,6 +155,82 @@ export function attachFiles(resume: FileSpec | null, cover: FileSpec | null): At
   return out;
 }
 
-declare global { interface Window { __careerAgentFill?: (data: FillData) => FillReport; __careerAgentAttach?: (resume: FileSpec | null, cover: FileSpec | null) => AttachReport } }
+
+// ---------------------------------------------------------------------------------------------------------------------------
+// Automatic mode: after the form is filled, decide whether this page is safe and complete, and press Next or Submit. Used only when the owner switched it on.
+// ---------------------------------------------------------------------------------------------------------------------------
+export type AdvanceOpts = { company: string; allowSubmit: boolean; baselineConfirmed: boolean };
+export type Advance = { kind: "confirmed"; text: string } | { kind: "blocked"; why: string } | { kind: "clicked"; button: string; final: boolean };
+
+const SUBMIT_BTN = /^(submit( my)?( the)?( application)?|apply( now)?|send( my)?( the)?( application)?|finish|complete( application)?|confirm and submit|submit (&|and) apply)$/i;
+const NEXT_BTN = /^(next|continue|save (and|&) continue|save (and|&) next|proceed|review( and submit)?)$/i;
+const CAPTCHA = 'iframe[src*="recaptcha"], iframe[src*="hcaptcha"], iframe[src*="turnstile"], iframe[src*="captcha"], .g-recaptcha, .h-captcha, .cf-turnstile, [data-sitekey]';
+
+const buttonText = (el: Element) => ((el as HTMLInputElement).value || (el as HTMLElement).innerText || el.getAttribute("aria-label") || "").replace(/\s+/g, " ").trim();
+function windowRoot(): ParentNode { return [...document.querySelectorAll('[role="dialog"], dialog[open], [aria-modal="true"]')].find(visible) ?? document; }
+function findButton(re: RegExp): HTMLElement | null {
+  const all = [...windowRoot().querySelectorAll<HTMLElement>('button, input[type="submit"], input[type="button"], [role="button"]')]
+    .filter((b) => visible(b) && !(b as HTMLButtonElement).disabled && b.getAttribute("aria-disabled") !== "true" && !b.closest("header, nav, [role=search]") && re.test(buttonText(b)));
+  return all[all.length - 1] ?? null; // the action button sits last on the page
+}
+
+/** Controls that stop the form being sent: what the browser itself calls invalid (required, wrong format), and what the page marks as wrong. */
+function incompleteFields(): string[] {
+  const out: string[] = [];
+  for (const el of windowRoot().querySelectorAll<HTMLInputElement>("input, select, textarea")) {
+    const type = (el.type || "").toLowerCase();
+    if (["hidden", "submit", "button", "image", "reset"].includes(type) || el.disabled) continue;
+    if (!visible(el) && type !== "file") continue;
+    const marked = el.getAttribute("aria-invalid") === "true";
+    if (marked || !el.checkValidity()) out.push(clean(type === "radio" ? groupLabelOf(el) : labelOf(el) || groupLabelOf(el)) || el.name || type);
+  }
+  return [...new Set(out)];
+}
+
+const pageText = () => document.body?.innerText ?? "";
+
+/** The employer's own confirmation, when this page shows one that was not already there before Submit (a "thank you for your interest" footer does not count). */
+export function confirmedNow(baseline: boolean): string | null {
+  const text = pageText();
+  if (!CONFIRMATION.test(text)) return null;
+  if (baseline && findButton(SUBMIT_BTN)) return null;
+  return confirmationSnippet(text, CONFIRMATION);
+}
+
+export function pageState(): { url: string; sig: string; confirmationAlready: boolean } {
+  const sig = [...document.querySelectorAll("input, select, textarea, button, legend, h1, h2")].filter(visible).map((e) => (e as HTMLInputElement).id || (e as HTMLInputElement).name || text(e)).join("|");
+  return { url: location.href, sig, confirmationAlready: CONFIRMATION.test(pageText()) };
+}
+
+/**
+ * One step of automatic mode on the page as it is now. It never acts on a page it does not trust (a scam, a page that does not name the company and is not a
+ * known application system), never on a page with a captcha, a password or any field still empty or invalid; it presses Submit only when allowed.
+ */
+export function advance(o: AdvanceOpts): Advance {
+  const confirmed = confirmedNow(o.baselineConfirmed);
+  if (confirmed) return { kind: "confirmed", text: confirmed };
+  const trust = destinationTrust({ host: location.hostname, title: document.title, body: pageText(), company: o.company });
+  if (!trust.ok) return { kind: "blocked", why: trust.why };
+  if ([...document.querySelectorAll(CAPTCHA)].some(visible) || /i'?m not a robot|verify (that )?you are (a )?human/i.test(pageText().slice(0, 20000))) return { kind: "blocked", why: "the page asks for a captcha, which only you can solve" };
+  const secret = [...windowRoot().querySelectorAll<HTMLInputElement>("input, textarea")].filter((e) => visible(e) && !e.value && sensitiveKind(clean(labelOf(e)), (e.type || "").toLowerCase())).map((e) => clean(labelOf(e)));
+  if (secret.length) return { kind: "blocked", why: `it asks for something only you may type: ${[...new Set(secret)].join("; ")}` };
+  const bad = incompleteFields();
+  if (bad.length) return { kind: "blocked", why: `not complete: ${bad.slice(0, 6).join("; ")}` };
+  const submit = findButton(SUBMIT_BTN);
+  if (submit) {
+    if (!o.allowSubmit) return { kind: "blocked", why: "the form is complete, but automatic submitting is not allowed right now" };
+    const name = buttonText(submit);
+    submit.click();
+    return { kind: "clicked", button: name, final: true };
+  }
+  const next = findButton(NEXT_BTN);
+  if (next) { const name = buttonText(next); next.click(); return { kind: "clicked", button: name, final: false }; }
+  return { kind: "blocked", why: "no Submit or Next button was found on this page" };
+}
+
+declare global { interface Window { __careerAgentFill?: (data: FillData) => FillReport; __careerAgentAttach?: (resume: FileSpec | null, cover: FileSpec | null) => AttachReport; __careerAgentAdvance?: (o: AdvanceOpts) => Advance; __careerAgentConfirmed?: (baseline: boolean) => string | null; __careerAgentState?: () => ReturnType<typeof pageState> } }
 window.__careerAgentFill = fillPage;
 window.__careerAgentAttach = attachFiles;
+window.__careerAgentAdvance = advance;
+window.__careerAgentConfirmed = confirmedNow;
+window.__careerAgentState = pageState;

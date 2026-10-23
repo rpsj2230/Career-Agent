@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "Career Agent: fill this form",
-  "version": "1.1.0",
-  "description": "Fills application forms from your own Career Agent data, attaches the resume made for the application, and opens the waiting applications one after another. It never submits and never types a password.",
-  "permissions": ["activeTab", "scripting", "storage"],
+  "version": "1.2.0",
+  "description": "Fills application forms from your own Career Agent data and attaches the resume made for the application. In automatic mode, when you switch it on and Career Agent allows it, it works through the applications the assistant could not finish and sends them. It never types a password, a payment or an identity number.",
+  "permissions": ["activeTab", "scripting", "storage", "alarms"],
   "optional_host_permissions": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
   "background": { "service_worker": "background.js" },
   "action": { "default_popup": "popup.html", "default_title": "Fill this form" }
