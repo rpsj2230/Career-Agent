@@ -3,9 +3,8 @@ import { z } from "zod";
 import { logActivity } from "@/lib/activity";
 import { jobLogFields, type JobRef } from "@/lib/activity-helpers";
 import type { LogEntry } from "@/lib/activity-types";
-import { assistedRecord } from "@/lib/apply/submission";
 import { db, must } from "@/lib/db";
-import { withLegacyFallback } from "@/lib/schema";
+import { markSubmitted } from "@/lib/apply/mark-submitted";
 import { approveApplication } from "@/lib/apply/approve";
 import { logEvent } from "@/lib/apply/events";
 import { skipApplication } from "@/lib/apply/skip";
@@ -43,19 +42,8 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
       return NextResponse.json(r.mode === "automated" ? { ok: true, mode: "automated", warning: r.warning } : { ok: true, mode: "assisted", note: r.note });
     }
     case "mark_submitted": {
-      const now = new Date();
-      const patch = { status: "submitted", method: "assisted", submitted_at: now.toISOString(), lifecycle: "applied" };
-      must(
-        await withLegacyFallback(
-          () => db().from("applications").update({ ...patch, submission: assistedRecord(jobRow?.url ?? "", now) }).eq("id", id).select("id"),
-          () => db().from("applications").update(patch).eq("id", id).select("id"),
-        ),
-        "mark submitted",
-      );
-      await setJob({ status: "applied" });
-      await logEvent(id, "marked_submitted");
-      await log({ kind: "application.submitted", message: "Marked as submitted by you (assisted)", status: "submitted", detail: { method: "assisted" } });
-      return NextResponse.json({ ok: true });
+      const r = await markSubmitted(id);
+      return r.ok ? NextResponse.json({ ok: true }) : NextResponse.json({ error: r.error }, { status: r.status });
     }
     case "skip":
       await skipApplication(id);

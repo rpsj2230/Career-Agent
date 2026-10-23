@@ -37,6 +37,8 @@ export const DEFAULTS = {
   apify: { actors: [] as ApifyActor[], monthly_item_budget: 2500 },
   /** last-resort model that runs for free on the GitHub runner when every hosted model fails: off, only when needed (default), or always */
   automation_pause: { paused: false, since: "", until: "", note: "" },
+  /** the browser extension's link: a hash of its secret (never the secret itself) and when it was made */
+  extension_link: { hash: "", created_at: "" },
   /** the checkboxes ticked on the "Your to-do" page */
   todo_done: {} as Record<string, boolean>,
   auto_prepare: { enabled: true, per_run: 15, concurrency: 3 },

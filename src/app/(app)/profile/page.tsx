@@ -6,6 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { db, must } from "@/lib/db";
 import { getDraft, getProfile } from "@/lib/profile/store";
+import { ExtensionCard } from "@/components/app/extension-card";
+import { EXTENSION_VERSION } from "@/lib/extension/version";
 import { HandbackAnswers } from "@/components/app/handback-answers";
 import { loadHandbacks } from "@/lib/apply/handbacks-store";
 import { dedupeList } from "@/lib/country-prefs";
@@ -15,7 +17,7 @@ import { mergeStandard } from "@/lib/standard-questions";
 export const dynamic = "force-dynamic";
 
 export default async function ProfilePage() {
-  const [profile, draft, searching, discovery] = await Promise.all([getProfile(), getDraft(), searchingCountries(), getSetting("discovery")]);
+  const [profile, draft, searching, discovery, link] = await Promise.all([getProfile(), getDraft(), searchingCountries(), getSetting("discovery"), getSetting("extension_link")]);
   const titles = [...new Set(profile.experience.map((e) => e.title.trim()).filter(Boolean))].slice(0, 6);
   // roles that were typed on the old Settings field are shown here too, and move to the profile on the next save
   const prefs = { ...profile.preferences, roles: dedupeList([...profile.preferences.roles, ...discovery.roles]) };
@@ -86,8 +88,8 @@ export default async function ProfilePage() {
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>Browser extension (for sites the assistant cannot automate)</CardTitle><CardDescription>Workday and other employer systems that make an account per company, and job boards that refuse the assistant. The extension fills the form you have open from your own data; you press Submit. It never types a password. Setup: <code>extension/README.md</code>.</CardDescription></CardHeader>
-        <CardContent><a className="underline" href="/api/export/fill-data">Download fill data for the browser extension</a></CardContent>
+        <CardHeader><CardTitle>Browser extension (for sites the assistant cannot automate)</CardTitle><CardDescription>Fills the application form you have open from your data, attaches the resume made for that application, and can open your waiting applications one after another. You read each one and press Submit. It never types a password. Setup, once: download the zip and unzip it; in Chrome or Brave open <code>chrome://extensions</code> (Brave: <code>brave://extensions</code>), switch on Developer mode, press Load unpacked and choose the unzipped folder; then make a link code here and paste it into the extension. After that it needs nothing from you.</CardDescription></CardHeader>
+        <CardContent><ExtensionCard linked={!!link.hash} since={link.created_at || null} version={EXTENSION_VERSION} /></CardContent>
       </Card>
 
       <Card>

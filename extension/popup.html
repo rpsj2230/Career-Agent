@@ -1,18 +1,39 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><style>
-  body { font: 13px system-ui, sans-serif; width: 340px; margin: 12px; color: #111; }
-  button { font: inherit; padding: 8px 12px; border-radius: 6px; border: 1px solid #333; background: #111; color: #fff; cursor: pointer; width: 100%; }
-  button.secondary { background: #fff; color: #111; margin-top: 6px; }
-  textarea { width: 100%; height: 70px; box-sizing: border-box; font: 11px monospace; margin-top: 6px; }
-  #out { margin-top: 10px; white-space: pre-wrap; } .warn { color: #b45309; } small { color: #555; }
+  body { font: 13px system-ui, sans-serif; width: 360px; margin: 12px; color: #111; }
+  button { font: inherit; padding: 7px 10px; border-radius: 6px; border: 1px solid #333; background: #111; color: #fff; cursor: pointer; }
+  button.secondary { background: #fff; color: #111; }
+  button.block { width: 100%; }
+  button:disabled { opacity: .5; cursor: default; }
+  textarea, input[type=text], select { width: 100%; box-sizing: border-box; font: 12px monospace; margin-top: 6px; }
+  select { font: 12px system-ui; }
+  #out, .note { white-space: pre-wrap; } .warn { color: #b45309; } .ok { color: #166534; } small { color: #555; }
+  .item { border: 1px solid #ddd; border-radius: 6px; padding: 8px; margin-top: 6px; }
+  .item b { display: block; } .row { display: flex; gap: 6px; margin-top: 6px; }
+  h4 { margin: 14px 0 0; font-size: 12px; text-transform: uppercase; color: #555; }
 </style></head><body>
-  <button id="fill">Fill this page from my data</button>
+  <div id="status"></div>
+  <div id="update" class="warn"></div>
+
+  <h4>This page</h4>
+  <button id="fill" class="block">Fill this page from my data</button>
+  <select id="forapp"></select>
   <p id="out"></p>
-  <details><summary>Your data</summary>
-    <small>In Career Agent: Profile, "Download fill data". Paste the file's text here once and press Save.</small>
-    <textarea id="data" placeholder="Paste the contents of career-agent-fill-data.json"></textarea>
-    <button class="secondary" id="save">Save</button>
+
+  <h4>Applications waiting for you</h4>
+  <button id="next" class="block">Open the next one and fill it</button>
+  <div id="queue"></div>
+
+  <details id="linkbox"><summary>Link to Career Agent (once)</summary>
+    <small>In Career Agent: Profile, "Browser extension", press <b>Make a link code</b>, copy it, and paste it here. After that the extension gets your latest data by itself.</small>
+    <input type="text" id="code" placeholder="https://your-app...|code">
+    <div class="row"><button id="link" class="secondary">Link</button><button id="unlink" class="secondary">Unlink</button></div>
   </details>
-  <p><small>It fills what it can, outlines in orange what you must answer, and never presses Submit, never types a password or a payment or identity number.</small></p>
-  <script src="popup.js"></script>
+  <details><summary>No link? Paste the data file instead</summary>
+    <small>Profile: "Download fill data". Paste the file's text here. It will not update by itself.</small>
+    <textarea id="data" rows="4" placeholder="Paste the contents of career-agent-fill-data.json"></textarea>
+    <div class="row"><button class="secondary" id="save">Save</button></div>
+  </details>
+  <p><small>It fills what it can, outlines in orange what you must answer, attaches the resume made for the application, and never presses Submit, never types a password, a payment or an identity number.</small></p>
+  <script src="lib.js"></script><script src="run.js"></script><script src="popup.js"></script>
 </body></html>

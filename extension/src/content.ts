@@ -108,5 +108,52 @@ export function fillPage(data: FillData): FillReport {
   return out;
 }
 
-declare global { interface Window { __careerAgentFill?: (data: FillData) => FillReport } }
+export type FileSpec = { name: string; type: string; b64: string };
+export type AttachReport = { attached: string[]; missing: string[] };
+
+/** What says what a file box is for: its label, name and id, and else the text around it (never the text of a container that also holds another file box). */
+const KIND_WORDS = (el: HTMLInputElement): string => {
+  const own = [labelOf(el), el.name, el.id, el.getAttribute("accept") ?? ""].join(" ").toLowerCase();
+  if (/resume|\bcv\b|curriculum|cover/.test(own)) return own;
+  let box: Element | null = el.parentElement, near = "";
+  for (let i = 0; i < 4 && box && box.querySelectorAll('input[type="file"]').length === 1; i++, box = box.parentElement) { const t = text(box); if (t.length > 0 && t.length <= 240) { near = t; break; } }
+  return `${own} ${near}`.toLowerCase();
+};
+
+function toFile(f: FileSpec): File {
+  const bin = atob(f.b64), bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new File([bytes], f.name, { type: f.type });
+}
+
+/**
+ * Puts the resume (and cover letter) prepared for this application into the file boxes of the page. A box counts as the resume when its label, name or
+ * nearby text says resume / CV, as the cover letter when it says cover; a page with a single file box and no other clue gets the resume. A box that already holds a file is left alone.
+ */
+export function attachFiles(resume: FileSpec | null, cover: FileSpec | null): AttachReport {
+  const out: AttachReport = { attached: [], missing: [] };
+  const inputs = [...document.querySelectorAll<HTMLInputElement>('input[type="file"]')].filter((e) => !e.disabled);
+  const give = (el: HTMLInputElement, f: FileSpec) => {
+    const dt = new DataTransfer(); dt.items.add(toFile(f));
+    el.files = dt.files;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+    out.attached.push(f.name);
+  };
+  const free = inputs.filter((e) => !e.files?.length);
+  const isCover = (e: HTMLInputElement) => /cover/.test(KIND_WORDS(e));
+  const isResume = (e: HTMLInputElement) => !isCover(e) && /resume|\bcv\b|curriculum/.test(KIND_WORDS(e));
+  if (resume) {
+    const target = free.find(isResume) ?? (inputs.length === 1 && free.length === 1 && !isCover(free[0]) ? free[0] : undefined);
+    if (target) give(target, resume); else out.missing.push(inputs.length ? "no file box on this page asks for a resume" : "this page has no file box yet (if it has an Upload or Attach button, press it once, then fill again)");
+  }
+  if (cover) {
+    const target = free.find((e) => isCover(e) && !e.files?.length);
+    if (target) give(target, cover);
+  }
+  return out;
+}
+
+declare global { interface Window { __careerAgentFill?: (data: FillData) => FillReport; __careerAgentAttach?: (resume: FileSpec | null, cover: FileSpec | null) => AttachReport } }
 window.__careerAgentFill = fillPage;
+window.__careerAgentAttach = attachFiles;
