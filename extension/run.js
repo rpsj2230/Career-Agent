@@ -47,7 +47,101 @@ const CA = {
     return { ...result, files };
   },
 
-  async mark(applicationId) {
-    await CA.api("/api/extension/mark", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ applicationId }) });
+  /** Tell Career Agent what happened to an application: { action: "claim" | "release" | "submitted", ... }. Throws with .global set when the app says no for every application (switch off, daily limit). */
+  async report(applicationId, body) {
+    const link = await CA.link();
+    if (!link) throw new Error("Not linked to Career Agent yet");
+    const res = await fetch(link.origin + "/api/extension/mark", { method: "POST", cache: "no-store", headers: { "Content-Type": "application/json", Authorization: "Bearer " + link.token }, body: JSON.stringify({ applicationId, ...body }) });
+    if (res.ok) return;
+    const j = await res.json().catch(() => ({}));
+    const err = new Error(res.status === 401 ? "The link code is no longer valid. Make a new one in Career Agent: Profile." : j.error || "Career Agent answered " + res.status);
+    err.global = !!j.global;
+    throw err;
+  },
+  async mark(applicationId) { await CA.report(applicationId, { action: "submitted" }); },
+
+  sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+  loaded(tabId, timeoutMs = 30000) {
+    return new Promise((resolve) => {
+      const done = () => { chrome.tabs.onUpdated.removeListener(onUpdated); resolve(); };
+      const onUpdated = (id, info) => { if (id === tabId && info.status === "complete") done(); };
+      chrome.tabs.onUpdated.addListener(onUpdated);
+      setTimeout(done, timeoutMs);
+    });
+  },
+  /** Run a function in the page (the page's script is injected again first: the page may have navigated). */
+  async inPage(tabId, func, args = []) {
+    await chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] });
+    const [{ result }] = await chrome.scripting.executeScript({ target: { tabId }, func, args });
+    return result;
+  },
+
+  /**
+   * One application, start to finish, in a new tab: fill, attach the resume, then Next / Submit page after page (at most 8) until the employer's confirmation appears.
+   * Stops, and says why, at anything only a person should do. Result: { outcome: "submitted" | "unconfirmed" | "blocked", ... }.
+   */
+  async process(item, allowSubmit) {
+    const tab = await chrome.tabs.create({ url: item.formUrl, active: true });
+    const tabId = tab.id;
+    await CA.loaded(tabId);
+    let baseline = null;
+    for (let step = 0; step < 8; step++) {
+      await CA.sleep(step === 0 ? 1500 : 1000);
+      try { await CA.fillTab(tabId, item); } catch (e) { return { outcome: "blocked", why: "could not use this page: " + e.message, tabId }; }
+      const before = await CA.inPage(tabId, () => window.__careerAgentState());
+      if (baseline === null) baseline = before.confirmationAlready;
+      const adv = await CA.inPage(tabId, (o) => window.__careerAgentAdvance(o), [{ company: item.company, allowSubmit, baselineConfirmed: baseline }]);
+      if (adv.kind === "confirmed") return { outcome: "submitted", confirmation: adv.text, finalUrl: before.url, tabId };
+      if (adv.kind === "blocked") return { outcome: "blocked", why: adv.why, tabId };
+      if (adv.final) {
+        for (let i = 0; i < 16; i++) { // up to ~16 s for the employer's confirmation
+          await CA.sleep(1000);
+          let text = null, url = before.url;
+          try { text = await CA.inPage(tabId, (b) => window.__careerAgentConfirmed(b), [baseline]); url = (await CA.inPage(tabId, () => window.__careerAgentState())).url; } catch { /* the page is navigating */ }
+          if (text) return { outcome: "submitted", confirmation: text, finalUrl: url, tabId };
+        }
+        return { outcome: "unconfirmed", why: "Pressed " + adv.button + ", but no confirmation message appeared. Check this tab or your email before sending it again.", tabId };
+      }
+      // Next / Continue: wait for the page to change before filling the next one
+      let moved = false;
+      for (let i = 0; i < 10 && !moved; i++) {
+        await CA.sleep(1000);
+        try { const now = await CA.inPage(tabId, () => window.__careerAgentState()); moved = now.sig !== before.sig || now.url !== before.url; } catch { moved = true; }
+      }
+      if (!moved) return { outcome: "blocked", why: "the page did not move on after " + adv.button + " (it may be showing an error)", tabId };
+    }
+    return { outcome: "blocked", why: "the form has more than 8 pages", tabId };
+  },
+
+  /** The waiting applications the extension may take over, one after another. Applications it cannot finish go back to you with the reason. */
+  async runQueue() {
+    const results = [];
+    const { settings = {}, tried = {} } = await chrome.storage.local.get(["settings", "tried"]);
+    const fresh = await CA.refresh();
+    const { fillData } = await chrome.storage.local.get("fillData");
+    if (!fillData || fresh.source === "manual") return { results, stopped: "Link Career Agent first (the automatic mode needs the link code)." };
+    const auto = fillData.autoSubmit || { allowed: false, remainingToday: 0, why: "Career Agent did not say." };
+    if (!auto.allowed) return { results, stopped: auto.why };
+    const statuses = new Set(["needs_input", "failed", ...(settings.includeAssistant ? ["assisted_pending"] : [])]);
+    const DAY = 24 * 3600 * 1000;
+    let remaining = auto.remainingToday;
+    for (const item of (fillData.queue || []).filter((q) => statuses.has(q.status))) {
+      if (tried[item.id] && Date.now() - tried[item.id] < DAY) continue; // it stopped on something for you; not retried for a day unless you open it yourself
+      if (remaining <= 0) return { results, stopped: "Today's limit of applications is used up." };
+      try { await CA.report(item.id, { action: "claim" }); }
+      catch (e) { if (e.global) return { results, stopped: e.message }; results.push({ id: item.id, company: item.company, title: item.title, outcome: "skipped", why: e.message, at: Date.now() }); continue; }
+      let r;
+      try { r = await CA.process(item, true); } catch (e) { r = { outcome: "blocked", why: "something went wrong: " + e.message }; }
+      try {
+        if (r.outcome === "submitted") { await CA.report(item.id, { action: "submitted", confirmation: r.confirmation, finalUrl: r.finalUrl }); remaining--; }
+        else await CA.report(item.id, { action: "release", note: r.why });
+      } catch (e) { r.why = (r.why ? r.why + "; " : "") + "could not tell Career Agent: " + e.message; }
+      if (r.outcome === "submitted") { try { await chrome.tabs.remove(r.tabId); } catch { /* already closed */ } }
+      else if (r.outcome === "blocked") { tried[item.id] = Date.now(); try { await chrome.tabs.remove(r.tabId); } catch { /* already closed */ } }
+      else { tried[item.id] = Date.now(); } // "unconfirmed": the tab stays open so you can check it
+      results.push({ id: item.id, company: item.company, title: item.title, outcome: r.outcome, why: r.why || null, at: Date.now() });
+      await chrome.storage.local.set({ tried });
+    }
+    return { results, stopped: null };
   },
 };

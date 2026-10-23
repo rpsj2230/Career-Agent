@@ -5,7 +5,7 @@ import { withExtensionToken } from "@/lib/extension/auth";
 import { claimApplication, releaseApplication } from "@/lib/extension/claim";
 
 const Body = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("submitted").default("submitted"), applicationId: z.string().uuid(), confirmation: z.string().max(1000).nullish(), finalUrl: z.string().url().max(1000).nullish() }),
+  z.object({ action: z.literal("submitted"), applicationId: z.string().uuid(), confirmation: z.string().max(1000).nullish(), finalUrl: z.string().url().max(1000).nullish() }),
   z.object({ action: z.literal("claim"), applicationId: z.string().uuid() }),
   z.object({ action: z.literal("release"), applicationId: z.string().uuid(), note: z.string().min(1).max(400) }),
 ]);
