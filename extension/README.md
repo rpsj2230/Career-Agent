@@ -2,9 +2,14 @@
 
 For the applications the Mac assistant could not finish (Workday and other employer systems, job boards that refuse the assistant's browser), and for any application you open yourself.
 
+## Choose how it works (the top of the popup)
+
+- **Default: fallback.** Works through the applications the assistant could not finish (see "Automatic mode" below).
+- **Manual only.** Nothing runs by itself and the timer is off. You open a page and press "Fill this page".
+
 ## Two ways to use it
 
-**Manual, whenever you want.** Open any application page, click the extension's icon, press **Fill this page from my data**. It fills your name and contact details, saved answers, years of experience, languages and plain agreement boxes, and attaches the resume (and cover letter, if the form has a box for it) that Career Agent made for that application. You read it, answer anything outlined in orange, and press Submit yourself. "Open the next one and fill it" does the same for the next waiting application in a new tab.
+**Manual, whenever you want, on any page.** Open any application page, click the extension's icon, press **Fill this page from my data**. It fills your name and contact details, saved answers, years of experience, languages and plain agreement boxes. If the page is one of your applications in Career Agent it attaches the resume (and cover letter, if the form has a box for it) made for that application; **any other page gets your default resume** (the file on the Resumes page) and your profile data. You can change the choice in the list under the button. You read it, answer anything outlined in orange, and press Submit yourself. "Open the next one and fill it" does the same for the next waiting application in a new tab.
 
 **Automatic mode.** It works through the applications the assistant has given up on (or that wait for an answer), one at a time: open the form in a new tab, fill it, attach its resume, press Next and Submit page after page, wait for the employer's own confirmation message, tell Career Agent (which records the confirmation text), close the tab, go on to the next. Switch it on in the popup: "Run by itself every 30 minutes while the browser is open", or press "Run the waiting list now".
 
@@ -24,6 +29,10 @@ Automatic mode only runs when **Auto-Apply is on in Career Agent**, it is not pa
 4. Click the extension's icon, open "Link to Career Agent", paste the code, press **Link**, and allow when the browser asks. Done: it now updates itself.
 
 The first time you press "Open the next one and fill it", "Run the waiting list now" or switch the automatic mode on, the browser asks to allow the extension on websites; that is needed to fill the employers' pages it opens for you.
+
+## Where the zip is kept
+
+The zip is rebuilt and committed to this repository (`public/downloads/career-agent-extension.zip`) by the "Extension zip" workflow whenever the extension changes, and a copy for each version is published under the repository's Releases (`extension-v<version>`) and as a workflow artifact for 90 days. So the extension is always on GitHub as well as in the app.
 
 ## Updating the extension itself
 

@@ -7,12 +7,16 @@ import { autoSubmitState } from "@/lib/extension/claim";
 import { buildQueue, QUEUE_LIMIT, QUEUE_STATUSES, type QueueRow } from "@/lib/extension/queue";
 import { EXTENSION_VERSION } from "@/lib/extension/version";
 import { getProfile } from "@/lib/profile/store";
+import { getMasterInfo } from "@/lib/tailor/master-store";
 
 export const maxDuration = 30;
 
 type Joined<T> = T | T[] | null;
 const one = <T,>(v: Joined<T>): T | null => (Array.isArray(v) ? v[0] ?? null : v);
 const fileName = (path: string) => path.split("/").pop() ?? "resume.docx";
+
+/** Your default resume (the file on the Resumes page), used on a page that is not one of your applications. */
+const defaultResume = async () => { const m = await getMasterInfo().catch(() => null); return m ? { name: m.name } : null; };
 
 /** What the extension reads before every fill: your details and answers, and the applications waiting for you (the files themselves come from /api/extension/file). */
 export async function GET(request: Request) {
@@ -32,7 +36,7 @@ export async function GET(request: Request) {
       finalUrl: (() => { const s = SubmissionRecord.safeParse(a.submission); return s.success ? s.data.final_url ?? null : null; })(),
       resume: named(a.resume_doc_id), cover: named(a.cover_doc_id),
     }));
-    return { status: 200 as const, body: { ...buildFillData(profile, bank), queue: buildQueue(rows), autoSubmit: await autoSubmitState(), latestExtensionVersion: EXTENSION_VERSION } };
+    return { status: 200 as const, body: { ...buildFillData(profile, bank), queue: buildQueue(rows), autoSubmit: await autoSubmitState(), defaultResume: await defaultResume(), latestExtensionVersion: EXTENSION_VERSION } };
   });
   if (!result) return NextResponse.json({ error: "This link code is not valid. Make a new one in Career Agent: Profile." }, { status: 401, headers: { "Cache-Control": "no-store" } });
   return NextResponse.json(result.body, { status: result.status, headers: { "Cache-Control": "no-store" } });

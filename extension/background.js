@@ -44,7 +44,8 @@ async function runAutomatic(trigger) {
 
 async function syncAlarm() {
   const { settings = {} } = await chrome.storage.local.get("settings");
-  if (settings.autoRun) await chrome.alarms.create("queue", { delayInMinutes: 1, periodInMinutes: 30 });
+  // only the default (fallback) mode runs by itself; "manual only" never does
+  if (settings.autoRun && (settings.mode || "fallback") === "fallback") await chrome.alarms.create("queue", { delayInMinutes: 1, periodInMinutes: 30 });
   else await chrome.alarms.clear("queue");
 }
 
@@ -58,7 +59,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
 chrome.alarms.onAlarm.addListener(async (a) => {
   if (a.name !== "queue") return;
   const { settings = {} } = await chrome.storage.local.get("settings");
-  if (settings.autoRun) runAutomatic("timer");
+  if (settings.autoRun && (settings.mode || "fallback") === "fallback") runAutomatic("timer");
 });
 chrome.runtime.onStartup.addListener(syncAlarm);
 chrome.runtime.onInstalled.addListener(syncAlarm);

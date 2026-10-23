@@ -2,6 +2,7 @@ const $ = (id) => document.getElementById(id);
 const say = (t, cls) => { $("out").textContent = t; $("out").className = cls || ""; };
 const MANIFEST = chrome.runtime.getManifest();
 const NONE = "";
+const DEFAULT = "default";
 
 function describe(report) {
   const lines = [`Filled ${report.filled.length} field(s).`];
@@ -34,8 +35,14 @@ async function renderAuto(fillData) {
   $("runAuto").disabled = !!autoRunning;
 }
 
+const MODES = ["fallback", "manual"];
+const modeOf = (settings) => (MODES.includes(settings.mode) ? settings.mode : "fallback");
+
 async function render() {
-  const { fillData, syncedAt } = await chrome.storage.local.get(["fillData", "syncedAt"]);
+  const { fillData, syncedAt, settings = {} } = await chrome.storage.local.get(["fillData", "syncedAt", "settings"]);
+  const mode = modeOf(settings);
+  for (const r of document.querySelectorAll('input[name="mode"]')) r.checked = r.value === mode;
+  $("panel-fallback").hidden = mode !== "fallback";
   await renderAuto(fillData);
   const link = await CA.link();
   $("status").textContent = link ? `Linked to ${new URL(link.origin).host}${syncedAt ? ` · data from ${new Date(syncedAt).toLocaleTimeString()}` : ""}` : fillData ? "Not linked: using the pasted data file." : "Not linked yet. Open \"Link to Career Agent\" below.";
@@ -46,13 +53,19 @@ async function render() {
   const sel = $("forapp");
   sel.innerHTML = "";
   sel.add(new Option("Do not upload a resume", NONE));
+  const def = fillData && fillData.defaultResume;
+  if (def) sel.add(new Option(`Upload my default resume (${def.name})`, DEFAULT));
   for (const q of queue.filter((x) => x.resume)) sel.add(new Option(`Upload the resume for: ${q.company}, ${q.title}`, q.id));
-  sel.hidden = queue.length === 0;
+  sel.hidden = !def && queue.length === 0;
+  // a page that belongs to one of your applications gets that application's resume; any other page gets your default resume
+  let note = def ? "This page is not one of your applications: your default resume is used." : "";
+  sel.value = def ? DEFAULT : NONE;
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     const match = tab && tab.url ? CareerAgentLib.itemForPage(queue, tab.url) : null;
-    if (match && match.resume) sel.value = match.id;
+    if (match && match.resume) { sel.value = match.id; note = `This page is your application for ${match.company}: its own resume is used.`; }
   } catch { /* no tab info */ }
+  $("forappNote").textContent = def || queue.length ? note : "No default resume yet: upload one on the Resumes page in Career Agent to have it attached on any page.";
   const box = $("queue");
   box.innerHTML = "";
   $("next").disabled = queue.length === 0;
@@ -93,11 +106,19 @@ async function openOne(id) {
 
 async function saveSettings() {
   const { settings = {} } = await chrome.storage.local.get("settings");
-  const next = { ...settings, autoRun: $("autoRun").checked, includeAssistant: $("includeAssistant").checked };
+  const next = { ...settings, autoRun: $("autoRun").checked, includeAssistant: $("includeAssistant").checked, mode: modeOf(settings) };
   if (next.autoRun && !(await ensureAllSites())) { $("autoRun").checked = false; next.autoRun = false; say("Allowed sites are needed for the automatic mode.", "warn"); }
   if (next.autoRun && !(await CA.link())) { $("autoRun").checked = false; next.autoRun = false; say("Link Career Agent first (the automatic mode needs the link code).", "warn"); }
   await chrome.storage.local.set({ settings: next });
   chrome.runtime.sendMessage({ type: "settings-changed" });
+}
+for (const r of document.querySelectorAll('input[name="mode"]')) {
+  r.onchange = async () => {
+    const { settings = {} } = await chrome.storage.local.get("settings");
+    await chrome.storage.local.set({ settings: { ...settings, mode: r.value } });
+    chrome.runtime.sendMessage({ type: "settings-changed" });
+    render();
+  };
 }
 $("autoRun").onchange = saveSettings;
 $("includeAssistant").onchange = saveSettings;
@@ -122,7 +143,8 @@ $("fill").onclick = async () => {
   const { fillData } = await chrome.storage.local.get("fillData");
   if (!fillData) return say("Link Career Agent first (open \"Link to Career Agent\").", "warn");
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  const item = ((fillData.queue) || []).find((q) => q.id === $("forapp").value) || null;
+  const chosen = $("forapp").value;
+  const item = chosen === DEFAULT && fillData.defaultResume ? { id: DEFAULT, isDefault: true, resume: fillData.defaultResume, cover: null } : ((fillData.queue) || []).find((q) => q.id === chosen) || null;
   try {
     const report = await CA.fillTab(tab.id, item);
     say((synced.source === "cache" ? `(Could not reach Career Agent: ${synced.error}. Used the last copy of your data.)\n` : "") + describe(report), report.forYou.length || report.secret.length || report.files.missing.length ? "warn" : "ok");
