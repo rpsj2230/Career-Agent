@@ -58,12 +58,13 @@ export type Drafted = { question: string; answer: string };
 export type Dropped = { question: string; why: string };
 
 /** Is one written answer usable? `why` says what is wrong with it when it is not. */
-export function judgeWritten(raw: string | null | undefined, facts: string): { ok: true; answer: string } | { ok: false; why: string } {
+export function judgeWritten(raw: string | null | undefined, facts: string, question = ""): { ok: true; answer: string } | { ok: false; why: string } {
   const text = (raw ?? "").replace(/\s+/g, " ").trim();
   if (!text || /^(null|none|n\/a|unknown|no[_ ]answer)\.?$/i.test(text)) return { ok: false, why: "your profile does not give enough to answer this honestly" };
   if (text.length < 40) return { ok: false, why: "the draft was too short to use" };
   if (/\[[^\]]+\]|\bXYZ\b|\{\{/.test(text)) return { ok: false, why: "the draft contained a placeholder" };
-  const bad = ungroundedFigure(text, facts);
+  // a figure the question itself contains ("your first 90 days") is not an invented claim
+  const bad = ungroundedFigure(text, `${facts}\n${question}`);
   if (bad) return { ok: false, why: `the draft stated "${bad}", which is not in your profile` };
   return { ok: true, answer: text.slice(0, 1200) };
 }
@@ -76,7 +77,7 @@ export function usableWritten(questions: string[], out: z.infer<typeof WrittenAn
     const q = questions[a.index];
     if (!q || seen.has(a.index)) continue;
     seen.add(a.index);
-    const j = judgeWritten(a.answer, facts);
+    const j = judgeWritten(a.answer, facts, q);
     if (j.ok) kept.push({ question: q, answer: j.answer }); else dropped.push({ question: q, why: j.why });
   }
   for (let i = 0; i < questions.length; i++) if (!seen.has(i)) dropped.push({ question: questions[i], why: "the model gave no answer" });

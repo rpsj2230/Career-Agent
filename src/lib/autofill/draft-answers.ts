@@ -37,7 +37,7 @@ export async function draftInterviewAnswers(o: { budgetMs: number; sequential: b
     if (Date.now() > deadline - 5_000) { dropped.push({ question, why: "not reached before the time limit; press the button again for the rest" }); return; }
     try {
       const { text } = await runText({ task: "tailor", system: WRITTEN_TEXT_SYSTEM, prompt: writtenTextPrompt(profile, question), prefer: "strong", budgetMs: Math.min(perQuestionMs, deadline - Date.now()), skipParked: true });
-      const j = judgeWritten(cleanProse(text), facts);
+      const j = judgeWritten(cleanProse(text), facts, question);
       if (!j.ok) { dropped.push({ question, why: j.why }); return; }
       must(await db().from("answer_bank").upsert({ key: answerKey(question), question, answer: j.answer, updated_at: new Date().toISOString() }, { onConflict: "key" }).select("key"), "save drafted answer");
       kept.push(question);

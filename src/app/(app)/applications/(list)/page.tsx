@@ -24,7 +24,7 @@ import { PageSizeBar, Pagination } from "@/components/app/pagination";
 import { parsePaging } from "@/lib/pagination";
 import { ActionButton } from "@/components/app/action-button";
 import { SelectableTable } from "@/components/app/selectable-table";
-import { applyRoute, nextStep } from "@/lib/apply/route";
+import { applyRoute, finishLink, nextStep } from "@/lib/apply/route";
 import { draftStates } from "@/lib/apply/email-store";
 
 export const dynamic = "force-dynamic";
@@ -120,7 +120,13 @@ export default async function ApplicationsPage({ searchParams }: { searchParams:
                       if (panel?.live?.id === r.id) return <div key="n" className="flex flex-col gap-1"><span className="text-sm font-medium text-green-700 dark:text-green-500">The assistant is working on this one now</span><span className="text-xs text-muted-foreground">{panel.live.step}</span></div>;
                       return n.action === "assistant"
                       ? <div key="n" className="flex flex-col gap-1"><ActionButton endpoint="/api/assistant/run" success="Assistant asked to run" size="sm" disabled={panel?.pending}>{panel?.pending ? (panel.online ? "Requested: starting" : "Requested: assistant not running") : n.text}</ActionButton><span className="text-xs text-muted-foreground">{panel?.online ? "Assistant is running; starts within ~30 s." : "The assistant is not running on your computer yet (see the card above for setup)."}</span></div>
-                      : n.href ? <Link key="n" className="text-sm underline" href={n.href}>{n.text}</Link> : <span key="n" className="text-sm text-muted-foreground">{n.text}</span>; })(),
+                      : n.href
+                        ? <div key="n" className="flex flex-col items-start gap-1">
+                            <Link className="text-sm underline" href={n.href}>{n.text}</Link>
+                            {(() => { const form = finishLink(r.status, route(r), r.job?.url);
+                              return form && <><Button asChild size="sm" variant="outline"><a href={form} target="_blank" rel="noreferrer">Open the form</a></Button><span className="text-xs text-muted-foreground">Then press the extension&apos;s <b>Fill this page</b>: it fills what is missing and outlines the rest.</span></>; })()}
+                          </div>
+                        : <span key="n" className="text-sm text-muted-foreground">{n.text}</span>; })(),
                     <div key="v" className="grid gap-1 text-xs"><Link className="underline" href={`/applications/${r.id}#documents`} target="_blank" rel="noreferrer">View resume v{r.resume?.version ?? "?"}</Link><Link className="underline" href={`/applications/${r.id}#regenerate`}>New resume / apply again</Link></div>,
                   ],
                 };

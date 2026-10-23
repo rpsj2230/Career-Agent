@@ -48,3 +48,9 @@ export function nextStep(status: string, route: ApplyRoute, id: string): NextSte
     default: return { text: "Open", href };
   }
 }
+
+/** The employer's form for an application that is waiting on you, so it can be opened straight from the list (then the extension fills what is missing). Null when there is nothing to open. */
+export function finishLink(status: string, route: ApplyRoute, url: string | null | undefined): string | null {
+  if (!["needs_input", "failed", "assisted_pending"].includes(status) || route.kind === "email") return null;
+  return url && /^https?:\/\//i.test(url) ? url : null;
+}

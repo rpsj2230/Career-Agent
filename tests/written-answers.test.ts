@@ -66,6 +66,12 @@ describe("the plain-text way of asking", () => {
     expect(judgeWritten("I grew revenue by 60% by building a high-performing team across regions and time zones.", facts)).toMatchObject({ ok: false });
     expect(judgeWritten("I led a 150-person delivery organisation across 4 countries and cut resolution time by 35% with an AI triage agent.", facts)).toMatchObject({ ok: true });
   });
+  it("accepts a figure that the question itself contains, such as the first 90 days", () => {
+    const answer = "In my first 90 days I would learn the business, meet the team and agree priorities, building on the transformation work I have led.";
+    expect(judgeWritten(answer, facts)).toMatchObject({ ok: false, why: expect.stringContaining('"90"') });
+    expect(judgeWritten(answer, facts, "What value would you bring in your first 90 days?")).toMatchObject({ ok: true });
+    expect(judgeWritten("In my first 90 days I would grow revenue by 60% through a new team.", facts, "What value would you bring in your first 90 days?")).toMatchObject({ ok: false });
+  });
   it("removes what models wrap around prose", () => {
     expect(cleanProse('Here is my answer: "I led teams."')).toBe("I led teams.");
     expect(cleanProse("```text\nI led teams.\n```")).toBe("I led teams.");
