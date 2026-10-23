@@ -158,7 +158,9 @@ export function PreferencesForm({ prefs, searching, profileTitles }: { prefs: Pr
   );
 }
 
-export function AnswerBankEditor({ initial }: { initial: AnswerRow[] }) {
+export type LastDraftView = { at: string; where: string; written: number; dropped: { question: string; why: string }[]; errors: string[] };
+
+export function AnswerBankEditor({ initial, last }: { initial: AnswerRow[]; last?: LastDraftView | null }) {
   const router = useRouter();
   const [rows, setRows] = useState<AnswerRow[]>(initial);
   const update = (i: number, answer: string) => setRows((r) => r.map((x, j) => (j === i ? { ...x, answer } : x)));
@@ -178,6 +180,13 @@ export function AnswerBankEditor({ initial }: { initial: AnswerRow[] }) {
   return (
     <div className="grid gap-4">
       <div className="flex flex-wrap items-center gap-2"><WriteAnswersButton /><span className="text-xs text-muted-foreground">Drafts only the empty interview questions below, from your profile, and saves them here. Read and edit them: they are sent as you saved them.</span></div>
+      {last && (
+        <div className="rounded-md border p-3 text-sm">
+          <b>Last run{last.where === "github" ? " (on GitHub)" : " (on the website)"}, {new Date(last.at).toLocaleString()}:</b> {last.written} written{last.dropped.length ? `, ${last.dropped.length} left for you` : ""}.
+          {last.dropped.length > 0 && <ul className="mt-1 list-disc pl-5 text-muted-foreground">{last.dropped.slice(0, 8).map((d, i) => <li key={i}>{d.question}: {d.why}</li>)}</ul>}
+          {last.errors.length > 0 && <details className="mt-1"><summary className="cursor-pointer">What the models said</summary>{last.errors.map((e, i) => <p key={i} className="mt-1 break-words text-xs text-muted-foreground">{e}</p>)}</details>}
+        </div>
+      )}
       <p className="text-sm text-muted-foreground">{answered} of {rows.length} answered. Fill what you are comfortable sharing; the agent only uses answers that exist here, and hands the application back to you for anything it cannot answer.</p>
       {groups.map((g) => (
         <section key={g} className="grid gap-2">

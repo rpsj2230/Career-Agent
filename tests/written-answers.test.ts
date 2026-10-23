@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ungroundedFigure, usableWritten, richFacts, writtenPrompt, WRITTEN_SYSTEM } from "../src/lib/autofill/written-answers";
+import { cleanProse, judgeWritten, ungroundedFigure, usableWritten, richFacts, writtenPrompt, writtenTextPrompt, WRITTEN_SYSTEM, WRITTEN_TEXT_SYSTEM } from "../src/lib/autofill/written-answers";
 import { STANDARD_QUESTIONS, WRITTEN_QUESTIONS, WRITTEN_GROUP, mergeStandard } from "../src/lib/standard-questions";
 import { MasterProfile } from "../src/lib/types";
 
@@ -49,5 +49,26 @@ describe("drafting answers from the profile", () => {
       "What are your key strengths?": 'the draft stated "60%", which is not in your profile',
       "Describe your leadership style.": "the model gave no answer",
     });
+  });
+});
+
+describe("the plain-text way of asking", () => {
+  it("one question per request, with the same honesty rules", () => {
+    expect(writtenTextPrompt(profile, "Why should we hire you?")).toMatch(/QUESTION: Why should we hire you\?$/);
+    expect(WRITTEN_TEXT_SYSTEM).toMatch(/Never invent/);
+    expect(WRITTEN_TEXT_SYSTEM).toMatch(/NO_ANSWER/);
+    expect(WRITTEN_TEXT_SYSTEM).not.toMatch(/JSON/);
+  });
+  it("judges one answer: NO_ANSWER, too short, placeholder, invented figure, and a good one", () => {
+    expect(judgeWritten("NO_ANSWER", facts)).toMatchObject({ ok: false });
+    expect(judgeWritten("Short.", facts)).toMatchObject({ ok: false, why: "the draft was too short to use" });
+    expect(judgeWritten("I want to join [COMPANY] and keep leading transformation work for large organisations.", facts)).toMatchObject({ ok: false, why: "the draft contained a placeholder" });
+    expect(judgeWritten("I grew revenue by 60% by building a high-performing team across regions and time zones.", facts)).toMatchObject({ ok: false });
+    expect(judgeWritten("I led a 150-person delivery organisation across 4 countries and cut resolution time by 35% with an AI triage agent.", facts)).toMatchObject({ ok: true });
+  });
+  it("removes what models wrap around prose", () => {
+    expect(cleanProse('Here is my answer: "I led teams."')).toBe("I led teams.");
+    expect(cleanProse("```text\nI led teams.\n```")).toBe("I led teams.");
+    expect(cleanProse("Answer: I led teams.")).toBe("I led teams.");
   });
 });

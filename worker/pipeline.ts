@@ -9,6 +9,7 @@ import { appendFileSync } from "node:fs";
 import { failStaleRuns } from "../src/lib/activity";
 import { notifyProfile as notifyTelegram } from "../src/lib/notify-profile";
 import { sendTelegram } from "../src/lib/notify";
+import { answerWaitingQuestions } from "../src/lib/apply/answer-waiting";
 import { forEachProfile, type Profile } from "../src/lib/profiles-store";
 import { profilesEnabled } from "../src/lib/scope";
 import { rawClient } from "../src/lib/raw-client";
@@ -102,6 +103,9 @@ async function runProfile(p: Profile | null, id: string | undefined): Promise<nu
   if (settled) console.log(`${label}Marked ${settled} application(s) as applied: the portal's own receipt email says you already applied.`);
   const replies = await trackReplies();
   if (replies.updated.length) console.log(`${label}Replies: ${replies.updated.map((u) => `${u.company} (${u.reply})`).join(", ")}`);
+  // questions the assistant on your computer could not answer (its models were out of tokens): answered here, hosted models first and the local model last, then the applications go back to its queue
+  const asked = await answerWaitingQuestions({ budgetMs: 6 * 60_000, sequential: true }).catch((e) => { console.error("could not answer waiting questions (not fatal):", e instanceof Error ? e.message : e); return null; });
+  if (asked?.answered) console.log(`${label}Answered ${asked.answered} question(s) that were stopping applications; ${asked.requeued} application(s) are back in the assistant's queue.`);
   // a profile that has not been set up (no confirmed resume yet) has nothing to search with or score against: its schedules wait, they do not fail
   if (!id && !((await getProfile().catch(() => null))?.experience.length)) {
     console.log(`${label}This profile has no confirmed resume yet, so its schedules wait (Profile page: import and confirm it).`);

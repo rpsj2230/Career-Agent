@@ -5,7 +5,7 @@ import { db, must } from "@/lib/db";
 import { getSetting } from "@/lib/settings";
 import type { Task } from "@/lib/types";
 import { DEFAULT_MODELS } from "./defaults";
-import { callStructured } from "./call";
+import { callStructured, callText } from "./call";
 import { AllModelsFailed, runWithFallback, selectCandidates, timeoutFor, withLocalFallback, type ModelRow } from "./fallback";
 import { baseEnv, envLabel, MAX_KEYS, resolveKeyPool, resolveKeys, slotEnv } from "./keys";
 import { defaultPrefer, orderForTier, tierOf, type Tier } from "./tiers";
@@ -53,23 +53,10 @@ async function loadCandidates(task: Task): Promise<{ candidates: ModelRow[]; poo
   return { candidates: selectCandidates(rows, task, hasKey, perKey), pool };
 }
 
-/**
- * Run a structured-output request on the best available model, falling back down the
- * priority list on any error (rate limit, bad JSON, schema mismatch). Every attempt is logged.
- */
-export async function runStructured<S extends z.ZodType>(opts: {
-  task: Task;
-  schema: S;
-  system: string;
-  prompt: string;
-  jobId?: string;
-  /** which tier to try first (default: fast for scoring, strong for writing) */
-  prefer?: Tier;
-  /** total time allowed across all attempts (for a web request that the host cuts off); each attempt gets what is left */
-  budgetMs?: number;
-  /** try only models that are not cooling down after a failure (an unattended caller that must not wait on dead models) */
-  skipParked?: boolean;
-}): Promise<{ output: z.infer<S>; model: string; tier: Tier }> {
+type ChainOpts = { task: Task; jobId?: string; prefer?: Tier; budgetMs?: number; skipParked?: boolean };
+
+/** The shared part of every model call: which models, in what order, with failures logged and parked, and the call itself supplied by the caller. */
+async function runChain<T>(opts: ChainOpts, call: (model: ReturnType<typeof buildModel>, timeoutMs: number | undefined) => Promise<T>): Promise<{ value: T; model: string; tier: Tier }> {
   const loaded = await loadCandidates(opts.task);
   const routing = (await getSetting("scoring").catch(() => null))?.routing !== false;
   const ordered = routing ? orderForTier(loaded.candidates, opts.prefer ?? defaultPrefer(opts.task)) : loaded.candidates;
@@ -86,7 +73,7 @@ export async function runStructured<S extends z.ZodType>(opts: {
     candidates,
     async (m, remaining) => {
       const own = timeoutFor(m);
-      return callStructured(buildModel(m, m.key), { schema: opts.schema, system: opts.system, prompt: opts.prompt, timeoutMs: remaining === undefined ? own : Math.min(own ?? Infinity, remaining) });
+      return call(buildModel(m, m.key), remaining === undefined ? own : Math.min(own ?? Infinity, remaining));
     },
     async (m, ok, ms, error) => {
       if (ok) parking.clear(m.label); else parking.park(m.label, error ?? "");
@@ -102,7 +89,30 @@ export async function runStructured<S extends z.ZodType>(opts: {
     },
     opts.budgetMs === undefined ? undefined : Date.now() + opts.budgetMs,
   );
-  return { output: value.output, model: used.realLabel, tier: tierOf({ label: used.realLabel, model: used.model }) };
+  return { value, model: used.realLabel, tier: tierOf({ label: used.realLabel, model: used.model }) };
+}
+
+/**
+ * Run a structured-output request on the best available model, falling back down the
+ * priority list on any error (rate limit, bad JSON, schema mismatch). Every attempt is logged.
+ */
+export async function runStructured<S extends z.ZodType>(opts: ChainOpts & {
+  schema: S;
+  system: string;
+  prompt: string;
+  /** total time allowed across all attempts (for a web request that the host cuts off); each attempt gets what is left */
+  budgetMs?: number;
+  /** try only models that are not cooling down after a failure (an unattended caller that must not wait on dead models) */
+  skipParked?: boolean;
+}): Promise<{ output: z.infer<S>; model: string; tier: Tier }> {
+  const r = await runChain(opts, (model, timeoutMs) => callStructured(model, { schema: opts.schema, system: opts.system, prompt: opts.prompt, timeoutMs }));
+  return { output: r.value.output, model: r.model, tier: r.tier };
+}
+
+/** The same chain for an answer that is prose, not JSON (see callText). */
+export async function runText(opts: ChainOpts & { system: string; prompt: string }): Promise<{ text: string; model: string; tier: Tier }> {
+  const r = await runChain(opts, (model, timeoutMs) => callText(model, { system: opts.system, prompt: opts.prompt, timeoutMs }));
+  return { text: r.value.text, model: r.model, tier: r.tier };
 }
 
 /**

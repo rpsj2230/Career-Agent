@@ -6,6 +6,7 @@
  */
 import { failStaleRuns, withRun } from "../src/lib/activity";
 import { prepareApplication } from "../src/lib/apply/prepare";
+import { answerWaitingQuestions } from "../src/lib/apply/answer-waiting";
 import { draftInterviewAnswers } from "../src/lib/autofill/draft-answers";
 import { discoverNow } from "../src/lib/jobs/discover";
 import { callStructured } from "../src/lib/llm/call";
@@ -57,10 +58,18 @@ async function runTask(task: string) {
   if (task === "localtest") {
     await testLocalModel();
   } else if (task === "write_answers") {
-    const r = await draftInterviewAnswers({ budgetMs: 12 * MIN, sequential: true });
+    const r = await draftInterviewAnswers({ budgetMs: 22 * MIN, sequential: true, where: "github" });
     if ("error" in r) throw new Error(r.error);
     console.log(r.note);
+    for (const e of r.errors) console.log(`  model errors: ${e}`); // the whole text, so a failing model can be named
+    for (const d of r.dropped) console.log(`  left for you: ${d.question} (${d.why})`);
     await notifyProfile(`Career Agent: interview answers written. ${r.note}. Open Profile > Answer bank to read and edit them.`).catch(() => undefined);
+  } else if (task === "answer_waiting") {
+    const r = await answerWaitingQuestions({ budgetMs: 22 * MIN, sequential: true });
+    console.log(`Answered ${r.answered} question(s); ${r.requeued} application(s) went back to the queue; ${r.left.length} left for you.`);
+    for (const e of r.errors) console.log(`  model errors: ${e}`);
+    for (const l of r.left) console.log(`  left for you: ${l.question} (${l.why})`);
+    if (r.answered) await notifyProfile(`Career Agent: the AI answered ${r.answered} question(s) that were stopping applications; ${r.requeued} application(s) are back in the queue.`).catch(() => undefined);
   } else if (task === "discover") {
     const found = await discoverNow({ trigger: "manual", budgetMs: 8 * MIN });
     console.log(`Search: ${found.outcomes.length} scan(s), ${found.outcomes.reduce((n, s) => n + s.counts.inserted, 0)} new job(s).`);
@@ -94,7 +103,7 @@ async function runTask(task: string) {
     const r = await withRun({ trigger: "manual", kind: "prepare", scope: { job_id: id } }, (ctx) => prepareApplication(id, ctx.id));
     console.log(JSON.stringify(r));
   } else {
-    throw new Error(`Unknown task "${task}" (use discover, score, prepare, prepare_many, regenerate, write_answers or localtest)`);
+    throw new Error(`Unknown task "${task}" (use discover, score, prepare, prepare_many, regenerate, write_answers, answer_waiting or localtest)`);
   }
 }
 

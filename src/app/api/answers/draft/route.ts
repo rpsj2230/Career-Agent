@@ -19,7 +19,7 @@ export async function POST() {
     }
     why = `GitHub did not start it (${err}). `;
   }
-  const r = await draftInterviewAnswers({ budgetMs: 50_000, sequential: false });
+  const r = await draftInterviewAnswers({ budgetMs: 50_000, sequential: false, where: "website" });
   if ("error" in r) return NextResponse.json({ error: r.error }, { status: 409 });
   return NextResponse.json({ ok: true, where: "inline", ...r, note: `${why}${r.note}` });
 }

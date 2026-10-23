@@ -27,6 +27,25 @@ export function jsonInstructions(schema: z.ZodType): string {
   return `\n\nRespond with a single JSON object only: no markdown, no code fence, no text before or after it.${tail}`;
 }
 
+/** Run a model call with a hard time limit: the request is aborted AND no longer waited for, so a provider that ignores the signal cannot hold the run hostage. */
+async function withTimeLimit<T>(ms: number, run: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const ctrl = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => { timer = setTimeout(() => { const err = new Error(`The model did not answer within ${Math.round(ms / 1000)}s`); ctrl.abort(err); reject(err); }, ms); });
+  try { return await Promise.race([run(ctrl.signal), deadline]); } finally { clearTimeout(timer); }
+}
+
+/**
+ * A plain-text answer, no JSON. Long free-text written inside a JSON string is where small and free models slip (an unescaped quote or line break and the whole answer is lost),
+ * so anything that is prose is asked for as prose.
+ */
+export async function callText(model: LanguageModel, o: { system: string; prompt: string; timeoutMs?: number }): Promise<{ text: string; usage: unknown }> {
+  const res = await withTimeLimit(o.timeoutMs ?? MODEL_TIMEOUT_MS, (signal) => generateText({ model, system: o.system, prompt: o.prompt, temperature: 0.3, maxRetries: 0, abortSignal: signal }));
+  const text = (res.text ?? "").trim();
+  if (!text) throw new Error("The model returned an empty answer");
+  return { text, usage: res.usage };
+}
+
 /**
  * One structured-output call. A hung provider is cut off after `timeoutMs` so the next model in the chain is tried,
  * and the SDK's own retries are off (fallback to another model is faster than waiting out a rate limit).
