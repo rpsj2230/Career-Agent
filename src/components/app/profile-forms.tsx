@@ -100,12 +100,26 @@ export function DraftReview({ initial, conflicts }: { initial: unknown; conflict
 type Prefs = { countries: string[]; roles: string[]; payCountry?: string; currentCtc?: string; expectedCtc?: string; noticePeriod?: string; visaStatus?: string; relocate?: boolean; languages?: string };
 const csv = (s: string) => s.split(",").map((x) => x.trim()).filter(Boolean);
 
+/** The languages line, in its own card near the top of the Profile page, so it is easy to find. */
+export function LanguagesForm({ languages }: { languages: string }) {
+  const router = useRouter();
+  const [v, setV] = useState(languages);
+  return (
+    <div className="grid gap-2">
+      <Label htmlFor="languages">Languages you know (any language not listed is answered as &quot;none&quot;)</Label>
+      <Input id="languages" value={v} placeholder="English: fluent (read, write, speak); Hindi: fluent (read, write, speak)" onChange={(e) => setV(e.target.value)} />
+      <div><Button onClick={async () => { if (await call("/api/profile/preferences", "PUT", { languages: v }, "Languages saved")) router.refresh(); }}>Save languages</Button></div>
+    </div>
+  );
+}
+
 export function PreferencesForm({ prefs, searching, profileTitles }: { prefs: Prefs; searching: { names: string[]; configured: boolean }; profileTitles: string[] }) {
   const router = useRouter();
   const [p, setP] = useState({ ...prefs, countries: prefs.countries.join(", "), roles: prefs.roles.join(", ") });
   const set = (k: string, v: unknown) => setP((o) => ({ ...o, [k]: v }));
   async function save() {
-    const body = { ...p, countries: csv(p.countries).map((c) => c.toLowerCase()), roles: csv(p.roles) };
+    const { languages: _kept, ...rest } = p; void _kept;
+    const body = { ...rest, countries: csv(p.countries).map((c) => c.toLowerCase()), roles: csv(p.roles) };
     if (await call("/api/profile/preferences", "PUT", body, "Preferences saved")) router.refresh();
   }
   const field = (id: keyof typeof p, label: string, ph = "") => (
@@ -138,7 +152,6 @@ export function PreferencesForm({ prefs, searching, profileTitles }: { prefs: Pr
       {field("expectedCtc", "Expected CTC (in that country's terms)", "32 LPA")}
       {field("noticePeriod", "Notice period", "60 days")}
       {field("visaStatus", "Work authorisation / visa (in that country)", "Indian citizen")}
-      <div className="grid gap-1 md:col-span-2"><Label htmlFor="languages">Languages you know (any language not listed is answered as &quot;none&quot;)</Label><Input id="languages" value={p.languages ?? ""} placeholder="English: fluent (read, write, speak); Hindi: fluent (read, write, speak)" onChange={(e) => set("languages", e.target.value)} /></div>
       <div className="flex items-center gap-2"><Checkbox id="relocate" checked={!!p.relocate} onCheckedChange={(v) => set("relocate", v === true)} /><Label htmlFor="relocate">Open to relocation</Label></div>
       <div className="flex flex-wrap gap-2 md:col-span-2"><Button onClick={save}>Save preferences</Button><AutofillButton scope="preferences" label="Fill empty fields from my profile" /></div>
     </div>

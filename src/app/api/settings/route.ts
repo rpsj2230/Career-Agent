@@ -24,6 +24,7 @@ const Schemas = {
   autoapply: z.object({ enabled: z.boolean() }),
   cloud_assist: z.object({ enabled: z.boolean(), fallback_minutes: z.number().int().min(5).max(1440).default(90) }),
   automation_pause: z.object({ paused: z.boolean(), since: z.string().max(40).default(""), until: z.string().max(40).default(""), note: z.string().max(200).default("") }),
+  todo_done: z.record(z.string().max(60), z.boolean()),
   auto_prepare: z.object({ enabled: z.boolean(), per_run: z.number().int().min(0).max(100), concurrency: z.number().int().min(1).max(8).default(3) }),
   email_apply: z.object({ enabled: z.boolean(), also_when_listed: z.boolean(), daily_cap: z.number().int().min(0).max(100) }),
   local_model: z.object({ mode: z.enum(["off", "when_needed", "always"]), model: z.string().regex(/^[\w.:-]{2,60}$/, "Use a model name such as qwen2.5:3b-instruct") }),

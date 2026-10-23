@@ -52,10 +52,12 @@ pressed LinkedIn's search or messaging "Send" (#119), an older resume sent if th
 
 ## 4. Your actions (in this order)
 
+This list is also in the app as a checklist you can tick: **Your to-do** in the left menu (under Dashboard).
+
 1. On the Mac: `git pull && npm install && bash scripts/autostart/install.sh`. For the extension also `npm run build:extension`.
 2. **Models page**: switch off the four Groq models your account cannot use (llama-3.3, qwen3, kimi-k2, llama4-scout). Use **Test** on the Mistral and Gemini rows (they returned blank errors); fix or replace the keys.
    Groq's daily tokens were used up: resume writing was spending them on jobs that could never be applied for (that is now stopped), so tomorrow's allowance should last.
-3. **Profile**: type your languages (`English: fluent (read, write, speak); Hindi: fluent (read, write, speak)`), press *Write the interview answers from my profile*, then read and edit each answer. Press *Save preferences*.
+3. **Profile**: type your languages in the **Languages** card at the top (`English: fluent (read, write, speak); Hindi: fluent (read, write, speak)`) and press *Save languages*. Then press *Write the interview answers from my profile*: it runs on GitHub (with the local model when the free models are out), so wait 5 to 15 minutes, reload, and read and edit each answer in the Answer bank.
 4. Optional, recommended: a **JSearch (Google for Jobs) key** on the Portals page, so Adzuna links can be traced to the employer's own page. Without it those jobs are left for you by hand.
 5. Optional: a local AI model so applications do not stop when the free models fail: `docs/LAPTOP_SETUP.md`, section "A local AI model on your Mac".
 6. Optional: Settings, turn on reading replies, so receipts and employer replies are matched to applications.

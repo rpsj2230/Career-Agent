@@ -18,6 +18,6 @@ export function WriteAnswersButton() {
       if (!r.ok) { toast.error(r.error); return; }
       toast.success(r.data.note ?? "Done");
       router.refresh();
-    }}>{busy ? "Writing from your profile (up to a minute)..." : "Write the interview answers from my profile"}</Button>
+    }}>{busy ? "Starting..." : "Write the interview answers from my profile"}</Button>
   );
 }

@@ -2,13 +2,13 @@
 
 import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
-import { Loader2, BarChart3, Briefcase, CalendarClock, Cpu, FileStack, FileText, Globe, History, Inbox, Plug, Server, Settings, User, Users } from "lucide-react";
+import { Loader2, BarChart3, Briefcase, CalendarClock, Cpu, FileStack, FileText, Globe, History, Inbox, ListChecks, Plug, Server, Settings, User, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { navHrefsFor, type Role } from "@/lib/roles";
 
 /** Grouped the way the work flows: set things up once, let it find and score jobs, then apply, and keep an eye on it. */
 const GROUPS = [
-  { title: null, items: [{ href: "/", label: "Dashboard", icon: BarChart3 }] },
+  { title: null, items: [{ href: "/", label: "Dashboard", icon: BarChart3 }, { href: "/todo", label: "Your to-do", icon: ListChecks }] },
   {
     title: "1 · Set up (one time)",
     items: [

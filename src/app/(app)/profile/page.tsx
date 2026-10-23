@@ -1,7 +1,7 @@
 import { searchingCountries } from "@/lib/country-summary";
 import { SkillGroups } from "@/components/app/skill-groups";
 import { ProfileEditor } from "@/components/app/profile-editor";
-import { AnswerBankEditor, DraftReview, ImportBox, PreferencesForm } from "@/components/app/profile-forms";
+import { AnswerBankEditor, DraftReview, ImportBox, LanguagesForm, PreferencesForm } from "@/components/app/profile-forms";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { db, must } from "@/lib/db";
@@ -39,6 +39,11 @@ export default async function ProfilePage() {
           <CardContent><DraftReview initial={draft.profile} conflicts={draft.conflicts} /></CardContent>
         </Card>
       )}
+
+      <Card>
+        <CardHeader><CardTitle>Languages</CardTitle><CardDescription>Used to answer &quot;Do you speak / read / write ...&quot; questions. Type it as: <code>English: fluent (read, write, speak); Hindi: fluent (read, write, speak)</code>. A language not listed here is answered as none.</CardDescription></CardHeader>
+        <CardContent><LanguagesForm languages={prefs.languages ?? ""} /></CardContent>
+      </Card>
 
       <Card>
         <CardHeader><CardTitle>{empty ? "Import your profile" : "Re-import your profile"}</CardTitle><CardDescription>Upload your master resume once (it fills your profile and builds the master resume template), plus your LinkedIn PDF for extra skills.</CardDescription></CardHeader>
