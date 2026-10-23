@@ -77,3 +77,19 @@ describe("alternativeRoutes", () => {
     expect(routes.map((r) => r.ats)).toEqual(["ashby", "greenhouse"]);
   });
 });
+
+import { applyRoute, finishLink as finishLinkFor } from "@/lib/apply/route";
+describe("finishLink: the form to open from the Applications list", () => {
+  const cloud = applyRoute({ url: "https://boards.greenhouse.io/acme/jobs/1" });
+  const email = applyRoute({ apply_type: "email", url: "https://acme.com/job", emailMode: "only" });
+  it("offers the employer's form for applications waiting on you", () => {
+    for (const s of ["needs_input", "failed", "assisted_pending"]) expect(finishLinkFor(s, cloud, "https://acme.com/job")).toBe("https://acme.com/job");
+  });
+  it("offers nothing for other statuses, emailed applications or non-web links", () => {
+    expect(finishLinkFor("submitted", cloud, "https://acme.com/job")).toBeNull();
+    expect(finishLinkFor("prepared", cloud, "https://acme.com/job")).toBeNull();
+    expect(finishLinkFor("needs_input", email, "https://acme.com/job")).toBeNull();
+    expect(finishLinkFor("needs_input", cloud, "javascript:alert(1)")).toBeNull();
+    expect(finishLinkFor("needs_input", cloud, null)).toBeNull();
+  });
+});
