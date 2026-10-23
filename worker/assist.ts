@@ -15,6 +15,7 @@
  * answered, only after a pause that looks like a person, and it stops at the first CAPTCHA or security check.
  */
 import { execSync } from "node:child_process";
+import { selfUpdate } from "./self-update";
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -861,7 +862,7 @@ async function main(who: Who | null) {
     process.on("exit", release);
     const pollMs = Math.max(1, Number(process.env.ASSIST_POLL_MINUTES ?? 20)) * 60_000;
     say(`Watching for approved applications every ${pollMs / 60_000} minute(s)${process.env.ASSIST_HOURS ? `, working hours ${process.env.ASSIST_HOURS}` : ""}. Press Ctrl+C to stop.`);
-    let nextRound = 0;
+    let nextRound = 0, lastUpdateCheck = 0;
     setInterval(() => { void heartbeat(sb); }, 30_000); // keeps beating while a long round is running
     setInterval(() => { void snap(sb).then(() => { if (live?.shotAt) void heartbeat(sb); }); }, 8000); // what the assistant sees, for the app
     for (;;) {
@@ -876,6 +877,15 @@ async function main(who: Who | null) {
         if (requested) await sb.from("settings").upsert({ key: "assistant_request", value: { at: req!.at, handled_at: new Date().toISOString(), done: n, note }, updated_at: new Date().toISOString() });
         // a round that sent something is followed by another after a minute, so a backlog clears without waiting for the next check
         nextRound = Date.now() + (n > 0 ? 60_000 : pollMs);
+      }
+      // between rounds, never in the middle of an application: move to the newest version when automatic updates are on (the installer switches them on)
+      if (process.env.ASSIST_AUTO_UPDATE === "1" && Date.now() - lastUpdateCheck > 30 * 60_000) {
+        lastUpdateCheck = Date.now();
+        const u = selfUpdate(process.cwd());
+        if (u.status === "updated") {
+          say(`${new Date().toLocaleTimeString()}  Automatic update: ${u.detail}.${process.env.ASSIST_SUPERVISED === "1" ? " Restarting to use it." : " Restart the assistant to use it."}`);
+          if (process.env.ASSIST_SUPERVISED === "1") { await heartbeat(sb); process.exit(0); } // the autostart restarts it within seconds
+        } else if (u.status !== "current") say(`${new Date().toLocaleTimeString()}  Automatic update: ${u.detail}.`);
       }
       await sleep(30_000);
     }

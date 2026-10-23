@@ -12,7 +12,7 @@ export type WorkersInput = {
   /** the version of the app that is live now (the commit it was built from), to compare with what each worker reports running */
   latest?: string;
 };
-export type WorkerRow = { id: "github" | "oracle" | "computer"; name: string; where: string; state: "working" | "idle" | "quiet" | "never" | "off"; seen: string; handles: string[]; started: number; passedOn: number; version: { state: "current" | "outdated" | "unknown"; text: string } | null; /** whether the worker's browser is signed in to LinkedIn, when it reports it */ signin?: { ok: boolean; text: string } | null };
+export type WorkerRow = { id: "github" | "oracle" | "computer"; name: string; where: string; state: "working" | "idle" | "quiet" | "never" | "off"; seen: string; handles: string[]; started: number; passedOn: number; version: { state: "current" | "outdated" | "unknown"; text: string; /** what to run on that machine to update it (none for the cloud runner, which updates itself) */ command?: string } | null; /** whether the worker's browser is signed in to LinkedIn, when it reports it */ signin?: { ok: boolean; text: string } | null };
 
 const ago = (ms: number): string => {
   const m = Math.max(0, Math.round(ms / 60_000));
@@ -23,13 +23,18 @@ const ago = (ms: number): string => {
 };
 const short = (v: string) => v.slice(0, 7);
 /** Is this worker running the code that is live? A worker that reports no version predates the check, so it is told to update. */
-export function versionStatus(b: Beat, latest?: string): WorkerRow["version"] {
+export const UPDATE_COMMAND = "git pull && npm install && bash scripts/autostart/install.sh";
+export function versionStatus(b: Beat, latest?: string, who: "github" | "machine" = "machine"): WorkerRow["version"] {
   if (!b?.at) return null;
   const running = b.version?.trim();
-  if (!running) return { state: "unknown", text: "version not reported: this worker is older than the version check, so update it" };
+  if (!running) return who === "github" ? { state: "unknown", text: "version not reported yet: the cloud runner updates itself at its next run (nothing to do)" } : { state: "unknown", text: "version not reported: this worker is older than the version check, so update it", command: UPDATE_COMMAND };
   if (!latest) return { state: "unknown", text: `running ${short(running)} (the live version is not known here)` };
   const same = latest.startsWith(running) || running.startsWith(latest);
-  return same ? { state: "current", text: `running the latest version (${short(running)})` } : { state: "outdated", text: `running ${short(running)}, the latest is ${short(latest)}: update it` };
+  if (same) return { state: "current", text: `running the latest version (${short(running)})` };
+  // the cloud runner fetches the newest code every time it runs, so it only looks behind between runs
+  return who === "github"
+    ? { state: "outdated", text: `its last run used ${short(running)}, the latest is ${short(latest)}: nothing to do, it fetches the newest code at its next run` }
+    : { state: "outdated", text: `running ${short(running)}, the latest is ${short(latest)}: update it by running this in Terminal, in the career-agent folder`, command: UPDATE_COMMAND };
 }
 /** Whether the assistant's own browser holds a LinkedIn sign-in (only a worker that reports it is judged). */
 export function signinStatus(b: Beat): WorkerRow["signin"] {
@@ -50,7 +55,7 @@ export function workersOverview(i: WorkersInput): WorkerRow[] {
   const oracleAlive = status(i.oracle, 10).state === "working";
   const n = (r: Record<string, number>, k: string) => r[k] ?? 0;
   return [
-    { id: "github", name: "GitHub (free cloud runner)", where: "runs every hour, nothing to keep switched on", ...status(i.github, 75, true, 8 * 60), handles: i.cloud.enabled ? ["Employers' own pages"] : ["Nothing while cloud workers are off"], started: n(i.started24h, "github"), passedOn: n(i.declined24h, "github"), version: versionStatus(i.github, i.latest) },
+    { id: "github", name: "GitHub (free cloud runner)", where: "runs every hour, nothing to keep switched on", ...status(i.github, 75, true, 8 * 60), handles: i.cloud.enabled ? ["Employers' own pages"] : ["Nothing while cloud workers are off"], started: n(i.started24h, "github"), passedOn: n(i.declined24h, "github"), version: versionStatus(i.github, i.latest, "github") },
     { id: "oracle", name: "Always-on machine (for example Oracle)", where: "optional; you set it up once", ...status(i.oracle, 10, true), handles: i.cloud.enabled ? ["Employers' own pages", ...oraclePortals] : ["Nothing while cloud workers are off"], started: n(i.started24h, "oracle"), passedOn: n(i.declined24h, "oracle"), version: versionStatus(i.oracle, i.latest) },
     {
       id: "computer", name: "Your computer (the assistant)", where: "needs the computer on and you signed in", ...status(i.computer, 3),

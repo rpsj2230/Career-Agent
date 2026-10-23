@@ -124,9 +124,12 @@ async function apifyDetail(res: { json(): Promise<unknown> }): Promise<string> {
     const body = (await res.json()) as { error?: { type?: string; message?: string } } | null;
     const e = body?.error;
     const text = [e?.type, e?.message].filter(Boolean).join(": ");
-    return text ? ` (Apify says: ${text.slice(0, 200)})` : "";
+    return text ? ` (Apify says: ${text.slice(0, 500)})` : ""; // long enough to keep a link Apify gives whole
   } catch { return ""; }
 }
+
+/** The link Apify gives for approving an actor's permissions, when its message holds one. */
+const approvalLink = (detail: string): string | null => detail.match(/https:\/\/console\.apify\.com\/[^\s)]+/)?.[0] ?? null;
 
 export type ApifyDiagnosis = { tokenOk: boolean; usageUsd?: number; limitUsd?: number; resets?: string };
 
@@ -161,6 +164,10 @@ export async function explainRefusal(status: 401 | 403, res: { json(): Promise<u
   if (d?.limitUsd !== undefined && d.usageUsd !== undefined && d.usageUsd >= d.limitUsd - 0.01) {
     return `Apify usage limit reached: ${usd(d.usageUsd)} of ${usd(d.limitUsd)} used this month${d.resets ? `, resets ${d.resets.slice(0, 10)}` : ""}. The token is fine. Raise the limit under Apify > Billing, or wait for the reset.`;
   }
+  if (/not-approved|approve its permissions/i.test(detail)) {
+    const link = approvalLink(detail);
+    return `Apify needs YOUR approval before the actor "${id}" can run: it asks for full access to your Apify account and you have not approved that yet. ${link ? `Open ${link} while signed in to Apify and approve it.` : "Open the actor's page in the Apify Store while signed in and approve its permissions."} If you would rather not give it full access, choose a different actor on the Job sources page. The token itself is fine.`;
+  }
   if (/limit|usage|credit|budget|quota/i.test(detail)) return `Apify usage limit reached${detail}. The token is fine. Raise the limit under Apify > Billing, or wait for the reset.`;
   if (/rent|trial|subscri/i.test(detail)) return `Apify refused (forbidden): the actor "${id}" is a paid rental and its rental or trial is not active${detail}. The token is fine. Rent it again in the Apify Store, or choose another actor.`;
   if (/permission|scope|access/i.test(detail)) return `Apify refused (forbidden): this token has no permission to run "${id}"${detail}. Create a token with full access under Apify > Settings > Integrations.`;
@@ -170,6 +177,33 @@ export async function explainRefusal(status: 401 | 403, res: { json(): Promise<u
 }
 
 export type ApifyFetch = (url: string, init: { method: string; headers: Record<string, string>; body?: string; signal: AbortSignal }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
+
+/**
+ * Can this token run this actor? The token being valid is not enough (Apify refuses an actor that needs full access until the account owner approves it, and a
+ * rental that ended), so the test starts a real run the way a scan does and stops it at once: the refusal, if there is one, comes back before anything is paid for.
+ * A run that is refused for its input only (HTTP 400) already got past the permission check, so it counts as allowed.
+ */
+export async function checkActorAccess(token: string, actor: ApifyActor, fetchImpl: ApifyFetch = fetch as unknown as ApifyFetch): Promise<{ ok: true } | { ok: false; message: string }> {
+  const id = actor.id.replace("/", "~");
+  const vars = templateVars({ title: "Product Manager", location: "Singapore", country: "sg" }, 7, 1);
+  const url = `https://api.apify.com/v2/acts/${encodeURIComponent(id)}/runs?${new URLSearchParams({ timeout: "20", maxItems: "1" })}`;
+  let res;
+  try {
+    res = await fetchImpl(url, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(fillTemplate(actor.input, vars)), signal: AbortSignal.timeout(20_000) });
+  } catch (e) {
+    return { ok: false, message: `Could not reach Apify: ${e instanceof Error ? e.message : String(e)}` };
+  }
+  if (res.status === 401 || res.status === 403) return { ok: false, message: await explainRefusal(res.status, res, id, token, fetchImpl) };
+  if (res.status === 404) return { ok: false, message: `Apify has no actor "${id}". Check the id in the Apify Store.` };
+  if (res.status === 402) return { ok: false, message: "Apify says the account is out of credit for this run. Check your Apify usage limits." };
+  if (res.status === 400) return { ok: true }; // refused for its input, which means it was allowed to run
+  if (!res.ok) return { ok: false, message: `Apify returned HTTP ${res.status} for "${id}".` };
+  try {
+    const runId = ((await res.json()) as { data?: { id?: string } })?.data?.id;
+    if (runId) await fetchImpl(`https://api.apify.com/v2/actor-runs/${encodeURIComponent(runId)}/abort`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000) }).catch(() => undefined);
+  } catch { /* the run was allowed; stopping it is a courtesy */ }
+  return { ok: true };
+}
 
 /**
  * Run an actor and wait for its results (Apify's run-sync-get-dataset-items endpoint, which holds the request open until the
