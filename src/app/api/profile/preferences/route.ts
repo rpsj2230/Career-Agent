@@ -5,10 +5,19 @@ import { getSetting, putSetting } from "@/lib/settings";
 import { logConfig } from "@/lib/activity-helpers";
 
 export async function PUT(request: Request) {
-  const parsed = MasterProfile.shape.preferences.safeParse(await request.json().catch(() => null));
-  if (!parsed.success) return NextResponse.json({ error: "Invalid preferences" }, { status: 400 });
+  const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   const profile = await getProfile();
-  await saveProfile({ ...profile, preferences: parsed.data });
+  // the Languages card saves only the languages line; everything else in the preferences stays as it is
+  if (body && Object.keys(body).length === 1 && typeof body.languages === "string") {
+    const languages = body.languages.trim().slice(0, 500);
+    await saveProfile({ ...profile, preferences: { ...profile.preferences, languages } });
+    await logConfig("Languages changed", { languages });
+    return NextResponse.json({ ok: true });
+  }
+  const parsed = MasterProfile.shape.preferences.safeParse(body);
+  if (!parsed.success) return NextResponse.json({ error: "Invalid preferences" }, { status: 400 });
+  // a save from the Preferences form does not carry the languages line (it has its own card), so the saved one is kept
+  await saveProfile({ ...profile, preferences: { ...parsed.data, languages: parsed.data.languages ?? profile.preferences.languages } });
   // roles live on the profile only; clear the older copy in Settings so the two can never disagree
   const discovery = await getSetting("discovery");
   if (discovery.roles.length > 0) await putSetting("discovery", { ...discovery, roles: [] });

@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       task:
-        description: discover, score, prepare, prepare_many, regenerate or localtest
+        description: discover, score, prepare, prepare_many, regenerate, write_answers or localtest
         required: true
       profile_id:
         description: Whose profile this is for (set by the site; empty = every profile)
@@ -47,7 +47,7 @@ jobs:
           FORCED: ${{ vars.LOCAL_MODEL }}
         run: |
           m="$FORCED"
-          q=""; [ "${{ inputs.task }}" = "localtest" ] && q="?force=1"
+          q=""; [ "${{ inputs.task }}" = "localtest" ] && q="?force=1"; [ "${{ inputs.task }}" = "write_answers" ] && q="?when=drafting"
           if [ -z "$m" ]; then m=$(curl -fsS -m 20 -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/runner-config$q" | jq -r '.local_model // ""' 2>/dev/null || true); fi
           if [ -z "$m" ] && [ "${{ inputs.task }}" = "localtest" ]; then m="qwen2.5:3b-instruct"; fi
           echo "local_model=$m" >> "$GITHUB_OUTPUT"

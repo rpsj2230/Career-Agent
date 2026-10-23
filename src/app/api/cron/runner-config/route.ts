@@ -12,6 +12,8 @@ export async function GET(request: Request) {
     const s = await getSetting("local_model");
     // the "Test local model" button asks for it whatever the mode is
     if (new URL(request.url).searchParams.get("force") === "1") return NextResponse.json({ local_model: s.model, mode: s.mode });
+    // writing the interview answers always has the local model ready (unless switched off), since it runs only when you press the button
+    if (new URL(request.url).searchParams.get("when") === "drafting") return NextResponse.json({ local_model: s.mode === "off" ? "" : s.model, mode: s.mode });
     const since = new Date(Date.now() - 6 * 3_600_000).toISOString();
     const [ready, fails, oks] = await Promise.all([
       keyReadiness(),
