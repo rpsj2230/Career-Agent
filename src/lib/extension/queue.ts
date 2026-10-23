@@ -11,7 +11,7 @@ export type QueueRow = {
   cover: { name: string } | null;
 };
 
-export type QueueItem = { id: string; company: string; title: string; formUrl: string; note: string; resume: { name: string } | null; cover: { name: string } | null };
+export type QueueItem = { id: string; status: string; company: string; title: string; formUrl: string; note: string; resume: { name: string } | null; cover: { name: string } | null };
 
 export const QUEUE_STATUSES = ["assisted_pending", "needs_input", "failed"] as const;
 export const QUEUE_LIMIT = 40;
@@ -25,7 +25,7 @@ export function buildQueue(rows: QueueRow[]): QueueItem[] {
     const formUrl = http(r.finalUrl) ? r.finalUrl : http(r.job.url) ? r.job.url : null;
     if (!formUrl) continue;
     out.push({
-      id: r.id, company: r.job.company, title: r.job.title, formUrl,
+      id: r.id, status: r.status, company: r.job.company, title: r.job.title, formUrl,
       note: r.status === "needs_input" ? "Waiting for an answer" : r.status === "failed" ? "The assistant could not finish it" : "Waiting for you or the assistant",
       resume: r.resume, cover: r.cover,
     });
