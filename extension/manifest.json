@@ -1,8 +1,10 @@
 {
   "manifest_version": 3,
   "name": "Career Agent: fill this form",
-  "version": "1.0.0",
-  "description": "Fills the application form on the page you are looking at from your own Career Agent data. It never submits and never types a password.",
+  "version": "1.1.0",
+  "description": "Fills application forms from your own Career Agent data, attaches the resume made for the application, and opens the waiting applications one after another. It never submits and never types a password.",
   "permissions": ["activeTab", "scripting", "storage"],
+  "optional_host_permissions": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
+  "background": { "service_worker": "background.js" },
   "action": { "default_popup": "popup.html", "default_title": "Fill this form" }
 }

@@ -130,10 +130,9 @@ npm ci
 
 The hosted models are free tiers: they run out of daily tokens, and a key or model name can stop working. The app has a local model as the last resort, but it is **switched off unless `LOCAL_MODEL` is set**. The scheduled cloud runs set it themselves; your Mac does not, so the assistant on your computer only had the hosted models.
 
-1. Install Ollama from https://ollama.com (a normal Mac app).
-2. Download a model once, in Terminal: `ollama pull qwen2.5:7b-instruct` (better answers; `qwen2.5:3b-instruct` is smaller and faster).
-3. Put this line in the file `.env.local` in the project folder: `LOCAL_MODEL=qwen2.5:7b-instruct`
-4. Restart the assistant: `bash scripts/autostart/install.sh`.
+1. Install Ollama from https://ollama.com (a normal Mac app) and open it once.
+2. In Terminal, in the project folder: `bash scripts/setup-local-model.sh`. It picks a model that fits your Mac's memory (7B for 16 GB or more, otherwise 3B), downloads it once, writes `LOCAL_MODEL=...` into `.env.local`, asks the model a real form question, and ends with **WORKING** or **NOT WORKING** and the reason. Run it again any time to check.
+3. Restart the assistant: `bash scripts/autostart/install.sh`.
 
 With that set, the local model is tried only after every hosted model has failed, and the assistant gives it up to three minutes per question (hosted models get 45 seconds). Keep the Ollama app open while the assistant runs. It is slower and less careful than the hosted models, so its answers are for short form questions only; resumes still use the hosted models first.
 

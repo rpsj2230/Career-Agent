@@ -1,19 +1,29 @@
 # Career Agent: fill this form (browser extension)
 
-For the sites the assistant cannot automate (Workday, Taleo and other employer systems that make an account per company, job boards that refuse the assistant's browser).
-You open the application page in your own Chrome or Brave, press the extension's button, and it fills the form from your Career Agent data. **You press Submit yourself.**
+For the sites the assistant cannot automate (Workday, Taleo and other employer systems that make an account per company, job boards that refuse the assistant's browser), and for any application you open yourself.
 
-What it does: fills your name, contact details, saved answers (from the Answer bank), years of experience (from your roles; your default for a tool they do not show), language proficiency (from the
-languages on your Profile) and ticks plain agreement boxes. What it never does: press any button, submit, type a password, a payment or an identity number, overwrite a field that already has something in it, or send your data anywhere (it stays in the extension's own storage on your computer).
+**What it does**
+- Gets your latest details, saved answers and waiting applications from Career Agent by itself (after a one-time link). Nothing to paste or re-export when you change your profile.
+- On the page you are looking at: fills your name and contact details, saved answers, years of experience, languages, plain agreement boxes, and attaches the resume (and cover letter, if the form has a box for it) that Career Agent made for that application.
+- "Open the next one and fill it": opens the applications waiting for you one after another, each in a new tab, filled and with its resume attached. You read it, answer anything outlined in orange, and press Submit yourself, then press "I submitted it" in the extension so Career Agent records it.
 
-What it could not answer is outlined in orange on the page and listed in the extension's popup.
+**What it never does:** press Submit or any other button, type a password, payment or identity number, create an account, overwrite a field that already has something in it, or send your data anywhere except to your own Career Agent.
 
-## Install (once)
+**What it cannot do:** submit for you (by design; the Mac assistant is the hands-free part), get past a sign-in or account creation (you do that, then press the button again), or fill custom widgets that are not real form fields. If a page loads its form late or behind an Upload button, press the button once and fill again.
 
-1. In the project folder: `npm run build:extension`
-2. Open `chrome://extensions` (Brave: `brave://extensions`), switch on **Developer mode**, press **Load unpacked**, choose the folder `extension/dist`.
-3. In Career Agent: **Profile**, then **Download fill data for the browser extension**. Open the extension's popup, open "Your data", paste the file's text, press **Save**. Repeat after you change your profile or answers.
+## Install (once, no command line)
 
-## Use
+1. In Career Agent: **Profile**, card "Browser extension", press **Download the extension (zip)**. Unzip it somewhere permanent (do not delete the folder; the browser reads it from there).
+2. Open `chrome://extensions` (Brave: `brave://extensions`), switch on **Developer mode**, press **Load unpacked**, choose the unzipped folder.
+3. In Career Agent: same card, press **Make a link code**, then **Copy**.
+4. Click the extension's icon, open "Link to Career Agent", paste the code, press **Link**, and allow when the browser asks. Done: it now updates itself.
 
-Open the application form, press the extension's icon, press **Fill this page from my data**, read what it filled, answer the orange fields, and press Submit yourself.
+The first time you press "Open the next one and fill it", the browser asks to allow the extension on websites; that is needed to fill the employers' pages it opens for you.
+
+## Updating the extension itself
+
+Your data updates by itself. The extension's own code changes rarely; when it does, its popup says "A newer extension is available". Then download the zip again, replace the folder's files with the new ones and press the reload arrow on `chrome://extensions`. (A listing in the Chrome Web Store would update it automatically, but the Web Store needs a developer account and a review, which only you can open.)
+
+## For developers
+
+`npm run build:extension` builds `extension/dist` and `public/downloads/career-agent-extension.zip` (it also runs before every `npm run build`). The link code is the app's address and a secret; only a hash of the secret is stored, and a new code replaces the old one.
