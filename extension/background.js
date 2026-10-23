@@ -42,6 +42,30 @@ async function runAutomatic(trigger) {
   }
 }
 
+let filtering = false;
+/** Filter Auto Apply: the jobs you filtered on LinkedIn or Naukri in the tab you were looking at, one after another. Only starts when you press the button. */
+async function runFilter(tabId, max) {
+  if (filtering) return { busy: true };
+  filtering = true;
+  await chrome.storage.local.set({ filterRun: { at: Date.now(), results: [], running: true, limit: max } });
+  chrome.action.setBadgeText({ text: "…" });
+  try {
+    const { results, stopped } = await CA.runFilter(tabId, max);
+    const sent = results.filter((r) => r.outcome === "submitted").length;
+    const prev = (await chrome.storage.local.get("filterRun")).filterRun || {};
+    await chrome.storage.local.set({ filterRun: { ...prev, at: Date.now(), results, stopped, running: false } });
+    chrome.action.setBadgeText({ text: sent ? String(sent) : results.length ? "!" : "" });
+    return { ok: true, sent };
+  } catch (e) {
+    const prev = (await chrome.storage.local.get("filterRun")).filterRun || {};
+    await chrome.storage.local.set({ filterRun: { ...prev, at: Date.now(), results: prev.results || [], stopped: e.message, running: false } });
+    chrome.action.setBadgeText({ text: "!" });
+    return { error: e.message };
+  } finally {
+    filtering = false;
+  }
+}
+
 async function syncAlarm() {
   const { settings = {} } = await chrome.storage.local.get("settings");
   // only the default (fallback) mode runs by itself; "manual only" never does
@@ -53,6 +77,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
   if (!msg) return false;
   if (msg.type === "open-and-fill") { openAndFill(msg.id).then(reply, (e) => reply({ error: e.message })); return true; }
   if (msg.type === "run-automatic") { runAutomatic("button").then(reply, (e) => reply({ error: e.message })); return true; }
+  if (msg.type === "run-filter") { runFilter(msg.tabId, msg.max).then(reply, (e) => reply({ error: e.message })); return true; }
+  if (msg.type === "stop-filter") { chrome.storage.local.set({ filterStop: true }).then(() => reply({ ok: true })); return true; }
   if (msg.type === "settings-changed") { syncAlarm().then(() => reply({ ok: true })); return true; }
   return false;
 });

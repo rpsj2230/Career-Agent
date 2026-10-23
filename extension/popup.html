@@ -19,12 +19,21 @@
   <h4>How should it work?</h4>
   <label class="check"><input type="radio" name="mode" value="fallback"> <span><b>Default: fallback.</b> Works through the applications the assistant could not finish, by itself or when you press a button.</span></label>
   <label class="check"><input type="radio" name="mode" value="manual"> <span><b>Manual only.</b> Nothing runs by itself. You open a page and press "Fill this page".</span></label>
+  <label class="check"><input type="radio" name="mode" value="filter"> <span><b>Filter Auto Apply.</b> You filter the jobs on LinkedIn or Naukri; it applies to them one by one.</span></label>
 
   <h4>This page</h4>
   <button id="fill" class="block">Fill this page from my data</button>
   <select id="forapp"></select>
   <small id="forappNote"></small>
   <p id="out"></p>
+
+  <div id="panel-filter">
+  <h4>Filter Auto Apply</h4>
+  <small><b>LinkedIn:</b> open Jobs, search, switch on the <b>Easy Apply</b> filter (and any others you want), then press the button below on that tab. <b>Naukri:</b> open a job list with your filters on (Naukri has no Easy Apply filter: jobs that apply on the company's own site are skipped). It opens each job, checks it with Career Agent, applies, records it, and goes to the next. It stops at a security check, a portal limit, a question it cannot answer (that job is given back to you in Career Agent, with the reason) and when Career Agent's limits are reached. It only runs when Auto-Apply is on, and for LinkedIn also "Allow automated LinkedIn Easy Apply" in Career Agent Settings. Keep this tab open and visible while it works.</small>
+  <label class="check"><span>Apply to at most</span> <input type="number" id="filterMax" min="1" max="25" value="10" style="width:56px"> <span>jobs this time</span></label>
+  <div class="row"><button id="runFilter" class="block">Apply to the jobs on this page, one by one</button><button id="stopFilter" class="secondary">Stop</button></div>
+  <div id="filterOut" class="note"></div>
+  </div>
 
   <div id="panel-fallback">
   <h4>Automatic mode</h4>
