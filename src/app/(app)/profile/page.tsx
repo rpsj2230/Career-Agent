@@ -23,6 +23,7 @@ export default async function ProfilePage() {
   const prefs = { ...profile.preferences, roles: dedupeList([...profile.preferences.roles, ...discovery.roles]) };
   const bank = must<{ question: string; answer: string }[]>(await db().from("answer_bank").select("question,answer").order("question"), "load answers");
   const handbacks = await loadHandbacks().catch(() => []);
+  const lastDraft = await getSetting("write_answers_last").catch(() => ({ at: "", where: "website", written: 0, dropped: [], errors: [] }));
   const empty = profile.experience.length === 0;
   return (
     <div className="grid gap-4">
@@ -94,7 +95,7 @@ export default async function ProfilePage() {
 
       <Card>
         <CardHeader><CardTitle>Answer bank</CardTitle><CardDescription>Standard questions that appear in most applications, pre-listed for you. Things already on your profile (experience, location, links, education) are filled in automatically when a form asks and you have not answered here.</CardDescription></CardHeader>
-        <CardContent><AnswerBankEditor key={JSON.stringify(bank)} initial={mergeStandard(bank)} /></CardContent>
+        <CardContent><AnswerBankEditor key={JSON.stringify(bank)} initial={mergeStandard(bank)} last={lastDraft.at ? lastDraft : null} /></CardContent>
       </Card>
     </div>
   );

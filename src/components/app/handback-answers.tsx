@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { COUNTRY_NAME_MAP } from "@/lib/countries";
 import type { HandbackGroup } from "@/lib/apply/handbacks";
-import { call } from "./api";
+import { toast } from "sonner";
+import { call, callDetailed } from "./api";
 
 const selectClass = "h-9 rounded-md border border-input bg-transparent px-2 text-sm shadow-xs outline-none";
 
@@ -23,6 +24,10 @@ export function HandbackAnswers({ groups }: { groups: HandbackGroup[] }) {
   }
   return (
     <div className="grid gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="secondary" onClick={async () => { const r = await callDetailed<{ note: string }>("/api/answers/waiting", "POST", undefined, 70_000); if (!r.ok) toast.error(r.error); else toast.success(r.data.note); router.refresh(); }}>Let the AI answer these from my profile</Button>
+        <span className="text-xs text-muted-foreground">Uses your profile only, never guesses pay, visa or identity questions, and puts the answers in your answer bank. Doubtful ones stay here for you.</span>
+      </div>
       {groups.map((g) => (
         <div key={g.key} className="grid gap-2 rounded-md border p-3 text-sm">
           <div><b>{g.question}</b> <span className="text-muted-foreground">stopped {g.count} application{g.count === 1 ? "" : "s"}: {g.apps.slice(0, 3).map((a) => `${a.title} at ${a.company}`).join("; ")}{g.apps.length > 3 ? ` and ${g.apps.length - 3} more` : ""}</span></div>

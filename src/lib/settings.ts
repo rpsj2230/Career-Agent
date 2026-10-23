@@ -39,6 +39,10 @@ export const DEFAULTS = {
   automation_pause: { paused: false, since: "", until: "", note: "" },
   /** the browser extension's link: a hash of its secret (never the secret itself) and when it was made */
   extension_link: { hash: "", created_at: "" },
+  /** questions the AI already tried to answer for a handed-back application and could not (question key to ISO time): not tried again for a day */
+  ai_answer_tried: {} as Record<string, string>,
+  /** what the last "write the interview answers" run did (see lib/autofill/draft-answers.ts) */
+  write_answers_last: { at: "", where: "website", written: 0, dropped: [] as { question: string; why: string }[], errors: [] as string[] },
   /** the checkboxes ticked on the "Your to-do" page */
   todo_done: {} as Record<string, boolean>,
   auto_prepare: { enabled: true, per_run: 15, concurrency: 3 },

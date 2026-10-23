@@ -57,6 +57,17 @@ export function ungroundedFigure(answer: string, facts: string): string | null {
 export type Drafted = { question: string; answer: string };
 export type Dropped = { question: string; why: string };
 
+/** Is one written answer usable? `why` says what is wrong with it when it is not. */
+export function judgeWritten(raw: string | null | undefined, facts: string): { ok: true; answer: string } | { ok: false; why: string } {
+  const text = (raw ?? "").replace(/\s+/g, " ").trim();
+  if (!text || /^(null|none|n\/a|unknown|no[_ ]answer)\.?$/i.test(text)) return { ok: false, why: "your profile does not give enough to answer this honestly" };
+  if (text.length < 40) return { ok: false, why: "the draft was too short to use" };
+  if (/\[[^\]]+\]|\bXYZ\b|\{\{/.test(text)) return { ok: false, why: "the draft contained a placeholder" };
+  const bad = ungroundedFigure(text, facts);
+  if (bad) return { ok: false, why: `the draft stated "${bad}", which is not in your profile` };
+  return { ok: true, answer: text.slice(0, 1200) };
+}
+
 /** Keep the answers that are usable: not null, a sensible length, no ungrounded figure, no employer placeholder. */
 export function usableWritten(questions: string[], out: z.infer<typeof WrittenAnswers>, facts: string): { kept: Drafted[]; dropped: Dropped[] } {
   const kept: Drafted[] = [], dropped: Dropped[] = [];
@@ -65,14 +76,27 @@ export function usableWritten(questions: string[], out: z.infer<typeof WrittenAn
     const q = questions[a.index];
     if (!q || seen.has(a.index)) continue;
     seen.add(a.index);
-    const text = (a.answer ?? "").replace(/\s+/g, " ").trim();
-    if (!text || /^(null|none|n\/a|unknown)$/i.test(text)) { dropped.push({ question: q, why: "your profile does not give enough to answer this honestly" }); continue; }
-    if (text.length < 40) { dropped.push({ question: q, why: "the draft was too short to use" }); continue; }
-    if (/\[[^\]]+\]|\bXYZ\b|\{\{/.test(text)) { dropped.push({ question: q, why: "the draft contained a placeholder" }); continue; }
-    const bad = ungroundedFigure(text, facts);
-    if (bad) { dropped.push({ question: q, why: `the draft stated "${bad}", which is not in your profile` }); continue; }
-    kept.push({ question: q, answer: text.slice(0, 1200) });
+    const j = judgeWritten(a.answer, facts);
+    if (j.ok) kept.push({ question: q, answer: j.answer }); else dropped.push({ question: q, why: j.why });
   }
   for (let i = 0; i < questions.length; i++) if (!seen.has(i)) dropped.push({ question: questions[i], why: "the model gave no answer" });
   return { kept, dropped };
+}
+
+/** The same rules, asked for as prose: one question per request, no JSON for a small model to get wrong. */
+export const WRITTEN_TEXT_SYSTEM = `You write one short interview answer for the candidate described in FACTS, in the first person, to be reused on many job applications.
+Rules:
+- Use only the FACTS. Never invent an employer, title, team size, number, percentage, date, tool, certificate or outcome. Every figure you write must appear in the FACTS.
+- 3 to 5 sentences, at most 700 characters, plain professional English. Reply with the answer text only: no heading, no bullet points, no quotation marks around it, no placeholders, no preamble such as "Here is".
+- The answer is reused for any employer: never name the employer being applied to, and never claim knowledge of a company. For "why this company" write what draws the candidate to organisations of that kind, grounded in the FACTS.
+- "Why change jobs" is positive and honest: growth in scope or craft that follows from the career in FACTS. Never claim dissatisfaction, layoffs, conflict with a manager or personal circumstances.
+- "An area you are working to improve" is a real, modest development area that the FACTS support; if the FACTS give nothing to base it on, reply NO_ANSWER.
+- Situation questions (a project, a conflict, a process improvement, competing priorities): describe one real example taken from the roles or achievements in FACTS, with what the candidate did and the result stated in FACTS. If FACTS hold no suitable example, reply NO_ANSWER.
+- If the FACTS do not support an honest answer, reply NO_ANSWER. That is better than a guess.`;
+
+export const writtenTextPrompt = (p: MasterProfile, question: string): string => `FACTS:\n${richFacts(p)}\n\nQUESTION: ${question}`;
+
+/** Strip what models wrap around prose ("Here is my answer:", quotes, code fences, a leading label). */
+export function cleanProse(text: string): string {
+  return text.replace(/```[a-z]*/gi, "").replace(/^\s*(here(?:'s| is)[^:\n]*:|answer:|\*\*answer\*\*:?)\s*/i, "").replace(/^["“”']+|["“”']+$/g, "").trim();
 }
