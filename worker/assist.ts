@@ -836,10 +836,23 @@ async function batch(sb: SupabaseClient, who: Who | null): Promise<number> {
   return done;
 }
 
+/** One line in the assistant log saying whether the local AI model can answer when every hosted model has failed. */
+async function localModelLine(): Promise<string> {
+  const name = process.env.LOCAL_MODEL?.trim();
+  if (!name) return "Local AI model: not set up on this computer. If the free hosted models run out, new form questions are handed back to you. To set it up: bash scripts/setup-local-model.sh";
+  try {
+    const res = await fetch(`${(process.env.OLLAMA_URL ?? "http://127.0.0.1:11434").replace(/\/+$/, "")}/api/tags`, { signal: AbortSignal.timeout(3000) });
+    const names = res.ok ? ((await res.json()) as { models?: { name?: string }[] }).models?.map((m) => m.name ?? "") ?? [] : [];
+    if (!res.ok) return `Local AI model: ${name} is set, but Ollama is not answering. Open the Ollama app and keep it open.`;
+    return names.some((n) => n === name || n === `${name}:latest`) ? `Local AI model: ${name} is ready (used only after every hosted model has failed).` : `Local AI model: ${name} is set but not downloaded. Run: ollama pull ${name}`;
+  } catch { return `Local AI model: ${name} is set, but Ollama is not running. Open the Ollama app and keep it open.`; }
+}
+
 async function main(who: Who | null) {
   need("SUPABASE_URL"); need("SUPABASE_SERVICE_ROLE_KEY");
   const sb = scopedDb();
   if (who) say(`Working for: ${who.name}${who.is_default ? " (main profile)" : ""}. Their own sign-ins are kept in ${browserDirFor(who)}.`);
+  say(await localModelLine());
   if (WATCH) {
     if (!AUTO) throw new Error("Watch mode needs hands-free mode: use `npm run assist:watch` (and switch hands-free on in Settings).");
     // one watcher per profile: two would double the memory and processor use of the browsers

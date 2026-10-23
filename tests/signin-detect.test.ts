@@ -47,3 +47,17 @@ describe("assist:check and the Workers card say the sign-in is missing", () => {
     expect(workersOverview(i).find((r) => r.id === "computer")!.signin).toMatchObject({ ok: false });
   });
 });
+
+describe("assist:check says whether the local AI model will answer", () => {
+  const base: CheckInput = { hasUrl: true, hasKey: true, dbOk: true, heartbeatAgeMs: 1000, watching: true, autoApplyOn: true, localAutoOn: true, waiting: 0, chromiumFound: true, profileExists: true };
+  const line = (localModel: CheckInput["localModel"]) => assistChecks({ ...base, localModel }).find((l) => /local AI model/i.test(l.label))!;
+  it("says what to run when there is none, when Ollama is not running, and when the model is not downloaded", () => {
+    expect(line({ name: null, ollamaReachable: false, downloaded: false })).toMatchObject({ ok: false, fix: expect.stringContaining("bash scripts/setup-local-model.sh") });
+    expect(line({ name: "qwen2.5:3b-instruct", ollamaReachable: false, downloaded: false })).toMatchObject({ ok: false, label: expect.stringContaining("Ollama is not running") });
+    expect(line({ name: "qwen2.5:3b-instruct", ollamaReachable: true, downloaded: false })).toMatchObject({ ok: false, fix: "Run: ollama pull qwen2.5:3b-instruct" });
+  });
+  it("is satisfied only when the model is set, Ollama answers and the model is downloaded; older callers are not asked", () => {
+    expect(line({ name: "qwen2.5:3b-instruct", ollamaReachable: true, downloaded: true }).ok).toBe(true);
+    expect(assistChecks(base).some((l) => /local AI model/i.test(l.label))).toBe(false);
+  });
+});
