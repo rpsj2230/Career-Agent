@@ -3,6 +3,7 @@ import { buildFillData } from "@/lib/apply/fill-data";
 import { SubmissionRecord } from "@/lib/apply/submission";
 import { db, must } from "@/lib/db";
 import { withExtensionToken } from "@/lib/extension/auth";
+import { autoSubmitState } from "@/lib/extension/claim";
 import { buildQueue, QUEUE_LIMIT, QUEUE_STATUSES, type QueueRow } from "@/lib/extension/queue";
 import { EXTENSION_VERSION } from "@/lib/extension/version";
 import { getProfile } from "@/lib/profile/store";
@@ -31,7 +32,7 @@ export async function GET(request: Request) {
       finalUrl: (() => { const s = SubmissionRecord.safeParse(a.submission); return s.success ? s.data.final_url ?? null : null; })(),
       resume: named(a.resume_doc_id), cover: named(a.cover_doc_id),
     }));
-    return { status: 200 as const, body: { ...buildFillData(profile, bank), queue: buildQueue(rows), latestExtensionVersion: EXTENSION_VERSION } };
+    return { status: 200 as const, body: { ...buildFillData(profile, bank), queue: buildQueue(rows), autoSubmit: await autoSubmitState(), latestExtensionVersion: EXTENSION_VERSION } };
   });
   if (!result) return NextResponse.json({ error: "This link code is not valid. Make a new one in Career Agent: Profile." }, { status: 401, headers: { "Cache-Control": "no-store" } });
   return NextResponse.json(result.body, { status: result.status, headers: { "Cache-Control": "no-store" } });
