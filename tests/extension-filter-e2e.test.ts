@@ -39,7 +39,7 @@ function handler(req: IncomingMessage, res: ServerResponse) {
   if (req.headers.authorization !== `Bearer ${TOKEN}`) return json(401, { error: "This link code is not valid." });
   if (url.pathname === "/api/extension/data") {
     const rules = seen.allowed ? { allowed: true, why: null, remaining: 5 } : { allowed: false, why: "Auto-Apply is switched off in Career Agent (Settings).", remaining: 0 };
-    return json(200, { ...buildFillData(profile, [{ question: "What is your notice period?", answer: "60 days" }]), queue: [], autoSubmit: { allowed: true, remainingToday: 5, why: null }, defaultResume: { name: "Master-Resume.pdf" }, filter: { linkedin: rules, naukri: rules }, latestExtensionVersion: "1.4.0" });
+    return json(200, { ...buildFillData(profile, [{ question: "What is your notice period?", answer: "60 days" }]), queue: [], autoSubmit: { allowed: true, remainingToday: 5, why: null }, defaultResume: { name: "Master-Resume.pdf" }, filter: { linkedin: rules, naukri: rules }, latestExtensionVersion: "1.5.0" });
   }
   if (url.pathname === "/api/extension/file" && url.searchParams.get("kind") === "master") { res.writeHead(200, { ...cors, "Content-Type": "application/pdf" }); return res.end(Buffer.from("MY DEFAULT RESUME")); }
   if (url.pathname === "/api/extension/external" && req.method === "POST") {

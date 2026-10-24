@@ -1,5 +1,5 @@
 const $ = (id) => document.getElementById(id);
-const say = (t, cls) => { $("out").textContent = t; $("out").className = cls || ""; };
+const say = (t, cls) => { $("out").textContent = t; $("out").className = "result " + (cls || ""); };
 const MANIFEST = chrome.runtime.getManifest();
 const NONE = "";
 const DEFAULT = "default";
@@ -16,22 +16,38 @@ function describe(report) {
 
 const OUTCOME = { submitted: "sent", unconfirmed: "pressed Submit, not confirmed: check the open tab", blocked: "given back to you", skipped: "skipped" };
 
+/** A short summary (lines with a tone) and the per-job results as a list with a coloured dot for what happened. */
+function paint(el, lines, results) {
+  el.textContent = "";
+  for (const l of lines) { const p = document.createElement("p"); p.className = "line " + (l.tone || ""); p.textContent = l.text; el.append(p); }
+  if (results.length) {
+    const ul = document.createElement("ul"); ul.className = "results";
+    for (const r of results) {
+      const li = document.createElement("li"); li.className = r.outcome;
+      const who = document.createElement("b"); who.textContent = r.company;
+      const what = document.createElement("span"); what.textContent = (OUTCOME[r.outcome] || r.outcome) + (r.why ? ` (${r.why})` : "");
+      li.append(who, what); ul.append(li);
+    }
+    el.append(ul);
+  }
+}
+
 async function renderAuto(fillData) {
   const { settings = {}, autoLast, autoRunning } = await chrome.storage.local.get(["settings", "autoLast", "autoRunning"]);
   $("autoRun").checked = !!settings.autoRun;
   $("includeAssistant").checked = !!settings.includeAssistant;
   const auto = fillData && fillData.autoSubmit;
   const lines = [];
-  if (autoRunning) lines.push("Running now...");
-  else if (auto && !auto.allowed) lines.push(`Not allowed now: ${auto.why}`);
-  else if (auto) lines.push(`Allowed: ${auto.remainingToday} more application(s) today.`);
+  if (autoRunning) lines.push({ text: "Running now..." });
+  else if (auto && !auto.allowed) lines.push({ text: `Not allowed now: ${auto.why}`, tone: "warn" });
+  else if (auto) lines.push({ text: `Allowed: ${auto.remainingToday} more application(s) today.`, tone: "ok" });
+  let results = [];
   if (autoLast) {
-    lines.push(`Last run ${new Date(autoLast.at).toLocaleString()} (${autoLast.trigger === "timer" ? "by itself" : "by you"}): ${autoLast.results.filter((r) => r.outcome === "submitted").length} sent, ${autoLast.results.filter((r) => r.outcome !== "submitted").length} not.`);
-    if (autoLast.stopped) lines.push(`Stopped: ${autoLast.stopped}`);
-    for (const r of autoLast.results.slice(0, 12)) lines.push(`- ${r.company}: ${OUTCOME[r.outcome] || r.outcome}${r.why ? ` (${r.why})` : ""}`);
+    lines.push({ text: `Last run ${new Date(autoLast.at).toLocaleString()} (${autoLast.trigger === "timer" ? "by itself" : "by you"}): ${autoLast.results.filter((r) => r.outcome === "submitted").length} sent, ${autoLast.results.filter((r) => r.outcome !== "submitted").length} not.` });
+    if (autoLast.stopped) lines.push({ text: `Stopped: ${autoLast.stopped}`, tone: "warn" });
+    results = autoLast.results.slice(0, 12);
   }
-  $("autoOut").textContent = lines.join("\n");
-  $("autoOut").className = "note " + (auto && !auto.allowed ? "warn" : "");
+  paint($("autoOut"), lines, results);
   $("runAuto").disabled = !!autoRunning;
 }
 
@@ -43,16 +59,23 @@ async function renderFilter(fillData, settings) {
   $("filterMax").value = settings.filterMax || 10;
   const lines = [];
   const f = fillData && fillData.filter;
-  if (f) for (const [name, label] of [["linkedin", "LinkedIn"], ["naukri", "Naukri"]]) lines.push(f[name].allowed ? `${label}: ${f[name].remaining} more allowed today.` : `${label}: not allowed now: ${f[name].why}`);
+  if (f) for (const [name, label] of [["linkedin", "LinkedIn"], ["naukri", "Naukri"]]) lines.push(f[name].allowed ? { text: `${label}: ${f[name].remaining} more allowed today.`, tone: "ok" } : { text: `${label}: not allowed now: ${f[name].why}`, tone: "warn" });
+  let results = [];
   if (filterRun) {
     const done = filterRun.results || [];
-    lines.push(`${filterRun.running ? "Running now" : "Last run"} ${new Date(filterRun.at).toLocaleString()}: ${done.filter((r) => r.outcome === "submitted").length} sent, ${done.filter((r) => r.outcome === "blocked" || r.outcome === "unconfirmed").length} given back to you, ${done.filter((r) => r.outcome === "skipped").length} skipped.`);
-    if (filterRun.stopped) lines.push(`Stopped: ${filterRun.stopped}`);
-    for (const r of done.slice(-12)) lines.push(`- ${r.company}: ${OUTCOME[r.outcome] || r.outcome}${r.why ? ` (${r.why})` : ""}`);
+    lines.push({ text: `${filterRun.running ? "Running now" : "Last run"} ${new Date(filterRun.at).toLocaleString()}: ${done.filter((r) => r.outcome === "submitted").length} sent, ${done.filter((r) => r.outcome === "blocked" || r.outcome === "unconfirmed").length} given back to you, ${done.filter((r) => r.outcome === "skipped").length} skipped.` });
+    if (filterRun.stopped) lines.push({ text: `Stopped: ${filterRun.stopped}`, tone: "warn" });
+    results = done.slice(-12);
   }
-  $("filterOut").textContent = lines.join("\n");
+  paint($("filterOut"), lines, results);
   $("runFilter").disabled = !!(filterRun && filterRun.running);
 }
+
+const MODE_NOTES = {
+  fallback: "Works through the applications the assistant could not finish.",
+  manual: "Nothing runs by itself. Open a page and press Fill.",
+  filter: "Filter jobs on LinkedIn or Naukri, then apply to them one by one.",
+};
 
 async function render() {
   const { fillData, syncedAt, settings = {} } = await chrome.storage.local.get(["fillData", "syncedAt", "settings"]);
@@ -60,13 +83,18 @@ async function render() {
   for (const r of document.querySelectorAll('input[name="mode"]')) r.checked = r.value === mode;
   $("panel-fallback").hidden = mode !== "fallback";
   $("panel-filter").hidden = mode !== "filter";
+  $("modeNote").textContent = MODE_NOTES[mode];
+  $("version").textContent = MANIFEST.version;
   await renderAuto(fillData);
   await renderFilter(fillData, settings);
   const link = await CA.link();
-  $("status").textContent = link ? `Linked to ${new URL(link.origin).host}${syncedAt ? ` · data from ${new Date(syncedAt).toLocaleTimeString()}` : ""}` : fillData ? "Not linked: using the pasted data file." : "Not linked yet. Open \"Link to Career Agent\" below.";
-  $("status").className = link ? "ok" : "warn";
+  $("status").textContent = link ? "Linked" : fillData ? "Pasted data" : "Not linked";
+  $("status").title = link ? `Linked to ${new URL(link.origin).host}${syncedAt ? ` · data from ${new Date(syncedAt).toLocaleTimeString()}` : ""}` : fillData ? "Not linked: using the pasted data file." : "Not linked yet. Open \"Link to Career Agent\" below.";
+  $("status").className = "pill " + (link ? "ok" : "warn");
   $("linkbox").open = !link && !fillData;
-  $("update").textContent = fillData && CareerAgentLib.isNewer(fillData.latestExtensionVersion, MANIFEST.version) ? `A newer extension (${fillData.latestExtensionVersion}) is available: download it again from Career Agent: Profile.` : "";
+  const newer = !!fillData && CareerAgentLib.isNewer(fillData.latestExtensionVersion, MANIFEST.version);
+  $("update").textContent = newer ? `A newer extension (${fillData.latestExtensionVersion}) is available: download it again from Career Agent: Profile.` : "";
+  $("update").hidden = !newer;
   const queue = (fillData && fillData.queue) || [];
   const sel = $("forapp");
   sel.innerHTML = "";
@@ -75,6 +103,7 @@ async function render() {
   if (def) sel.add(new Option(`Upload my default resume (${def.name})`, DEFAULT));
   for (const q of queue.filter((x) => x.resume)) sel.add(new Option(`Upload the resume for: ${q.company}, ${q.title}`, q.id));
   sel.hidden = !def && queue.length === 0;
+  $("forappBox").hidden = sel.hidden;
   // a page that belongs to one of your applications gets that application's resume; any other page gets your default resume
   let note = def ? "This page is not one of your applications: your default resume is used." : "";
   sel.value = def ? DEFAULT : NONE;
@@ -87,7 +116,8 @@ async function render() {
   const box = $("queue");
   box.innerHTML = "";
   $("next").disabled = queue.length === 0;
-  if (!queue.length) box.innerHTML = "<p><small>Nothing waiting. Applications the assistant could not finish appear here.</small></p>";
+  $("queueCount").textContent = String(queue.length);
+  if (!queue.length) box.innerHTML = '<p class="empty">Nothing waiting. Applications the assistant could not finish appear here.</p>';
   const reports = await chrome.storage.local.get(queue.map((q) => "report:" + q.id));
   for (const q of queue) {
     const div = document.createElement("div"); div.className = "item";
@@ -97,11 +127,11 @@ async function render() {
     div.querySelector("small").textContent = q.note + (q.resume ? " · resume ready" : " · no resume file");
     if (rep) { div.querySelector(".note").textContent = describe(rep); div.querySelector(".note").className = "note " + (rep.forYou.length || rep.error ? "warn" : "ok"); }
     const row = div.querySelector(".row");
-    const open = document.createElement("button"); open.textContent = rep ? "Open again and fill" : "Open and fill";
+    const open = document.createElement("button"); open.className = "btn primary"; open.textContent = rep ? "Open again and fill" : "Open and fill";
     open.onclick = () => openOne(q.id);
     row.append(open);
     if (rep) {
-      const sent = document.createElement("button"); sent.className = "secondary"; sent.textContent = "I submitted it";
+      const sent = document.createElement("button"); sent.className = "btn ghost"; sent.textContent = "I submitted it";
       sent.onclick = async () => { sent.disabled = true; try { await CA.mark(q.id); await chrome.storage.local.remove("report:" + q.id); await CA.refresh(); } catch (e) { say(e.message, "warn"); } render(); };
       row.append(sent);
     }

@@ -1,4 +1,4 @@
-# Career Agent: fill this form (browser extension)
+# Career Agent by Rupash Pratap (browser extension)
 
 For the applications the Mac assistant could not finish (Workday and other employer systems, job boards that refuse the assistant's browser), and for any application you open yourself.
 
