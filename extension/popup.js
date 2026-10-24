@@ -139,6 +139,12 @@ async function render() {
   }
 }
 
+const FILTER_SITES = ["https://*.linkedin.com/*", "https://*.naukri.com/*"];
+async function ensureSites(origins) {
+  if (await chrome.permissions.contains({ origins })) return true;
+  return chrome.permissions.request({ origins }); // the browser asks once; if its question closes this popup, open it again and press the button again
+}
+
 async function ensureAllSites() {
   const all = { origins: ["https://*/*"] };
   if (await chrome.permissions.contains(all)) return true;
@@ -163,6 +169,7 @@ async function saveSettings() {
 for (const r of document.querySelectorAll('input[name="mode"]')) {
   r.onchange = async () => {
     const { settings = {} } = await chrome.storage.local.get("settings");
+    if (r.value === "filter") await ensureSites(FILTER_SITES);
     await chrome.storage.local.set({ settings: { ...settings, mode: r.value } });
     chrome.runtime.sendMessage({ type: "settings-changed" });
     render();
@@ -170,15 +177,30 @@ for (const r of document.querySelectorAll('input[name="mode"]')) {
 }
 $("runFilter").onclick = async () => {
   if (!(await CA.link())) return say("Link Career Agent first (this mode needs the link code).", "warn");
-  if (!(await ensureAllSites())) return say("Allowed sites are needed for this mode. Nothing was opened.", "warn");
+  if (!(await ensureSites(FILTER_SITES))) return say("Allowing the extension on LinkedIn and Naukri is needed for this mode. Nothing was opened.", "warn");
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab || !/linkedin\.com\/jobs|naukri\.com/i.test(tab.url || "")) return say("Open LinkedIn Jobs (with the Easy Apply filter on) or a Naukri job list in this tab first, then press the button again.", "warn");
   const max = Math.max(1, Math.min(25, parseInt($("filterMax").value, 10) || 10));
   const { settings = {} } = await chrome.storage.local.get("settings");
   await chrome.storage.local.set({ settings: { ...settings, filterMax: max } });
-  chrome.runtime.sendMessage({ type: "run-filter", tabId: tab.id, max });
-  window.close();
+  say("Starting...");
+  const ack = await Promise.race([chrome.runtime.sendMessage({ type: "run-filter", tabId: tab.id, max }), new Promise((r) => setTimeout(() => r(null), 4000))]);
+  if (!ack) return say("The extension's background worker did not answer. Open the extensions page, press the reload arrow on this extension, and try again.", "warn");
+  if (ack.busy) return say("A run is already going. Press Stop first, or wait for it to finish.", "warn");
+  say("Started. A status box appears at the top right of the page and says what it is doing; you can close this popup.", "ok");
+  setTimeout(() => window.close(), 2500);
 };
+$("diagnose").onclick = async () => {
+  if (!(await ensureSites(FILTER_SITES))) return say("Allowing the extension on LinkedIn and Naukri is needed.", "warn");
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const portal = tab && /linkedin\.com/i.test(tab.url || "") ? "linkedin" : tab && /naukri\.com/i.test(tab.url || "") ? "naukri" : null;
+  if (!portal) return say("Open a LinkedIn or Naukri page in this tab first.", "warn");
+  try {
+    const facts = await CA.call(tab.id, portal === "linkedin" ? () => window.__careerAgentSite.linkedin.facts() : () => window.__careerAgentSite.naukri.facts());
+    $("diag").value = JSON.stringify(facts, null, 1); $("diag").hidden = false; $("copyDiag").hidden = false;
+  } catch (e) { say("Could not read this page: " + e.message, "warn"); }
+};
+$("copyDiag").onclick = async () => { try { await navigator.clipboard.writeText($("diag").value); $("copyDiag").textContent = "Copied"; } catch { $("diag").select(); } };
 $("stopFilter").onclick = async () => { await chrome.runtime.sendMessage({ type: "stop-filter" }); say("Stopping after the job it is working on.", "ok"); };
 $("autoRun").onchange = saveSettings;
 $("includeAssistant").onchange = saveSettings;

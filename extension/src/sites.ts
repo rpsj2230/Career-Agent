@@ -18,82 +18,121 @@ const nameOf = (el: Element) => ((el.getAttribute("aria-label") || (el as HTMLEl
 
 // ---------------------------------------------------------------------------------------------------------------------------
 // LinkedIn
+//
+// LinkedIn has changed its job search page more than once (the address is now /jobs/search-results/ and its class names are generated), so nothing here depends on a
+// class name. A job is found by the link to it (/jobs/view/<number> or ?currentJobId=<number>), a card is the largest block around that link that holds no other job's
+// link, and the apply control is found by what it says. The left half of the page is the list, the right half the selected job.
 // ---------------------------------------------------------------------------------------------------------------------------
 export type LinkedinCard = { id: string; title: string; company: string; easy: boolean; applied: boolean };
 export type LinkedinDetail = { id: string | null; title: string; company: string; location: string; url: string; easy: boolean; external: boolean; applied: string | null; closed: boolean };
 
-const LI_CARD = 'li[data-occludable-job-id], div.job-card-container[data-job-id], li.scaffold-layout__list-item, li.jobs-search-results__list-item, div[data-job-id]';
+const LI_ID = /\/jobs\/view\/(?:[^/?#]*-)?(\d{6,})|currentJobId=(\d{6,})/;
+const idOfHref = (h: string | null | undefined): string | null => { const m = (h ?? "").match(LI_ID); return m ? (m[1] ?? m[2]) : null; };
 const LI_APPLIED = /\bApplied\s+(?:\d+\s+(?:second|minute|hour|day|week|month|year)s?\s+ago|on\s+[A-Z][a-z]+\s+\d{1,2}(?:,\s*\d{4})?)/;
 const LI_CLOSED = /no longer accepting applications|this job is no longer available|job (is )?closed|position has been filled/i;
+const lines = (el: Element) => ((el as HTMLElement).innerText ?? el.textContent ?? "").split("\n").map((l) => l.replace(/\s+/g, " ").trim()).filter(Boolean).filter((l, i, a) => l !== a[i - 1]);
+const centreX = (el: Element) => { const r = (el as HTMLElement).getBoundingClientRect(); return r.left + r.width / 2; };
 
-const liId = (c: Element): string | null => {
-  const raw = c.getAttribute("data-occludable-job-id") ?? c.getAttribute("data-job-id") ?? c.querySelector("[data-job-id]")?.getAttribute("data-job-id") ?? "";
-  const m = raw.match(/(\d{6,})/) ?? (c.querySelector('a[href*="/jobs/view/"]') as HTMLAnchorElement | null)?.href.match(/\/jobs\/view\/(?:[^/?#]*-)?(\d{6,})/);
-  return m ? m[1] : null;
-};
-
-function linkedinCards(): LinkedinCard[] {
+type ListItem = { id: string; el: HTMLElement; link: HTMLElement };
+/** Every job in the list on the left: its number, its card, and the link that opens it. */
+function listItems(): ListItem[] {
+  const links = [...document.querySelectorAll<HTMLAnchorElement>("a[href]")].filter((a) => visible(a) && idOfHref(a.getAttribute("href")) && !a.closest("header, nav, [role=search]") && centreX(a) < window.innerWidth * 0.6);
+  const ids = (el: Element) => new Set([...el.querySelectorAll("a[href]")].map((a) => idOfHref(a.getAttribute("href"))).filter(Boolean));
+  const out: ListItem[] = [];
   const seen = new Set<string>();
-  const out: LinkedinCard[] = [];
-  for (const c of document.querySelectorAll(LI_CARD)) {
-    const id = liId(c);
-    if (!id || seen.has(id)) continue;
+  for (const a of links) {
+    const id = idOfHref(a.getAttribute("href"))!;
+    if (seen.has(id)) continue;
     seen.add(id);
-    const body = text(c);
-    const footer = text(c.querySelector(".job-card-container__footer-job-state, .job-card-container__footer-wrapper, footer"));
-    out.push({
-      id,
-      title: once(text(c.querySelector("a.job-card-list__title, .job-card-list__title, a.job-card-container__link, .artdeco-entity-lockup__title, a[href*='/jobs/view/']"))),
-      company: once(text(c.querySelector(".artdeco-entity-lockup__subtitle, .job-card-container__primary-description, .job-card-container__company-name"))),
-      easy: /\bEasy Apply\b/i.test(body),
-      applied: /(^|\s)Applied(\s|$)/.test(footer),
-    });
+    let card: HTMLElement = a;
+    while (card.parentElement && card.parentElement !== document.body && ids(card.parentElement).size === 1) card = card.parentElement;
+    out.push({ id, el: card, link: a });
   }
   return out;
 }
 
-/** Load the rest of the list (LinkedIn draws cards only as the list is scrolled). */
+function linkedinCards(): LinkedinCard[] {
+  return listItems().map(({ id, el, link }) => {
+    const ls = lines(el);
+    const title = once(text(link)) || ls[0] || "";
+    const at = ls.findIndex((l) => l === title || title.startsWith(l) || l.startsWith(title));
+    return {
+      id, title,
+      company: once(ls[(at >= 0 ? at : 0) + 1] ?? ""),
+      easy: /\bEasy Apply\b/i.test(ls.join(" ")),
+      applied: ls.some((l) => /^Applied(\s|$)/i.test(l)),
+    };
+  });
+}
+
+function scrollableOf(el: Element | null | undefined): HTMLElement | null {
+  for (let p = el?.parentElement ?? null; p; p = p.parentElement) { const s = getComputedStyle(p); if (/(auto|scroll)/.test(s.overflowY) && p.scrollHeight > p.clientHeight + 4) return p; }
+  return null;
+}
+/** Load the rest of the list (LinkedIn draws the cards only as the list is scrolled). */
 function linkedinScrollList(): number {
-  const list = document.querySelector<HTMLElement>(".jobs-search-results-list, .scaffold-layout__list, .jobs-search-results__list") ?? document.scrollingElement as HTMLElement;
-  if (list) list.scrollTop = list.scrollHeight;
-  return document.querySelectorAll(LI_CARD).length;
+  const first = listItems()[0];
+  const box = scrollableOf(first?.el) ?? (document.scrollingElement as HTMLElement | null);
+  if (box) box.scrollTop = box.scrollHeight;
+  return listItems().length;
 }
 
 function linkedinSelect(id: string): boolean {
-  const card = [...document.querySelectorAll(LI_CARD)].find((c) => liId(c) === id);
-  if (!card) return false;
-  const link = card.querySelector<HTMLElement>("a.job-card-list__title, a.job-card-container__link, a[href*='/jobs/view/']");
-  click(link ?? card);
+  const item = listItems().find((i) => i.id === id);
+  if (!item) return false;
+  click(item.link);
   return true;
 }
 
+/** The filter bar above the list ("Date posted", "Company", "Remote", ...): its buttons, which include an "Easy Apply" filter, are never the job's apply button. */
+const FILTER_WORDS = /^(date posted|experience level|company|remote|job type|on-site|hybrid|salary|location|industry|all filters|reset|show results|under \d+ applicants|verified|easy apply)$/i;
+/** A button is in the filter bar when it sits with other filter buttons in a block that holds no job card and no heading (the block around the apply button also holds the job's title). */
+function inFilterBar(b: HTMLElement): boolean {
+  const cards = listItems().map((i) => i.el);
+  let near = 0;
+  for (const other of buttons(document)) {
+    if (other === b || !FILTER_WORDS.test(nameOf(other))) continue;
+    let p: HTMLElement | null = b.parentElement;
+    while (p && !p.contains(other)) p = p.parentElement;
+    if (p && !cards.some((c) => p!.contains(c)) && !p.querySelector("h1, h2")) near++;
+  }
+  return near >= 2;
+}
+
+/** The apply controls of the job that is open: not inside a card, not in the filter bar, not a switch that says whether it is on. */
+function detailControls(): HTMLElement[] {
+  const cards = listItems().map((i) => i.el);
+  return buttons(document).filter((b) => !cards.some((c) => c.contains(b)) && !b.closest("header, nav, [role=search]") && !b.hasAttribute("aria-pressed") && !b.hasAttribute("aria-checked") && !b.hasAttribute("aria-expanded") && !inFilterBar(b))
+    .sort((x, y) => centreX(y) - centreX(x)); // the job is on the right when the page has two sides
+}
+
 function linkedinDetail(): LinkedinDetail {
-  const pane = document.querySelector(".jobs-search__job-details--container, .jobs-details, .job-view-layout, .scaffold-layout__detail") ?? document.querySelector("main") ?? document.body;
-  const inList = (el: Element) => !!el.closest(LI_CARD) || !!el.closest(".jobs-search-results-list, .scaffold-layout__list");
-  const apply = buttons(pane).filter((b) => !inList(b));
-  const easy = apply.find((b) => /^\s*easy apply/i.test(nameOf(b)) || /easy apply/i.test(nameOf(b)));
-  const external = !easy && apply.some((b) => /apply on company website|apply externally|^\s*apply\s*$/i.test(nameOf(b)));
-  const href = (apply.find((b) => (b as HTMLAnchorElement).href)?.getAttribute("href") ?? "");
-  const id = (location.search.match(/currentJobId=(\d{6,})/) ?? location.pathname.match(/\/jobs\/view\/(?:[^/?#]*-)?(\d{6,})/) ?? href.match(/\/jobs\/view\/(?:[^/?#]*-)?(\d{6,})/))?.[1] ?? pane.querySelector("[data-job-id]")?.getAttribute("data-job-id")?.match(/(\d{6,})/)?.[1] ?? null;
-  const top = pane.querySelector(".job-details-jobs-unified-top-card__primary-description-container, .jobs-unified-top-card__primary-description, .jobs-unified-top-card__subtitle-primary-grouping");
-  const body = text(pane);
+  const id = (location.search.match(/currentJobId=(\d{6,})/) ?? location.pathname.match(/\/jobs\/view\/(?:[^/?#]*-)?(\d{6,})/))?.[1] ?? null;
+  const ctrls = detailControls();
+  const easy = ctrls.find((b) => /easy apply/i.test(nameOf(b)));
+  const external = !easy && ctrls.some((b) => /apply on company website|apply externally|^\s*apply\s*$/i.test(nameOf(b)));
+  const right = [...document.querySelectorAll<HTMLElement>("main a[href*='/company/'], a[href*='/company/']")].find((a) => visible(a) && centreX(a) >= window.innerWidth * 0.4 && !a.closest("header, nav"));
+  const heading = [...document.querySelectorAll<HTMLElement>("h1, h2")].find((h) => visible(h) && centreX(h) >= window.innerWidth * 0.4 && text(h).length > 3);
+  const body = document.body?.innerText ?? "";
   const applied = body.match(LI_APPLIED);
   return {
-    id,
-    title: once(text(pane.querySelector(".job-details-jobs-unified-top-card__job-title, .jobs-unified-top-card__job-title, h1, h2.t-24"))),
-    company: once(text(pane.querySelector(".job-details-jobs-unified-top-card__company-name, .jobs-unified-top-card__company-name"))),
-    location: text(top).split("·").map((s) => s.trim()).find((s, i) => i === 1 || (i === 0 && !/^\d/.test(s))) ?? "",
-    url: id ? `https://www.linkedin.com/jobs/view/${id}/` : location.href,
+    id, title: once(text(heading)), company: once(text(right)), location: "", url: id ? `https://www.linkedin.com/jobs/view/${id}/` : location.href,
     easy: !!easy, external, applied: applied ? applied[0].replace(/\s+/g, " ") : null, closed: LI_CLOSED.test(body),
   };
 }
 
 function linkedinPressEasyApply(): string | null {
-  const pane = document.querySelector(".jobs-search__job-details--container, .jobs-details, .job-view-layout, .scaffold-layout__detail") ?? document.querySelector("main") ?? document.body;
-  const btn = buttons(pane).filter((b) => !b.closest(LI_CARD) && !b.closest(".jobs-search-results-list, .scaffold-layout__list")).find((b) => /easy apply/i.test(nameOf(b)));
+  const btn = detailControls().find((b) => /easy apply/i.test(nameOf(b)));
   if (!btn) return null;
   click(btn);
   return nameOf(btn).slice(0, 40);
+}
+
+/** Where the application is: in a window over the page, or on a page of its own (an /apply address). */
+function linkedinWindow(): "dialog" | "page" | null {
+  if (openDialog()) return "dialog";
+  if (/\/apply\b/i.test(location.pathname + location.search) && document.querySelector("main input:not([type=hidden]), main select, main textarea, main button")) return "page";
+  return null;
 }
 
 /** What stops a whole run, whatever the job: LinkedIn asking for a security check, or saying the day's Easy Apply limit is reached. */
@@ -107,10 +146,9 @@ function linkedinBlocker(): string | null {
   return null;
 }
 
-/** The "Application sent" message in the window after Submit. */
+/** The "Application sent" message, in the window or on the page. */
 function linkedinSent(): string | null {
-  const d = openDialog();
-  const t = text(d);
+  const t = text(openDialog() ?? document.querySelector("main"));
   const m = t.match(/your application was sent( to [^.]{1,60})?/i) ?? t.match(/application sent/i);
   return m ? m[0] : null;
 }
@@ -121,7 +159,7 @@ function linkedinClose(discard: boolean): string {
   if (!d) return "none";
   const named = (re: RegExp) => buttons(d).find((b) => re.test(nameOf(b)));
   if (!discard) { const done = named(/^(done|dismiss)$/i); if (done) { click(done); return "done"; } }
-  const x = d.querySelector<HTMLElement>('button[aria-label="Dismiss"], button[aria-label*="ismiss" i], button.artdeco-modal__dismiss');
+  const x = d.querySelector<HTMLElement>('button[aria-label="Dismiss"], button[aria-label*="ismiss" i], button.artdeco-modal__dismiss, button[aria-label*="lose" i]');
   if (x) { click(x); return "dismissed"; }
   return "no close button";
 }
@@ -136,10 +174,25 @@ function linkedinDiscard(): boolean {
 }
 
 function linkedinNextPage(): boolean {
-  const next = document.querySelector<HTMLElement>('button[aria-label="View next page"], button.jobs-search-pagination__button--next, li.artdeco-pagination__indicator--number.active + li button');
-  if (!next || (next as HTMLButtonElement).disabled || !visible(next)) return false;
+  if (openDialog()) return false;
+  const all = [...document.querySelectorAll<HTMLElement>("button, a")].filter(visible);
+  const next = all.find((e) => /^(view )?next( page)?$/i.test(nameOf(e)) && !(e as HTMLButtonElement).disabled && e.getAttribute("aria-disabled") !== "true" && !e.closest("header"));
+  if (!next) return false;
   click(next);
   return true;
+}
+
+/** What the page shows, as plain facts: used to say what was there when something was not found, and by "Diagnose this page". */
+function linkedinFacts() {
+  const items = listItems();
+  const ctrls = buttons(document).filter((b) => /apply/i.test(nameOf(b))).slice(0, 8).map((b) => ({ tag: b.tagName.toLowerCase(), name: nameOf(b).slice(0, 40), pressed: b.getAttribute("aria-pressed"), href: ((b as HTMLAnchorElement).getAttribute?.("href") ?? "").replace(/[?#].*$/, "").slice(0, 60), x: Math.round(centreX(b)) }));
+  const dialogs = [...document.querySelectorAll(DIALOG)].filter(visible).map((d) => ({ heading: text(d.querySelector("h1,h2,h3")).slice(0, 60), buttons: buttons(d).map(nameOf).filter((n) => n && n.length < 40).slice(0, 6) }));
+  return {
+    page: location.pathname, width: window.innerWidth, jobLinks: document.querySelectorAll("a[href*='/jobs/view/'], a[href*='currentJobId=']").length, listItems: items.length,
+    firstJobs: linkedinCards().slice(0, 3), selectedJobInAddress: (location.search.match(/currentJobId=(\d{6,})/) ?? [])[1] ?? null,
+    applyControlsOnPage: ctrls, applyControlUsed: detailControls().filter((b) => /easy apply/i.test(nameOf(b))).map(nameOf).slice(0, 2),
+    windows: dialogs, applicationPage: linkedinWindow(), mainHasControls: !!document.querySelector("main input, main select, main textarea"),
+  };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------
@@ -200,9 +253,13 @@ function naukriNextPage(): boolean {
   return true;
 }
 
+function naukriFacts() {
+  return { page: location.pathname, cards: naukriCards().length, firstJobs: naukriCards().slice(0, 3).map(({ id, title, company }) => ({ id, title, company })), state: naukriState() };
+}
+
 export const site = {
-  linkedin: { cards: linkedinCards, scrollList: linkedinScrollList, select: linkedinSelect, detail: linkedinDetail, pressEasyApply: linkedinPressEasyApply, windowOpen: () => !!openDialog(), blocker: linkedinBlocker, sent: linkedinSent, close: linkedinClose, discard: linkedinDiscard, nextPage: linkedinNextPage },
-  naukri: { cards: naukriCards, state: naukriState, pressApply: naukriPressApply, nextPage: naukriNextPage },
+  linkedin: { cards: linkedinCards, scrollList: linkedinScrollList, select: linkedinSelect, detail: linkedinDetail, pressEasyApply: linkedinPressEasyApply, windowOpen: linkedinWindow, blocker: linkedinBlocker, sent: linkedinSent, close: linkedinClose, discard: linkedinDiscard, nextPage: linkedinNextPage, facts: linkedinFacts },
+  naukri: { cards: naukriCards, state: naukriState, pressApply: naukriPressApply, nextPage: naukriNextPage, facts: naukriFacts },
 };
 
 declare global { interface Window { __careerAgentSite?: typeof site } }

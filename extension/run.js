@@ -32,12 +32,47 @@ const CA = {
     return { name: item[kind].name, type: res.headers.get("content-type") || "application/octet-stream", b64: btoa(bin) };
   },
 
-  /** Fill the form in a tab and attach the application's resume. Never presses a button. */
-  async fillTab(tabId, item) {
-    const { fillData } = await chrome.storage.local.get("fillData");
-    if (!fillData) throw new Error("No data yet: link Career Agent first");
+  /**
+   * Ask Career Agent how to answer the questions the page asked and your data could not answer (it looks through your saved answers for another wording of the same
+   * question, and may ask its AI models, from your profile only; what it learns is saved to your answer bank). Returns [{ question, answer }].
+   */
+  async learn(questions) {
+    if (!questions.length) return [];
+    try {
+      const res = await CA.api("/api/extension/answer", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ questions: questions.slice(0, 8).map((q) => ({ question: q.label, options: (q.options || []).slice(0, 40), kind: q.kind })) }) });
+      const j = await res.json();
+      return (j.answers || []).filter((a) => a && a.answer).map((a) => ({ question: a.question, answer: a.answer }));
+    } catch { return []; }
+  },
+
+  /** One pass over the form: plain fields, radio buttons, boxes and <select>s, then the dropdowns that open a list. */
+  async fillOnce(tabId, data) {
     await chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] });
-    const [{ result }] = await chrome.scripting.executeScript({ target: { tabId }, func: (d) => window.__careerAgentFill(d), args: [fillData] });
+    const [{ result: plain }] = await chrome.scripting.executeScript({ target: { tabId }, func: (d) => window.__careerAgentFill(d), args: [data] });
+    let dd = { filled: [], forYou: [], questions: [] };
+    try { const [{ result: more }] = await chrome.scripting.executeScript({ target: { tabId }, func: (d) => window.__careerAgentDropdowns(d), args: [data] }); if (more) dd = more; } catch { /* this page has none, or is changing */ }
+    return { ...plain, filled: [...plain.filled, ...dd.filled], forYou: [...plain.forYou, ...dd.forYou], questions: [...(plain.questions || []), ...dd.questions] };
+  },
+
+  /**
+   * Fill the form in a tab and attach the application's resume. Never presses a button. A question with no answer in your data is looked up with Career Agent once
+   * and the form is filled again with what it says; `learned` carries answers found earlier for this application. Returns the report plus `learned` (answers found now).
+   */
+  async fillTab(tabId, item, learned) {
+    const { fillData: base } = await chrome.storage.local.get("fillData");
+    if (!base) throw new Error("No data yet: link Career Agent first");
+    const withLearned = (extra) => ({ ...base, answers: [...extra, ...(base.answers || [])] });
+    let report = await CA.fillOnce(tabId, withLearned(learned || []));
+    const found = [];
+    const wanted = report.questions.filter((q) => q.required);
+    if (wanted.length) {
+      const got = await CA.learn(wanted);
+      if (got.length) {
+        found.push(...got);
+        const again = await CA.fillOnce(tabId, withLearned([...(learned || []), ...got]));
+        report = { ...again, filled: [...report.filled, ...again.filled] }; // what is still unanswered is what the second pass says
+      }
+    }
     let files = { attached: [], missing: [] };
     if (item && (item.resume || item.cover)) {
       let resume = null, cover = null, problem = null;
@@ -45,7 +80,7 @@ const CA = {
       if (resume || cover) [{ result: files }] = await chrome.scripting.executeScript({ target: { tabId }, func: (r, c) => window.__careerAgentAttach(r, c), args: [resume, cover] });
       if (problem) files.missing.push("could not get the resume: " + problem);
     }
-    return { ...result, files };
+    return { ...report, files, learned: found };
   },
 
   /** Tell Career Agent what happened to an application: { action: "claim" | "release" | "submitted", ... }. Throws with .global set when the app says no for every application (switch off, daily limit). */
@@ -85,15 +120,16 @@ const CA = {
     const tab = await chrome.tabs.create({ url: item.formUrl, active: true });
     const tabId = tab.id;
     await CA.loaded(tabId);
-    let baseline = null;
+    let baseline = null, asked = [];
+    const learned = [];
     for (let step = 0; step < 8; step++) {
       await CA.sleep(step === 0 ? 1500 : 1000);
-      try { await CA.fillTab(tabId, item); } catch (e) { return { outcome: "blocked", why: "could not use this page: " + e.message, tabId }; }
+      try { const rep = await CA.fillTab(tabId, item, learned); learned.push(...rep.learned); asked = rep.questions.length ? rep.questions : asked; } catch (e) { return { outcome: "blocked", why: "could not use this page: " + e.message, tabId }; }
       const before = await CA.inPage(tabId, () => window.__careerAgentState());
       if (baseline === null) baseline = before.confirmationAlready;
       const adv = await CA.inPage(tabId, (o) => window.__careerAgentAdvance(o), [{ company: item.company, allowSubmit, baselineConfirmed: baseline }]);
       if (adv.kind === "confirmed") return { outcome: "submitted", confirmation: adv.text, finalUrl: before.url, tabId };
-      if (adv.kind === "blocked") return { outcome: "blocked", why: adv.why, tabId };
+      if (adv.kind === "blocked") return { outcome: "blocked", why: adv.why, tabId, questions: asked.map((q) => q.label) };
       if (adv.final) {
         for (let i = 0; i < 16; i++) { // up to ~16 s for the employer's confirmation
           await CA.sleep(1000);
@@ -166,17 +202,29 @@ const CA = {
    * should do stops it. `site` names the page-side helpers: { confirmed(): text | null }. Result: { kind: "sent", text } | { kind: "unconfirmed", why } | { kind: "stuck", why }.
    */
   async steps(tabId, company, site) {
-    let baseline = null, attached = false;
-    for (let i = 0; i < 14; i++) {
+    let baseline = null, attached = false, retries = 0, last = [];
+    const learned = [];
+    for (let i = 0; i < 16; i++) {
       await CA.sleep(1200);
-      try { await CA.fillTab(tabId, null); } catch (e) { return { kind: "stuck", why: "could not use the window: " + e.message }; }
+      let rep;
+      try { rep = await CA.fillTab(tabId, null, learned); } catch (e) { return { kind: "stuck", why: "could not use the window: " + e.message }; }
+      learned.push(...rep.learned);
+      last = rep.questions.length ? rep.questions : last;
       const before = await CA.call(tabId, () => window.__careerAgentState());
       if (baseline === null) baseline = before.confirmationAlready;
       const adv = await CA.call(tabId, (o) => window.__careerAgentAdvance(o), [{ company, allowSubmit: true, baselineConfirmed: baseline }]);
       if (adv.kind === "confirmed") return { kind: "sent", text: adv.text };
       if (adv.kind === "blocked") {
         if (!attached && /resume|\bcv\b|upload|file/i.test(adv.why)) { attached = true; await CA.attachDefault(tabId); continue; }
-        return { kind: "stuck", why: adv.why };
+        // not complete: the questions the page names may be ones Career Agent can answer (another wording of one it knows, or one the AI can write from your profile)
+        if (/^not complete/i.test(adv.why) && retries < 2) {
+          retries++;
+          const inv = await CA.call(tabId, () => window.__careerAgentInvalid());
+          const got = await CA.learn(inv);
+          if (got.length) { learned.push(...got); continue; }
+          return { kind: "stuck", why: adv.why, questions: inv.map((q) => q.label) };
+        }
+        return { kind: "stuck", why: adv.why, questions: last.map((q) => q.label) };
       }
       if (adv.final) {
         for (let k = 0; k < 16; k++) {
@@ -188,9 +236,16 @@ const CA = {
         return { kind: "unconfirmed", why: "Pressed " + adv.button + ", but no confirmation appeared. Check the portal's list of applied jobs before sending it again." };
       }
       const moved = await CA.until(async () => { const n = await CA.call(tabId, () => window.__careerAgentState()); return n.sig !== before.sig || n.url !== before.url; }, 10000, 800);
-      if (!moved) return { kind: "stuck", why: "the form did not move on after " + adv.button + " (it may be showing an error)" };
+      if (!moved) {
+        // the page stayed where it was: it usually says which question it is not satisfied with
+        const inv = retries < 2 ? await CA.call(tabId, () => window.__careerAgentInvalid()) : [];
+        retries++;
+        const got = await CA.learn(inv);
+        if (got.length) { learned.push(...got); continue; }
+        return { kind: "stuck", why: "the form did not move on after " + adv.button + (inv.length ? " (it asks: " + inv.map((q) => q.label).join("; ") + ")" : " (it may be showing an error)"), questions: (inv.length ? inv : last).map((q) => q.label) };
+      }
     }
-    return { kind: "stuck", why: "the application has more than 14 steps" };
+    return { kind: "stuck", why: "the application has more than 16 steps" };
   },
 
   /** Tell Career Agent the outcome of one job; a failure to tell is reported in the result, never hidden. */
@@ -199,43 +254,63 @@ const CA = {
     catch (e) { try { await CA.sleep(1500); await CA.external(body); return null; } catch (e2) { return "could not tell Career Agent: " + e2.message; } }
   },
 
-  /** One LinkedIn job from the list: open its details, check it with Career Agent, press Easy Apply, work through the window, record what happened. */
-  async linkedinOne(tabId, card) {
+  /** Say what is happening in a box on the page itself (and nothing breaks if the page cannot show it). */
+  async say(tabId, message) { try { await CA.call(tabId, (m) => window.__careerAgentOverlay(m), [message]); } catch { /* the page is changing */ } },
+
+  /** The list page, if the tab has moved away from it (some pages open a job on a page of its own). */
+  async ensureList(tabId, listUrl, force) {
+    const tab = await chrome.tabs.get(tabId);
+    const same = (() => { try { return new URL(tab.url).pathname === new URL(listUrl).pathname; } catch { return false; } })();
+    if (same && !force) return;
+    await chrome.tabs.update(tabId, { url: listUrl });
+    await CA.loaded(tabId);
+    await CA.sleep(2500);
+  },
+
+  /** One LinkedIn job from the list: click it, read the job on the right, check it with Career Agent, press Easy Apply, work through the window, record what happened. */
+  async linkedinOne(tabId, card, listUrl) {
     const S = (f, a) => CA.call(tabId, f, a || []);
     const out = (outcome, why, x) => ({ id: card.id, company: card.company, title: card.title, outcome, why: why || null, ...(x || {}) });
+    const facts = async () => { try { return " Page: " + JSON.stringify(await S(() => window.__careerAgentSite.linkedin.facts())).slice(0, 700); } catch { return ""; } };
+    await S((sel) => window.__careerAgentSetScope(sel), [null]);
     if (!(await S((id) => window.__careerAgentSite.linkedin.select(id), [card.id]))) return out("skipped", "its card is no longer on the page");
-    const d = await CA.until(async () => { const x = await S(() => window.__careerAgentSite.linkedin.detail()); return x && x.id === card.id && x.title ? x : null; }, 9000);
-    if (!d) return out("skipped", "its details did not load");
+    const d = await CA.until(async () => { const x = await S(() => window.__careerAgentSite.linkedin.detail()); return x && x.id === card.id ? x : null; }, 9000);
+    if (!d) return out("skipped", "the job did not open on the right of the page after clicking it." + (await facts()));
+    await CA.sleep(1200); // the job's own details (and its Apply button) draw a moment after its address changes
     const block = await S(() => window.__careerAgentSite.linkedin.blocker());
     if (block) return out("blocked", block, { stop: true });
-    const company = d.company || card.company, title = d.title || card.title;
-    const here = (outcome, why, x) => ({ ...out(outcome, why, x), company, title });
-    if (d.applied) return here("skipped", 'LinkedIn shows "' + d.applied + '"');
-    if (d.closed) return here("skipped", "LinkedIn says it no longer takes applications");
-    if (!d.easy) return here("skipped", d.external ? "it applies on the company's own site, not with Easy Apply" : "no Easy Apply button was found");
-    const job = { portal: "linkedin", company, title, url: d.url, jobKey: card.id, location: d.location || undefined };
+    const d2 = await S(() => window.__careerAgentSite.linkedin.detail());
+    const company = d2.company || card.company, title = (card.title || d2.title), here = (outcome, why, x) => ({ ...out(outcome, why, x), company, title });
+    if (!d2.easy && d2.applied) return here("skipped", 'LinkedIn shows "' + d2.applied + '"');
+    if (!d2.easy && d2.closed) return here("skipped", "LinkedIn says it no longer takes applications");
+    if (!d2.easy) return here("skipped", d2.external ? "it applies on the company's own site, not with Easy Apply" : "no Easy Apply button was found for it." + (await facts()));
+    const job = { portal: "linkedin", company, title, url: d2.url, jobKey: card.id, location: d2.location || undefined };
     try { await CA.external({ action: "check", ...job }); } catch (e) { return here("skipped", e.message, { stop: !!e.global }); }
     if (!(await S(() => window.__careerAgentSite.linkedin.pressEasyApply()))) return here("skipped", "the Easy Apply button was not found");
-    if (!(await CA.until(() => S(() => window.__careerAgentSite.linkedin.windowOpen()), 9000))) {
+    const kind = await CA.until(() => S(() => window.__careerAgentSite.linkedin.windowOpen()), 10000);
+    if (!kind) {
       const b = await S(() => window.__careerAgentSite.linkedin.blocker());
-      return here(b ? "blocked" : "skipped", b || "the Easy Apply window did not open", { stop: !!b });
+      return here(b ? "blocked" : "skipped", b || "the Easy Apply window did not open." + (await facts()), { stop: !!b });
     }
+    if (kind === "page") await S((sel) => window.__careerAgentSetScope(sel), ["main"]); // the steps are on a page of their own, not in a window
     const r = await CA.steps(tabId, company, { confirmed: () => window.__careerAgentSite.linkedin.sent() });
-    if (r.kind === "sent") {
-      await S(() => window.__careerAgentSite.linkedin.close(false));
+    const leave = async (done) => {
+      if (kind === "page") { await CA.ensureList(tabId, listUrl, true); return; }
+      await S((x) => window.__careerAgentSite.linkedin.close(x), [!done]);
+      if (!done) { await CA.sleep(1000); await S(() => window.__careerAgentSite.linkedin.discard()); }
       await CA.until(async () => !(await S(() => window.__careerAgentSite.linkedin.windowOpen())), 4000);
-      const problem = await CA.tell({ action: "submitted", ...job, confirmation: r.text, finalUrl: d.url });
+    };
+    if (r.kind === "sent") {
+      await leave(true);
+      const problem = await CA.tell({ action: "submitted", ...job, confirmation: r.text, finalUrl: d2.url });
       return here("submitted", problem);
     }
     if (r.kind === "unconfirmed") { // the window is left open for you to look at; nothing more is sent in this run
       const problem = await CA.tell({ action: "needs_input", ...job, note: r.why });
       return here("unconfirmed", [r.why, problem].filter(Boolean).join("; "), { stop: true });
     }
-    await S(() => window.__careerAgentSite.linkedin.close(true));
-    await CA.sleep(1000);
-    await S(() => window.__careerAgentSite.linkedin.discard());
-    await CA.until(async () => !(await S(() => window.__careerAgentSite.linkedin.windowOpen())), 4000);
-    const problem = await CA.tell({ action: "needs_input", ...job, note: r.why });
+    await leave(false);
+    const problem = await CA.tell({ action: "needs_input", ...job, note: r.why, questions: r.questions || [] });
     return here("blocked", [r.why, problem].filter(Boolean).join("; "));
   },
 
@@ -264,7 +339,7 @@ const CA = {
         result = await CA.steps(tabId, job.company, { confirmed: () => { const s = window.__careerAgentSite.naukri.state(); return s.success ? "Naukri: you have successfully applied" : null; } });
       } else result = { kind: "stuck", why: "pressed Apply but Naukri showed neither a confirmation nor questions" };
       if (result.kind === "sent") { const problem = await CA.tell({ action: "submitted", ...job, confirmation: result.text, finalUrl: card.url }); return out("submitted", problem); }
-      const problem = await CA.tell({ action: "needs_input", ...job, note: result.why });
+      const problem = await CA.tell({ action: "needs_input", ...job, note: result.why, questions: result.questions || [] });
       if (result.kind === "unconfirmed") { keep = true; return out("unconfirmed", [result.why, problem].filter(Boolean).join("; "), { stop: true }); }
       return out("blocked", [result.why, problem].filter(Boolean).join("; "));
     } finally {
@@ -274,7 +349,8 @@ const CA = {
 
   /**
    * Filter Auto Apply on the tab you are looking at: LinkedIn Jobs (filtered to Easy Apply) or a Naukri job list. Works through its cards one at a time, up to `max`, within what
-   * Career Agent allows, and stops for good at a security check, a portal limit, a sign-in wall, or a send it could not confirm. Result: { results, stopped }.
+   * Career Agent allows, and stops for good at a security check, a portal limit, a sign-in wall, or a send it could not confirm. A box on the page says what it is doing.
+   * Result: { results, stopped }.
    */
   async runFilter(tabId, max) {
     const results = [];
@@ -287,28 +363,40 @@ const CA = {
     if (!fillData || fresh.source === "manual") return { results, stopped: "Link Career Agent first (this mode needs the link code)." };
     const rules = fillData.filter && fillData.filter[portal];
     if (!rules) return { results, stopped: "Career Agent did not say what is allowed. Update the app, then try again." };
-    if (!rules.allowed) return { results, stopped: rules.why };
+    if (!rules.allowed) { await CA.say(tabId, rules.why); return { results, stopped: rules.why }; }
     const limit = Math.max(1, Math.min(Number(max) || 10, 25, rules.remaining));
     await chrome.storage.local.set({ filterStop: false });
     let sent = 0, stopped = null;
     const seen = new Set();
     const save = () => chrome.storage.local.set({ filterRun: { portal, at: Date.now(), results, running: true, limit } });
+    let listUrl = url;
+    await CA.say(tabId, "Starting. Looking for the jobs on this page...");
     for (let page = 0; page < 8 && sent < limit && !stopped; page++) {
       let cards;
       if (portal === "linkedin") {
+        listUrl = (await chrome.tabs.get(tabId)).url || listUrl;
         for (let k = 0; k < 3; k++) { await CA.call(tabId, () => window.__careerAgentSite.linkedin.scrollList()); await CA.sleep(1200); }
         cards = await CA.call(tabId, () => window.__careerAgentSite.linkedin.cards());
       } else cards = await CA.call(tabId, () => window.__careerAgentSite.naukri.cards());
-      for (const card of cards || []) {
+      if (!cards || !cards.length) {
+        const facts = await CA.call(tabId, portal === "linkedin" ? () => window.__careerAgentSite.linkedin.facts() : () => window.__careerAgentSite.naukri.facts()).catch(() => null);
+        if (!results.length) stopped = "No jobs were found on this page. What the page shows: " + JSON.stringify(facts).slice(0, 700);
+        break;
+      }
+      for (const card of cards) {
         if (sent >= limit) break;
         if (await CA.stopped()) { stopped = "Stopped by you."; break; }
         if (seen.has(card.id)) continue;
         seen.add(card.id);
+        await CA.say(tabId, `${sent} sent so far (up to ${limit}).\nNow: ${card.title || card.id}${card.company ? " at " + card.company : ""}`);
         let r;
         if (portal === "linkedin") {
           if (card.applied) r = { id: card.id, company: card.company, title: card.title, outcome: "skipped", why: "LinkedIn shows it as Applied" };
           else if (!card.easy) r = { id: card.id, company: card.company, title: card.title, outcome: "skipped", why: "not an Easy Apply job" };
-          else { try { r = await CA.linkedinOne(tabId, card); } catch (e) { r = { id: card.id, company: card.company, title: card.title, outcome: "blocked", why: "something went wrong: " + e.message }; } }
+          else {
+            try { await CA.ensureList(tabId, listUrl, false); r = await CA.linkedinOne(tabId, card, listUrl); }
+            catch (e) { r = { id: card.id, company: card.company, title: card.title, outcome: "blocked", why: "something went wrong: " + e.message }; }
+          }
         } else { try { r = await CA.naukriOne(card); } catch (e) { r = { id: card.id, company: card.company, title: card.title, outcome: "blocked", why: "something went wrong: " + e.message }; } }
         results.push({ id: r.id, company: r.company, title: r.title, outcome: r.outcome, why: r.why, at: Date.now() });
         if (r.outcome === "submitted") sent++;
@@ -322,6 +410,8 @@ const CA = {
       await CA.sleep(4000);
       if (portal === "naukri") await CA.loaded(tabId);
     }
+    const done = results.filter((r) => r.outcome === "submitted").length;
+    await CA.say(tabId, (stopped ? "Stopped: " + stopped + "\n" : "Finished.\n") + `${done} sent, ${results.filter((r) => r.outcome === "blocked" || r.outcome === "unconfirmed").length} given back to you, ${results.filter((r) => r.outcome === "skipped").length} skipped.`);
     return { results, stopped };
   },
 
@@ -346,7 +436,7 @@ const CA = {
       try { r = await CA.process(item, true); } catch (e) { r = { outcome: "blocked", why: "something went wrong: " + e.message }; }
       try {
         if (r.outcome === "submitted") { await CA.report(item.id, { action: "submitted", confirmation: r.confirmation, finalUrl: r.finalUrl }); remaining--; }
-        else await CA.report(item.id, { action: "release", note: r.why });
+        else await CA.report(item.id, { action: "release", note: r.why, questions: r.questions || [] });
       } catch (e) { r.why = (r.why ? r.why + "; " : "") + "could not tell Career Agent: " + e.message; }
       if (r.outcome === "submitted") { try { await chrome.tabs.remove(r.tabId); } catch { /* already closed */ } }
       else if (r.outcome === "blocked") { tried[item.id] = Date.now(); try { await chrome.tabs.remove(r.tabId); } catch { /* already closed */ } }

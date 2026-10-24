@@ -40,6 +40,39 @@ function sameCountryScope(question: string, bankQuestion: string): boolean {
 const family = (s: string) => FAMILIES.find(([, re]) => re.test(s))?.[0];
 const words = (s: string) => new Set(s.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter((w) => w.length > 2));
 
+/**
+ * Words that carry a question's meaning, with the many ways of saying the same thing folded together, so a rephrased question finds the answer saved for another wording:
+ * "Are you legally entitled to work in Singapore?" and "Do you have the right to work in Singapore?" both become {authorised, work, singapore}. Filler words are dropped.
+ */
+const FILLER = new Set(["select", "choose", "check", "tick", "mark", "all", "apply", "applies", "multiple", "one", "more", "these", "those", "following", "below", "above", "listed", "to", "in", "of", "on", "at", "or", "be", "an", "as", "by", "if", "so", "we", "my", "me", "it", "up", "no", "do", "does", "did", "are", "is", "was", "were", "have", "has", "had", "you", "your", "yours", "the", "and", "for", "any", "with", "that", "this", "please", "kindly", "currently", "now", "would", "could", "can", "will", "shall", "what", "which", "how", "many", "much", "when", "where", "about", "from", "into", "our", "their", "from", "been", "being", "who", "whom", "also", "just", "able", "like", "yes", "per", "required", "require", "requires", "mandatory", "optional"]);
+const CANON: [RegExp, string][] = [
+  [/^(legally|lawfully|entitled|eligible|permitted|allowed|authori[sz]ed|authori[sz]ation|authori[sz]ing|right|rights)$/, "authorised"],
+  [/^(employment|employed|work|working|job|role|position)$/, "work"],
+  [/^(salary|ctc|compensation|remuneration|pay|package|wage|wages)$/, "salary"],
+  [/^(expect|expected|expectation|expectations|desired|desire|target|ideal)$/, "expected"],
+  [/^(relocate|relocation|relocating|move|moving|reloc)$/, "relocate"],
+  [/^(notice|joining|join|start|starting|available|availability|availabilty|earliest)$/, "start"],
+  [/^(years|year|yrs|yr|experience|experienced|exp)$/, "experience"],
+  [/^(bachelor|bachelors|degree|degrees|graduate|graduation|undergraduate|diploma|qualification|qualified|education|educational)$/, "degree"],
+  [/^(comfortable|willing|open|okay|ok|fine|prepared|agree)$/, "willing"],
+  [/^(commute|commuting|onsite|office|inperson|premises)$/, "onsite"],
+  [/^(remote|remotely|wfh|home|telework)$/, "remote"],
+  [/^(sponsor|sponsors|sponsored|sponsorship|sponsoring)$/, "sponsor"],
+  [/^(visa|visas|permit|permits|passport)$/, "visa"],
+  [/^(english|fluent|fluency|proficient|proficiency|speak|spoken|written|communicate)$/, "language"],
+  [/^(background|screening|verification|check|checks)$/, "background"],
+];
+const stem = (w: string) => (w.length > 4 ? w.replace(/(ing|ed|es|s)$/, "") : w);
+export function meaning(s: string): Set<string> {
+  const out = new Set<string>();
+  for (const raw of s.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").split(/\s+/)) {
+    if (raw.length < 2 || FILLER.has(raw)) continue;
+    const hit = CANON.find(([re]) => re.test(raw) || re.test(stem(raw)));
+    out.add(hit ? hit[1] : stem(raw));
+  }
+  return out;
+}
+
 /** Best answer-bank entry for a form label, or null. Never guesses below a similarity threshold. */
 export function matchAnswer(label: string, answers: Answer[]): string | null {
   const fam = family(label);
@@ -65,7 +98,21 @@ export function matchAnswer(label: string, answers: Answer[]): string | null {
     const score = inter / (lw.size + aw.size - inter);
     if (!best || score > best.score) best = { score, answer: a.answer };
   }
-  return best && best.score >= 0.5 ? best.answer : null;
+  if (best && best.score >= 0.5) return best.answer;
+  // a rephrased question: the same meaning words, with most of the shorter question inside the longer one
+  const lm = meaning(label);
+  if (lm.size < 1) return null;
+  let near: { score: number; answer: string } | null = null;
+  for (const a of answers) {
+    if (!a.answer.trim() || family(a.question) || languageAsked(a.question) || yearsSkill(a.question)) continue;
+    const am = meaning(a.question);
+    const inter = [...lm].filter((w) => am.has(w)).length;
+    const score = inter / Math.min(lm.size, am.size);
+    const jac = inter / (lm.size + am.size - inter);
+    // two or more shared meaning words with most of the shorter question inside the longer one, or exactly the same single meaning word ("start", "degree")
+    if (((inter >= 2 && score >= 0.8 && jac >= 0.5) || (inter === 1 && lm.size === 1 && am.size === 1)) && (!near || jac > near.score)) near = { score: jac, answer: a.answer };
+  }
+  return near ? near.answer : null;
 }
 
 /** Value for the standard identity fields of a form, matched on label/name text. */

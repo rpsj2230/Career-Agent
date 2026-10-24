@@ -25,7 +25,7 @@ const profile = MasterProfile.parse({
   preferences: { countries: [], roles: [], noticePeriod: "60 days" },
 });
 
-type External = { action: string; portal: string; company: string; title: string; jobKey: string; note?: string; confirmation?: string };
+type External = { action: string; portal: string; company: string; title: string; jobKey: string; note?: string; confirmation?: string; questions?: string[] };
 const seen = { external: [] as External[], globalStop: false, allowed: true };
 let server: Server, base = "", ctx: BrowserContext | undefined, extDir = "";
 
@@ -39,9 +39,10 @@ function handler(req: IncomingMessage, res: ServerResponse) {
   if (req.headers.authorization !== `Bearer ${TOKEN}`) return json(401, { error: "This link code is not valid." });
   if (url.pathname === "/api/extension/data") {
     const rules = seen.allowed ? { allowed: true, why: null, remaining: 5 } : { allowed: false, why: "Auto-Apply is switched off in Career Agent (Settings).", remaining: 0 };
-    return json(200, { ...buildFillData(profile, [{ question: "What is your notice period?", answer: "60 days" }]), queue: [], autoSubmit: { allowed: true, remainingToday: 5, why: null }, defaultResume: { name: "Master-Resume.pdf" }, filter: { linkedin: rules, naukri: rules }, latestExtensionVersion: "1.5.0" });
+    return json(200, { ...buildFillData(profile, [{ question: "What is your notice period?", answer: "60 days" }, { question: "Are you willing to relocate?", answer: "Yes" }]), queue: [], autoSubmit: { allowed: true, remainingToday: 5, why: null }, defaultResume: { name: "Master-Resume.pdf" }, filter: { linkedin: rules, naukri: rules }, latestExtensionVersion: "1.6.0" });
   }
   if (url.pathname === "/api/extension/file" && url.searchParams.get("kind") === "master") { res.writeHead(200, { ...cors, "Content-Type": "application/pdf" }); return res.end(Buffer.from("MY DEFAULT RESUME")); }
+  if (url.pathname === "/api/extension/answer" && req.method === "POST") return json(200, { answers: [] }); // nothing more can be learned in these tests
   if (url.pathname === "/api/extension/external" && req.method === "POST") {
     let body = ""; req.on("data", (c) => (body += c));
     req.on("end", () => {
@@ -67,6 +68,7 @@ const LI_JOBS = [
 ];
 const liPage = (extra = "") => `<!doctype html><html><body>
 <nav id="global-nav"><a href="/mynetwork">My network</a></nav>${extra}
+<div id="filters"><button>Jobs</button><button class="pill">Easy Apply</button><button>Date posted</button><button>Company</button><button>Remote</button><button>All filters</button></div>
 <div class="scaffold-layout__list jobs-search-results-list" style="height:260px;overflow:auto"><ul>
 ${LI_JOBS.map((j) => `<li data-occludable-job-id="${j.id}" class="scaffold-layout__list-item"><div class="job-card-container" data-job-id="urn:li:jobPosting:${j.id}">
   <a class="job-card-list__title" href="/jobs/view/${j.id}/">${j.title}</a><div class="artdeco-entity-lockup__subtitle">${j.company}</div>
@@ -133,6 +135,66 @@ function nkJob(j: (typeof NK_JOBS)[number]) {
   return `<!doctype html><html><body>${head}<button id="apply-button" onclick='${onclick}'>Apply</button></body></html>`;
 }
 
+
+// ---- LinkedIn's newer layout: no class names to rely on, the apply control is a link, the steps are in a window or on a page of their own ----
+const NEW_JOBS = [
+  { id: "4100000001", title: "Senior Change Manager", company: "Bluefin Resources", flow: "dialog" },
+  { id: "4100000002", title: "AI Programme Lead", company: "Whizdom", flow: "page" },
+  { id: "4100000003", title: "Delivery Director", company: "Zephyr Pte", flow: "question" },
+];
+const sentIds: string[] = [];
+const HID = "<style>.hid{position:absolute;opacity:0;width:0;height:0} label{display:inline-block;padding:3px 9px;border:1px solid #999;margin:2px}</style>";
+// the steps of an application, shared by the window and the page of its own: what is asked depends on window.FLOW, and window.JOBID says which job it is for
+const STEPS = `
+  var $ = function (i) { return document.getElementById(i); };
+  var step = 0;
+  function render() {
+    var body = $("body"), foot = $("foot");
+    if (step === 0) { body.innerHTML = '<h3>Contact info</h3><label for="ph">Mobile phone number*</label><input id="ph" required>'; foot.innerHTML = '<button id="next">Next</button>'; }
+    else if (step === 1) {
+      body.innerHTML = window.FLOW === "question" ? '<fieldset><legend>Do you hold a pilot licence?*</legend><input class="hid" type="radio" name="p" id="p1"><label for="p1">Yes</label><input class="hid" type="radio" name="p" id="p2"><label for="p2">No</label></fieldset>'
+        : window.FLOW === "page" ? '<span id="nl">Notice period*</span><div id="np" role="combobox" aria-labelledby="nl" aria-haspopup="listbox" tabindex="0" style="border:1px solid #999;padding:4px;width:200px">Select an option</div><div id="portal"></div>'
+        : '<fieldset><legend>Would you be open to relocation?*</legend><input class="hid" type="radio" name="r" id="r1"><label for="r1">Yes</label><input class="hid" type="radio" name="r" id="r2"><label for="r2">No</label></fieldset>';
+      foot.innerHTML = '<button id="next">Review</button>';
+      var np = $("np");
+      if (np) np.addEventListener("mousedown", function () { var m = document.createElement("div"); m.setAttribute("role", "listbox"); ["30 days", "60 days"].forEach(function (t) { var o = document.createElement("div"); o.setAttribute("role", "option"); o.textContent = t; o.addEventListener("mousedown", function () { np.textContent = t; $("portal").innerHTML = ""; }); m.append(o); }); $("portal").innerHTML = ""; $("portal").append(m); });
+    } else if (step === 2) { body.innerHTML = '<h3>Review your application</h3>'; foot.innerHTML = '<button id="submit">Submit application</button>'; }
+  }
+  document.addEventListener("click", function (e) {
+    if (e.target.id === "next") {
+      var bad = [].filter.call($("body").querySelectorAll("input"), function (x) { return x.type !== "radio" && !x.checkValidity(); });
+      var open = [].filter.call($("body").querySelectorAll("fieldset"), function (f) { return !f.querySelector("input:checked"); });
+      var np = $("np"), npBad = np && /^Select/.test(np.textContent);
+      if (bad.length || open.length || npBad) { bad.forEach(function (x) { x.setAttribute("aria-invalid", "true"); }); open.forEach(function (f) { f.setAttribute("aria-invalid", "true"); }); return; }
+      step++; render();
+    }
+    if (e.target.id === "submit") { fetch("/__sent?id=" + window.JOBID); $("foot").innerHTML = ""; $("body").innerHTML = '<h3>Application sent</h3><p>Your application was sent</p><button id="done">Done</button>'; window.SENT = true; }
+    if (e.target.id === "done" && $("dlg")) $("dlg").hidden = true;
+  });`;
+const applyPage = (id: string, flow: string) => `<!doctype html><html><body>${HID}<main><h2>Apply</h2><div id="body"></div><div id="foot"></div></main><script>window.FLOW=${JSON.stringify(flow)};window.JOBID=${JSON.stringify(id)};${STEPS} render();</script></body></html>`;
+const liNewPage = () => `<!doctype html><html><body>${HID}
+<header id="global-nav"><a href="/feed/">Home</a></header>
+<div><button aria-pressed="true">Easy Apply</button><button>Date posted</button><button>Company</button><button>Remote</button><button>All filters</button></div>
+<div style="display:flex;width:1200px"><div id="left" style="width:500px;height:520px;overflow:auto">
+${NEW_JOBS.map((j) => `<div class="x9"><div class="x8"><a href="/jobs/search-results/?currentJobId=${j.id}&keywords=ai">${j.title}</a><div>${j.company}</div><div>Melbourne, VIC (On-site)</div><div>3 weeks ago · Easy Apply</div></div></div>`).join("")}
+</div><div id="right" style="width:600px"><p>Select a job</p></div></div>
+<div role="dialog" aria-label="Apply" id="dlg" hidden style="position:fixed;top:20px;left:20px;width:480px;background:#fff;border:1px solid #333;padding:10px"><button aria-label="Dismiss" id="x">x</button><div id="body"></div><div id="foot"></div></div>
+<div role="dialog" id="confirm" hidden style="position:fixed;top:60px;left:60px;background:#fff;border:1px solid #333;padding:10px"><h3>Save this application?</h3><button id="discard">Discard</button><button id="save">Save</button></div>
+<script>
+window.discarded = [];
+var JOBS = ${JSON.stringify(Object.fromEntries(NEW_JOBS.map((j) => [j.id, j])))};
+${STEPS}
+document.getElementById("left").addEventListener("click", function (e) { var a = e.target.closest("a"); if (!a) return; e.preventDefault(); var id = new URL(a.href).searchParams.get("currentJobId"); history.replaceState(null, "", "?currentJobId=" + id); show(id); });
+function show(id) {
+  var j = JOBS[id];
+  $("right").innerHTML = '<h2>' + j.title + '</h2><a href="/company/x/">' + j.company + '</a><div><a href="/jobs/view/' + id + '/apply/?openSDUIApplyFlow=true" id="apply">Easy Apply</a> <button>Save</button></div><p>About the job</p>';
+  if (j.flow !== "page") $("apply").addEventListener("click", function (e) { e.preventDefault(); window.FLOW = j.flow; window.JOBID = id; window.SENT = false; step = 0; $("dlg").hidden = false; render(); });
+}
+$("x").onclick = function () { if (window.SENT) $("dlg").hidden = true; else $("confirm").hidden = false; };
+$("discard").onclick = function () { window.discarded.push(window.JOBID); $("confirm").hidden = true; $("dlg").hidden = true; };
+$("save").onclick = function () { $("confirm").hidden = true; $("dlg").hidden = true; };
+</script></body></html>`;
+
 async function startContext() {
   execFileSync("node", ["scripts/build-extension.mjs"], { stdio: "ignore" });
   extDir = mkdtempSync(join(tmpdir(), "ca-ext-"));
@@ -142,7 +204,13 @@ async function startContext() {
   await new Promise<void>((ok) => { server = createServer(handler).listen(0, "127.0.0.1", () => { base = `http://127.0.0.1:${(server.address() as { port: number }).port}`; ok(); }); });
   const c = await chromium.launchPersistentContext(mkdtempSync(join(tmpdir(), "ca-prof-")), { executablePath, headless: false, args: ["--headless=new", `--disable-extensions-except=${extDir}`, `--load-extension=${extDir}`, "--no-sandbox"] });
   let linkedinHtml = liPage();
-  await c.route("https://www.linkedin.com/**", (route) => route.fulfill({ contentType: "text/html", body: linkedinHtml }));
+  await c.route("https://www.linkedin.com/**", (route) => {
+    const u = new URL(route.request().url());
+    if (u.pathname === "/__sent") { sentIds.push(u.searchParams.get("id") ?? ""); return route.fulfill({ status: 200, body: "ok" }); }
+    const applying = u.pathname.match(/^\/jobs\/view\/(\d+)\/apply\/$/);
+    if (applying) return route.fulfill({ contentType: "text/html", body: applyPage(applying[1], NEW_JOBS.find((j) => j.id === applying[1])?.flow ?? "dialog") });
+    return route.fulfill({ contentType: "text/html", body: u.pathname.startsWith("/jobs/search-results") ? liNewPage() : linkedinHtml });
+  });
   await c.route("https://www.naukri.com/**", (route) => route.fulfill({ contentType: "text/html", body: nkList() }));
   (c as unknown as { setLinkedin(h: string): void }).setLinkedin = (h) => { linkedinHtml = h; };
   return c;
@@ -160,12 +228,19 @@ async function popupPage(c: BrowserContext): Promise<Page> {
   return popup;
 }
 async function runFilter(popup: Page, tab: Page, max = 10) {
+  await popup.evaluate(() => chrome.storage.local.remove("filterRun"));
   const tabId = await popup.evaluate(async (u) => Math.max(...(await chrome.tabs.query({ url: u })).map((t) => t.id)), new URL(tab.url()).origin + "/*");
   await popup.evaluate(([id, n]) => chrome.runtime.sendMessage({ type: "run-filter", tabId: id, max: n }), [tabId, max]);
 }
 async function finished(popup: Page, timeout = 150_000) {
-  await popup.waitForFunction(async () => { const r = (await chrome.storage.local.get("filterRun")).filterRun; return !!r && r.running === false; }, null, { timeout, polling: 1000 });
-  return popup.evaluate(async () => (await chrome.storage.local.get("filterRun")).filterRun as { results: { id: string; company: string; outcome: string; why: string | null }[]; stopped?: string | null });
+  type Run = { results: { id: string; company: string; outcome: string; why: string | null }[]; stopped?: string | null; running?: boolean };
+  const end = Date.now() + timeout;
+  for (;;) {
+    const r = await popup.evaluate(async () => (await chrome.storage.local.get("filterRun")).filterRun as Run | undefined);
+    if (r && r.running === false) return r;
+    if (Date.now() > end) throw new Error("the run did not finish: " + JSON.stringify(r));
+    await popup.waitForTimeout(500);
+  }
 }
 
 describe("Filter Auto Apply in a real browser", () => {
@@ -206,6 +281,28 @@ describe("Filter Auto Apply in a real browser", () => {
     await popup.waitForSelector("#filterOut");
     expect(await popup.textContent("#filterOut")).toMatch(/2 sent, 1 given back to you, 3 skipped/);
   }, 180_000);
+
+  live("works on LinkedIn's newer layout: finds the jobs without class names, fills a window and a page of its own, hidden radio buttons and a list dropdown, and gives back a question nobody can answer", async () => {
+    expect(ctx, "the browser with the extension must start").toBeDefined();
+    if (!ctx) return;
+    const popup = await popupPage(ctx);
+    await popup.evaluate(() => CA.refresh());
+    seen.external = []; seen.globalStop = false; seen.allowed = true; sentIds.length = 0;
+    const page = await ctx.newPage();
+    await page.goto("https://www.linkedin.com/jobs/search-results/?currentJobId=4100000001&keywords=ai");
+    await runFilter(popup, page);
+    const run = await finished(popup, 160_000);
+    const by = Object.fromEntries(run.results.map((r) => [r.id, r]));
+    expect(by["4100000001"], JSON.stringify(run)).toMatchObject({ outcome: "submitted", company: "Bluefin Resources" });
+    expect(by["4100000002"], JSON.stringify(run)).toMatchObject({ outcome: "submitted", company: "Whizdom" });
+    expect(by["4100000003"], JSON.stringify(run)).toMatchObject({ outcome: "blocked" });
+    expect(sentIds.sort()).toEqual(["4100000001", "4100000002"]);
+    expect(await page.evaluate(() => (window as unknown as { discarded: string[] }).discarded)).toEqual(["4100000003"]);
+    expect(page.url()).toContain("/jobs/search-results/");
+    const handBack = seen.external.find((e) => e.action === "needs_input");
+    expect(handBack).toMatchObject({ jobKey: "4100000003", questions: ["Do you hold a pilot licence?"] });
+    expect(seen.external.filter((e) => e.action === "submitted").map((e) => e.jobKey)).toEqual(["4100000001", "4100000002"]);
+  }, 200_000);
 
   live("stops the whole run when Career Agent says a limit is reached, and when LinkedIn asks for a security check", async () => {
     expect(ctx, "the browser with the extension must start").toBeDefined();
@@ -250,6 +347,7 @@ describe("Filter Auto Apply in a real browser", () => {
     const other = await ctx.newPage();
     await other.goto(`${base}/nothing`);
     const tabId = await popup.evaluate(async (u) => Math.max(...(await chrome.tabs.query({ url: u })).map((t) => t.id)), `${base}/*`);
+    await popup.evaluate(() => chrome.storage.local.remove("filterRun"));
     await popup.evaluate((id) => chrome.runtime.sendMessage({ type: "run-filter", tabId: id, max: 3 }), tabId);
     expect((await finished(popup)).stopped).toMatch(/Open LinkedIn Jobs/);
     expect(seen.external).toEqual([]);
@@ -275,5 +373,5 @@ describe("Filter Auto Apply in a real browser", () => {
   }, 150_000);
 });
 
-declare const chrome: { storage: { local: { set(o: unknown): Promise<void>; get(k: string): Promise<Record<string, any>> } }; runtime: { sendMessage(m: unknown): Promise<unknown> }; tabs: { query(q: unknown): Promise<{ id: number }[]> } }; // eslint-disable-line @typescript-eslint/no-explicit-any
+declare const chrome: { storage: { local: { set(o: unknown): Promise<void>; remove(k: string): Promise<void>; get(k: string): Promise<Record<string, any>> } }; runtime: { sendMessage(m: unknown): Promise<unknown> }; tabs: { query(q: unknown): Promise<{ id: number }[]> } }; // eslint-disable-line @typescript-eslint/no-explicit-any
 declare const CA: { refresh(): Promise<{ source: string; error?: string }> };

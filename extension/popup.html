@@ -38,6 +38,8 @@
       <label class="inline"><span>Apply to at most</span><input type="number" id="filterMax" min="1" max="25" value="10"><span>jobs this time</span></label>
       <div class="row2"><button id="runFilter" class="btn dark">Apply to the jobs on this page, one by one</button><button id="stopFilter" class="btn ghost">Stop</button></div>
       <div id="filterOut" class="log"></div>
+      <div class="row2"><button id="diagnose" class="btn ghost">Diagnose this page</button><button id="copyDiag" class="btn ghost" hidden>Copy</button></div>
+      <textarea id="diag" rows="7" readonly hidden></textarea>
       <details class="more"><summary>What it does and when it stops</summary>
         <p>For each job it skips what LinkedIn shows as Applied or that applies on the company's own site, asks Career Agent whether it may be sent, fills every step, presses Next and Submit, waits for the confirmation, and records it. A question it cannot answer is given back to you in Career Agent with the reason. It stops at a security check, a portal limit, a sign-in wall, or when Career Agent's limits are reached. It needs Auto-Apply on, and for LinkedIn also "Allow automated LinkedIn Easy Apply" in Career Agent Settings.</p>
       </details>

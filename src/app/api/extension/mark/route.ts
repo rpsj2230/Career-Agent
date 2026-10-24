@@ -7,7 +7,7 @@ import { claimApplication, releaseApplication } from "@/lib/extension/claim";
 const Body = z.discriminatedUnion("action", [
   z.object({ action: z.literal("submitted"), applicationId: z.string().uuid(), confirmation: z.string().max(1000).nullish(), finalUrl: z.string().url().max(1000).nullish() }),
   z.object({ action: z.literal("claim"), applicationId: z.string().uuid() }),
-  z.object({ action: z.literal("release"), applicationId: z.string().uuid(), note: z.string().min(1).max(400) }),
+  z.object({ action: z.literal("release"), applicationId: z.string().uuid(), note: z.string().min(1).max(400), questions: z.array(z.string().max(300)).max(10).optional() }),
 ]);
 
 /**
@@ -21,7 +21,7 @@ export async function POST(request: Request) {
     if (!body.success) return { ok: false, status: 400, error: "Invalid request" } as const;
     const b = body.data;
     if (b.action === "claim") return claimApplication(b.applicationId);
-    if (b.action === "release") return releaseApplication(b.applicationId, b.note);
+    if (b.action === "release") return releaseApplication(b.applicationId, b.note, b.questions);
     return markSubmitted(b.applicationId, "extension", { confirmation: b.confirmation, finalUrl: b.finalUrl });
   });
   if (!result) return NextResponse.json({ error: "This link code is not valid. Make a new one in Career Agent: Profile." }, { status: 401, headers: { "Cache-Control": "no-store" } });

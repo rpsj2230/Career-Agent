@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Career Agent by Rupash Pratap",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "Fills application forms from your own Career Agent data and attaches the resume made for the application. In automatic mode, when you switch it on and Career Agent allows it, it works through the applications the assistant could not finish and sends them. In Filter Auto Apply mode it applies to the LinkedIn or Naukri jobs you filtered, one by one, within the limits set in Career Agent. It never types a password, a payment or an identity number.",
   "permissions": [
     "activeTab",

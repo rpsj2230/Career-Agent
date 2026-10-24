@@ -60,7 +60,7 @@ function handler(req: IncomingMessage, res: ServerResponse) {
   }
   if (url.pathname === "/api/extension/data") {
     res.writeHead(200, { ...cors, "Content-Type": "application/json" });
-    return res.end(JSON.stringify({ ...buildFillData(profile, [{ question: "What is your notice period?", answer: "60 days" }]), queue: server$.queue, autoSubmit: server$.allowed ? { allowed: true, remainingToday: 10, why: null } : { allowed: false, remainingToday: 0, why: "Auto-Apply is switched off in Career Agent (Settings)." }, latestExtensionVersion: "1.5.0" }));
+    return res.end(JSON.stringify({ ...buildFillData(profile, [{ question: "What is your notice period?", answer: "60 days" }]), queue: server$.queue, autoSubmit: server$.allowed ? { allowed: true, remainingToday: 10, why: null } : { allowed: false, remainingToday: 0, why: "Auto-Apply is switched off in Career Agent (Settings)." }, latestExtensionVersion: "1.6.0" }));
   }
   if (url.pathname === "/api/extension/file") { res.writeHead(200, { ...cors, "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }); return res.end(Buffer.from("TAILORED RESUME")); }
   if (url.pathname === "/api/extension/mark" && req.method === "POST") {
