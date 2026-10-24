@@ -40,8 +40,8 @@ export async function claimApplication(id: string, now = new Date()): Promise<Cl
 }
 
 /** The extension could not finish (a question only you can answer, a captcha, a page it does not trust): the application goes back to you with the reason. */
-export async function releaseApplication(id: string, note: string): Promise<ClaimResult> {
-  const message = `Browser extension: ${note}`.slice(0, 500);
+export async function releaseApplication(id: string, note: string, questions: string[] = []): Promise<ClaimResult> {
+  const message = (questions.length ? `Needs you: ${questions.join("; ")}` : `Browser extension: ${note}`).slice(0, 500);
   const upd = must<{ id: string; job_id: string }[]>(await db().from("applications").update({ status: "needs_input", error: message }).eq("id", id).eq("status", "submitting").select("id,job_id"), "release application");
   if (!upd.length) return { ok: false, status: 409, error: "It was not being handled by the extension" };
   await logEvent(id, "needs_input", { message, via: "extension" });

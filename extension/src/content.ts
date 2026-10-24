@@ -13,7 +13,9 @@ import "./sites";
  * Fills the form on the page you are looking at, from your own data, and stops. It never presses a button, never submits, never types a password, a payment or an identity number,
  * and leaves a field alone when it already has something in it. What it could not answer is outlined in orange and listed for you.
  */
-export type FillReport = { filled: string[]; forYou: string[]; secret: string[] };
+/** A question the page asks that your data has no answer for: its wording, the options it offers (when it offers any), and what kind of control it is. */
+export type Question = { label: string; options: string[]; kind: "text" | "select" | "radio" | "checkbox" | "dropdown"; required: boolean };
+export type FillReport = { filled: string[]; forYou: string[]; secret: string[]; questions: Question[] };
 
 const visible = (el: Element) => { const r = (el as HTMLElement).getBoundingClientRect(); const s = getComputedStyle(el as HTMLElement); return r.width > 0 && r.height > 0 && s.visibility !== "hidden" && s.display !== "none"; };
 const text = (el: Element | null) => (el?.textContent ?? "").replace(/\s+/g, " ").trim();
@@ -52,20 +54,32 @@ function pick(options: string[], answer: string): number {
   if (i < 0) i = options.findIndex((o) => norm(o).includes(a) || (norm(o).length > 2 && a.includes(norm(o))));
   return i;
 }
+/** The label of a radio button or checkbox, whose own input is often hidden (zero size) while the label is what is shown and clicked. */
+const labelFor = (el: HTMLInputElement): HTMLElement | null => (el.id ? document.querySelector<HTMLElement>(`label[for="${CSS.escape(el.id)}"]`) : null) ?? el.closest("label");
+/** Shown to the person: the control itself, or (for a radio button or checkbox) its label. */
+const shown = (el: HTMLInputElement): boolean => visible(el) || ((el.type === "radio" || el.type === "checkbox") && !!labelFor(el) && visible(labelFor(el)!));
+/** Tick a radio button or checkbox the way a person would: the label when the input itself is hidden, then the input if that did not do it. */
+function tick(el: HTMLInputElement) {
+  const l = labelFor(el);
+  if (!visible(el) && l) l.click(); else el.click();
+  if (!el.checked) el.click();
+}
+/** The boxes that belong together: those in the same fieldset or group, or sharing a name. */
+function boxGroup(el: HTMLInputElement, root: ParentNode): HTMLInputElement[] {
+  const holder = el.closest("fieldset, [role=group], [role=radiogroup]");
+  const members = holder ? [...holder.querySelectorAll<HTMLInputElement>('input[type=checkbox]')] : el.name ? [...root.querySelectorAll<HTMLInputElement>(`input[type=checkbox][name="${CSS.escape(el.name)}"]`)] : [el];
+  return members.filter(shown);
+}
 const flag = (el: Element) => { (el as HTMLElement).style.outline = "2px solid #f97316"; (el as HTMLElement).style.outlineOffset = "2px"; };
 
-export function fillPage(data: FillData): FillReport {
-  const out: FillReport = { filled: [], forYou: [], secret: [] };
+/** What to answer for a question, from your own data: the standard fields, your saved answers, years with a tool, languages, a phone country code. null when there is no answer. */
+function makeValueFor(data: FillData): (label: string, options: string[]) => string | null {
   const profile = { experience: data.experience.map((e, i) => ({ id: `e${i}`, company: "", title: e.title, start: e.start, end: e.end, bullets: e.bullets.map((t, j) => ({ id: `b${i}.${j}`, text: t })) })) } as unknown as MasterProfile;
   const answers: Answer[] = data.answers;
-  // inside a window (a dialog) only its own fields count; otherwise the whole page
-  const root: ParentNode = windowRoot();
-  const controls = [...root.querySelectorAll<HTMLInputElement>("input, textarea, select")].filter((e) => {
-    const t = (e.type || "").toLowerCase();
-    return !["hidden", "submit", "button", "image", "reset", "file"].includes(t) && !e.disabled && !e.readOnly && visible(e) && !e.closest("header, nav, [role=search]");
-  });
-  const done = new Set<string>();
-  const valueFor = (label: string, options: string[]): string | null => {
+  const dial = (data.applicant.phone.match(/^\s*\+\s*(\d{1,3})/) ?? [])[1];
+  return (label, options) => {
+    if (dial && /country\s*code|dial(l?ing)?\s*code|phone\s*code/i.test(label)) return `+${dial}`;
+    if (/^\s*(current\s+)?(country|country\s+of\s+residence|country\s*\/\s*region)\s*[*:]*\s*$/i.test(label)) { const where = data.applicant.location.split(",").pop()?.trim(); if (where) return where; }
     const std = standardValue(label, data.applicant);
     if (std) return std;
     const banked = matchAnswer(label, answers);
@@ -74,22 +88,49 @@ export function fillPage(data: FillData): FillReport {
     if (skill) return skillYears(profile, skill) ?? defaultToolYears(profile, skill);
     return languageAnswer(label, options, data.languages) ?? declineOption(label, options);
   };
+}
+
+export function fillPage(data: FillData): FillReport {
+  const out: FillReport = { filled: [], forYou: [], secret: [], questions: [] };
+  // inside a window (a dialog) only its own fields count; otherwise the whole page
+  const root: ParentNode = windowRoot();
+  const controls = [...root.querySelectorAll<HTMLInputElement>("input, textarea, select")].filter((e) => {
+    const t = (e.type || "").toLowerCase();
+    return !["hidden", "submit", "button", "image", "reset", "file"].includes(t) && !e.disabled && !e.readOnly && shown(e) && !e.closest("header, nav, [role=search]");
+  });
+  const done = new Set<string>();
+  const valueFor = makeValueFor(data);
+  const unanswered = (q: Question, els: Element[]) => { if (q.required) { out.forYou.push(q.label); els.forEach(flag); out.questions.push(q); } };
   for (const el of controls) {
     const type = el.tagName === "SELECT" ? "select" : el.tagName === "TEXTAREA" ? "textarea" : (el.type || "text").toLowerCase();
-    const required = el.required || el.getAttribute("aria-required") === "true" || /[*✱]/.test(labelOf(el));
+    const grouped = type === "radio" || type === "checkbox";
+    const required = el.required || el.getAttribute("aria-required") === "true" || /[*✱]/.test(labelOf(el)) || (grouped && /[*✱]/.test(groupLabelOf(el))) || !!el.closest("[aria-required=true]");
     if (type === "radio") {
       const group = el.name || labelOf(el); if (done.has(group)) continue; done.add(group);
-      const members = [...root.querySelectorAll<HTMLInputElement>(`input[type=radio]${el.name ? `[name="${CSS.escape(el.name)}"]` : ""}`)].filter(visible);
+      const members = [...root.querySelectorAll<HTMLInputElement>(`input[type=radio]${el.name ? `[name="${CSS.escape(el.name)}"]` : ""}`)].filter(shown);
       if (members.some((m) => m.checked)) continue;
       const label = clean(groupLabelOf(el)); const opts = members.map((m) => clean(labelOf(m)));
       const v = label ? valueFor(label, opts) : null; const i = v ? pick(opts, v) : -1;
-      if (i >= 0) { members[i].click(); out.filled.push(label); } else if (required && label) { out.forYou.push(label); members.forEach(flag); }
+      if (i >= 0) { tick(members[i]); out.filled.push(label); } else if (label) unanswered({ label, options: opts, kind: "radio", required }, members);
       continue;
     }
     if (type === "checkbox") {
+      const group = boxGroup(el, root);
+      if (group.length >= 2) { // "select all that apply": one question, several boxes
+        const key = group[0].name || group[0].id || clean(groupLabelOf(el)); if (done.has(key)) continue; done.add(key);
+        if (group.some((m) => m.checked)) continue;
+        const label = clean(groupLabelOf(el)); const opts = group.map((m) => clean(labelOf(m)));
+        const v = label ? valueFor(label, opts) : null;
+        const chosen = v ? [...new Set(v.split(/[;,]|\band\b/i).map((part) => pick(opts, part.trim())).filter((i) => i >= 0))] : [];
+        if (chosen.length) { chosen.forEach((i) => tick(group[i])); out.filled.push(label); } else if (label) unanswered({ label, options: opts, kind: "checkbox", required }, group);
+        continue;
+      }
       const label = clean(labelOf(el));
-      if (required && !el.checked && CONSENT_BOX.test(label)) { el.click(); out.filled.push(label); }
-      else if (required && !el.checked && label) { out.forYou.push(`${label} (a box that is not a plain agreement)`); flag(el); }
+      if (el.checked || !label) continue;
+      if (required && CONSENT_BOX.test(label)) { tick(el); out.filled.push(label); continue; }
+      const v = valueFor(label, ["Yes", "No"]); // a single box that states something ("I am willing to relocate"): ticked when your data says yes
+      if (v && /^\s*(yes|true|y)\b/i.test(v)) { tick(el); out.filled.push(label); }
+      else if (required) { out.forYou.push(`${label} (a box that is not a plain agreement)`); flag(el); out.questions.push({ label, options: ["Yes", "No"], kind: "checkbox", required }); }
       continue;
     }
     const label = clean(labelOf(el) || groupLabelOf(el));
@@ -100,11 +141,91 @@ export function fillPage(data: FillData): FillReport {
     const options = type === "select" ? [...(el as unknown as HTMLSelectElement).options].map((o) => o.text.trim()).filter((t) => t && !/^\s*(please\s+)?(select|choose)\b/i.test(t)) : [];
     let v = valueFor(label, options);
     if (v != null && type !== "select" && wantsNumber(label)) v = asCount(v);
-    if (v == null) { if (required) { out.forYou.push(label); flag(el); } continue; }
+    const q: Question = { label, options, kind: type === "select" ? "select" : "text", required };
+    if (v == null) { unanswered(q, [el]); continue; }
     if (type === "select") {
       const sel = el as unknown as HTMLSelectElement; const i = pick([...sel.options].map((o) => o.text.trim()), v);
-      if (i >= 0) { setValue(sel, sel.options[i].value); out.filled.push(label); } else if (required) { out.forYou.push(label); flag(el); }
+      if (i >= 0) { setValue(sel, sel.options[i].value); out.filled.push(label); } else unanswered(q, [el]);
     } else { setValue(el, v); out.filled.push(label); }
+  }
+  return out;
+}
+
+/** The questions the page itself says are unanswered or invalid (after a Next that did not go on): their wording and options, so they can be looked up. */
+export function invalidQuestions(): Question[] {
+  const root = windowRoot();
+  const out: Question[] = [];
+  const seen = new Set<string>();
+  const shownError = (el: Element) => { let p: Element | null = el.closest("fieldset, [role=group], [role=radiogroup]") ?? el.parentElement?.parentElement ?? null; return !!p && [...p.querySelectorAll('[role="alert"], [class*="error" i], [class*="invalid" i]')].some((e) => visible(e) && text(e).length > 0); };
+  for (const el of root.querySelectorAll<HTMLInputElement>("input, select, textarea")) {
+    const type = (el.type || "").toLowerCase();
+    if (["hidden", "submit", "button", "image", "reset", "file"].includes(type) || el.disabled || !shown(el)) continue;
+    if (type === "radio" || type === "checkbox" ? (type === "radio" ? !!el.closest("fieldset, [role=radiogroup]")?.querySelector("input:checked") : el.checked) : !!el.value && !/^\s*(select|choose)/i.test((el as unknown as HTMLSelectElement).selectedOptions?.[0]?.text ?? "")) continue;
+    if (!(el.getAttribute("aria-invalid") === "true" || !el.checkValidity() || !!el.closest("[aria-invalid=true]") || shownError(el))) continue;
+    const group = type === "radio" || type === "checkbox" ? [...(el.closest("fieldset, [role=group], [role=radiogroup]") ?? root as ParentNode).querySelectorAll<HTMLInputElement>(`input[type=${type}]`)].filter(shown) : [];
+    const label = clean(type === "radio" || type === "checkbox" ? groupLabelOf(el) : labelOf(el) || groupLabelOf(el));
+    if (!label || seen.has(label) || sensitiveKind(label, type)) continue;
+    seen.add(label);
+    const options = type === "select" ? [...(el as unknown as HTMLSelectElement).options].map((o) => o.text.trim()).filter((t) => t && !/^\s*(please\s+)?(select|choose)\b/i.test(t)) : group.map((m) => clean(labelOf(m)));
+    out.push({ label, options, kind: type === "select" ? "select" : type === "radio" ? "radio" : type === "checkbox" ? "checkbox" : "text", required: true });
+  }
+  for (const t of root.querySelectorAll<HTMLElement>('[role="combobox"][aria-invalid="true"], [aria-haspopup="listbox"][aria-invalid="true"]')) {
+    const label = clean(labelOf(t as HTMLInputElement) || groupLabelOf(t as HTMLInputElement));
+    if (label && !seen.has(label)) { seen.add(label); out.push({ label, options: [], kind: "dropdown", required: true }); }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------
+// Dropdowns that are not a <select>: a box or button that opens a list of options (role "combobox" or "listbox"), or a box you type into to search a list.
+// ---------------------------------------------------------------------------------------------------------------------------
+const CUSTOM_DROPDOWN = '[role="combobox"], [aria-haspopup="listbox"], button[aria-haspopup="true"][aria-expanded], div[role="button"][aria-haspopup]';
+const PLACEHOLDER = /^\s*(select|choose|please|pick|--|—|–)|^\s*$/i;
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const press = (el: Element, ...types: string[]) => { for (const t of types) el.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, view: window })); };
+const openOptions = (): HTMLElement[] => [...document.querySelectorAll<HTMLElement>('[role="option"], [role="listbox"] li, [role="menu"] [role="menuitem"], [role="listbox"] [role="menuitemradio"]')].filter((o) => visible(o) && text(o));
+
+async function openAndRead(t: HTMLElement): Promise<HTMLElement[]> {
+  t.scrollIntoView?.({ block: "center" });
+  if (t instanceof HTMLInputElement) t.focus();
+  press(t, "mousedown", "mouseup", "click"); // most lists open on mousedown, some on click
+  await wait(350);
+  let opts = openOptions();
+  if (!opts.length) { t.click(); t.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })); await wait(350); opts = openOptions(); }
+  return opts;
+}
+function closeList(t: HTMLElement) {
+  for (const el of [t, document.body]) el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true }));
+  if (openOptions().length) press(document.body, "mousedown", "mouseup", "click");
+}
+
+/** Choose the right option in every custom dropdown of the page (or window) that is still empty: the answer comes from the same data as every other field. */
+export async function fillDropdowns(data: FillData): Promise<{ filled: string[]; forYou: string[]; questions: Question[] }> {
+  const out = { filled: [] as string[], forYou: [] as string[], questions: [] as Question[] };
+  const valueFor = makeValueFor(data);
+  const root = windowRoot();
+  const triggers = [...root.querySelectorAll<HTMLElement>(CUSTOM_DROPDOWN)].filter((t) => visible(t) && !t.closest("header, nav, [role=search], [role=listbox]") && t.getAttribute("aria-disabled") !== "true" && !(t instanceof HTMLSelectElement));
+  for (const t of triggers) {
+    const raw = labelOf(t as HTMLInputElement) || groupLabelOf(t as HTMLInputElement);
+    const label = clean(raw);
+    if (!label || sensitiveKind(label, "text")) continue;
+    const required = t.getAttribute("aria-required") === "true" || /[*✱]/.test(raw);
+    const current = t instanceof HTMLInputElement ? t.value : text(t).replace(label, "").trim();
+    if (current && !PLACEHOLDER.test(current)) continue; // it already says something
+    let options = await openAndRead(t);
+    let names = options.map((o) => text(o));
+    let v = valueFor(label, names);
+    let i = v ? pick(names, v) : -1;
+    if (i < 0 && v && (t instanceof HTMLInputElement || t.querySelector("input"))) { // a box that searches: type the answer and read what it offers
+      const box = t instanceof HTMLInputElement ? t : t.querySelector<HTMLInputElement>("input")!;
+      setValue(box, v);
+      await wait(600);
+      options = openOptions(); names = options.map((o) => text(o)); i = pick(names, v);
+      if (i < 0 && options.length === 1) i = 0;
+    }
+    if (i >= 0) { options[i].scrollIntoView?.({ block: "nearest" }); press(options[i], "mousedown", "mouseup", "click"); await wait(250); if (openOptions().length) options[i].click(); out.filled.push(label); }
+    else { closeList(t); if (required) { out.forYou.push(label); flag(t); out.questions.push({ label, options: names, kind: "dropdown", required }); } }
+    await wait(150);
   }
   return out;
 }
@@ -235,8 +356,36 @@ export function advance(o: AdvanceOpts): Advance {
 }
 
 declare global { interface Window { __careerAgentFill?: (data: FillData) => FillReport; __careerAgentAttach?: (resume: FileSpec | null, cover: FileSpec | null) => AttachReport; __careerAgentAdvance?: (o: AdvanceOpts) => Advance; __careerAgentConfirmed?: (baseline: boolean) => string | null; __careerAgentState?: () => ReturnType<typeof pageState> } }
+/** A small box in the corner of the page that says what the extension is doing, with a Stop button. Built in a shadow root, so the site's own styles cannot touch it. null removes it. */
+function overlay(message: string | null) {
+  let host = document.getElementById("career-agent-overlay");
+  if (message === null) { host?.remove(); return; }
+  if (!host) {
+    host = document.createElement("div");
+    host.id = "career-agent-overlay";
+    host.style.cssText = "position:fixed;top:72px;right:16px;z-index:2147483647;";
+    const root = host.attachShadow({ mode: "open" });
+    const style = document.createElement("style");
+    style.textContent = ".box{font:13px/1.4 system-ui,sans-serif;width:260px;background:#111418;color:#fff;border-radius:12px;padding:12px 14px;box-shadow:0 8px 24px rgba(0,0,0,.35)}.by{font-size:11px;opacity:.7;margin-bottom:6px}b{display:block;font-size:14px}p{margin:6px 0 10px;white-space:pre-wrap;word-break:break-word}button{font:inherit;font-weight:600;border:0;border-radius:8px;padding:6px 12px;background:#fff;color:#111418;cursor:pointer}";
+    const box = document.createElement("div"); box.className = "box";
+    const title = document.createElement("b"); title.textContent = "Career Agent";
+    const by = document.createElement("div"); by.className = "by"; by.textContent = "By Rupash Pratap";
+    const msg = document.createElement("p"); msg.id = "m";
+    const stop = document.createElement("button"); stop.textContent = "Stop";
+    stop.onclick = () => { try { chrome.runtime.sendMessage({ type: "stop-filter" }); } catch { /* the extension was reloaded */ } msg.textContent = "Stopping after the job in hand..."; };
+    box.append(title, by, msg, stop);
+    root.append(style, box);
+    document.documentElement.append(host);
+  }
+  const m = host.shadowRoot?.getElementById("m");
+  if (m) m.textContent = message;
+}
+declare const chrome: { runtime: { sendMessage(m: unknown): unknown } };
+(window as unknown as { __careerAgentOverlay: typeof overlay }).__careerAgentOverlay = overlay;
 (window as unknown as { __careerAgentSetScope: (sel: string | null) => void }).__careerAgentSetScope = (sel) => { (window as ScopeWindow).__careerAgentScopeSel = sel; };
 window.__careerAgentFill = fillPage;
+(window as unknown as { __careerAgentInvalid: typeof invalidQuestions }).__careerAgentInvalid = invalidQuestions;
+(window as unknown as { __careerAgentDropdowns: typeof fillDropdowns }).__careerAgentDropdowns = fillDropdowns;
 window.__careerAgentAttach = attachFiles;
 window.__careerAgentAdvance = advance;
 window.__careerAgentConfirmed = confirmedNow;

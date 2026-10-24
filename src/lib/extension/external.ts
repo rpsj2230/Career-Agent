@@ -98,7 +98,10 @@ async function ensureJob(j: ExternalJob): Promise<string> {
   return must<{ id: string }[]>(ins, "store job")[0].id;
 }
 
-export type ExternalOutcome = { outcome: "submitted"; confirmation?: string | null; finalUrl?: string | null } | { outcome: "needs_input"; note: string };
+/** The words stored with a hand-back. With questions it is the app's own "Needs you: A; B" form, which is what lists them for you to answer once. */
+export const handBackText = (o: { note: string; questions?: string[] }) => (o.questions?.length ? `Needs you: ${o.questions.join("; ")}` : `Browser extension: ${o.note}`).slice(0, 500);
+
+export type ExternalOutcome = { outcome: "submitted"; confirmation?: string | null; finalUrl?: string | null } | { outcome: "needs_input"; note: string; /** the questions it could not answer: listed under "Questions waiting for your answer" */ questions?: string[] };
 
 /**
  * The extension finished a job that came from a filtered list: store the job (once) and its application, as sent with the portal's own confirmation, or as waiting for you
@@ -109,12 +112,12 @@ export async function recordExternal(j: ExternalJob, o: ExternalOutcome): Promis
   let app = await applicationOf(jobId);
   if (app?.status === "submitted") return { ok: true };
   if (!app) {
-    const created = must<{ id: string }[]>(await db().from("applications").insert({ job_id: jobId, status: o.outcome === "submitted" ? "assisted_pending" : "needs_input", error: o.outcome === "needs_input" ? `Browser extension: ${o.note}`.slice(0, 500) : null }).select("id"), "store application");
+    const created = must<{ id: string }[]>(await db().from("applications").insert({ job_id: jobId, status: o.outcome === "submitted" ? "assisted_pending" : "needs_input", error: o.outcome === "needs_input" ? handBackText(o) : null }).select("id"), "store application");
     app = { id: created[0].id, status: "assisted_pending" };
     await logEvent(app.id, "created", { via: "extension", portal: j.portal });
   }
   if (o.outcome === "submitted") return markSubmitted(app.id, "extension", { confirmation: o.confirmation ?? `Sent from your own ${j.portal === "linkedin" ? "LinkedIn" : "Naukri"} account by the browser extension.`, finalUrl: o.finalUrl ?? j.url });
-  const message = `Browser extension: ${o.note}`.slice(0, 500);
+  const message = handBackText(o);
   must(await db().from("applications").update({ status: "needs_input", error: message }).eq("id", app.id).neq("status", "submitted").select("id"), "hand back application");
   await logEvent(app.id, "needs_input", { message, via: "extension" });
   await logActivity({ kind: "application.needs_input", level: "warn", message, status: "needs_input", application_id: app.id, ...jobLogFields({ id: jobId, company: j.company, portal: j.portal }), detail: { via: "extension", title: j.title } });

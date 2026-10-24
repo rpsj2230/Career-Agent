@@ -77,7 +77,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
   if (!msg) return false;
   if (msg.type === "open-and-fill") { openAndFill(msg.id).then(reply, (e) => reply({ error: e.message })); return true; }
   if (msg.type === "run-automatic") { runAutomatic("button").then(reply, (e) => reply({ error: e.message })); return true; }
-  if (msg.type === "run-filter") { runFilter(msg.tabId, msg.max).then(reply, (e) => reply({ error: e.message })); return true; }
+  if (msg.type === "run-filter") { if (filtering) { reply({ busy: true }); return false; } runFilter(msg.tabId, msg.max); reply({ started: true }); return false; } // answered at once: the run itself takes minutes
   if (msg.type === "stop-filter") { chrome.storage.local.set({ filterStop: true }).then(() => reply({ ok: true })); return true; }
   if (msg.type === "settings-changed") { syncAlarm().then(() => reply({ ok: true })); return true; }
   return false;

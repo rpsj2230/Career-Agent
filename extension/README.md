@@ -1,4 +1,4 @@
-# Career Agent: fill this form (browser extension)
+# Career Agent by Rupash Pratap (browser extension)
 
 For the applications the Mac assistant could not finish (Workday and other employer systems, job boards that refuse the assistant's browser), and for any application you open yourself.
 
@@ -44,6 +44,12 @@ For each job it: opens the job, skips it if LinkedIn shows "Applied", if it appl
 It gives a job back to you instead of sending it when a required question has no answer in your profile or answer bank, when a field only you may type (password, payment, identity number) appears, when the window does not move on, or when it sees a captcha. That job is closed without saving, listed in Applications as **Needs you** with the reason, and the run goes on to the next job. Answer the question once in Career Agent (or use "Open the form" and the extension's Fill) and the answer is used from then on.
 
 **It stops the whole run** at a LinkedIn security check or a "daily limit reached" message, a sign-in wall, when Career Agent says a limit is reached, and when it pressed Submit but saw no confirmation (that window is left open for you to check).
+
+**What it fills:** text boxes, `<select>` lists, radio buttons and check boxes (also when the page hides the real button behind a styled label, and groups of boxes marked "select all that apply"), dropdowns that open a list of options, boxes that search a list as you type, the phone country code, the country, and the agreement boxes. None of it depends on a site's class names.
+
+**Questions it cannot answer at first.** A form often words a question differently from the answer you saved. The extension first matches the meaning of the question against your saved answers ("Would you be open to relocation?" finds "Are you willing to relocate?"). If that finds nothing it asks Career Agent, which may ask its AI models, from your profile only, and saves what it learns in your answer bank (edit or delete it there), so the next form that asks it, in any wording, is answered at once. It never lets the AI answer about pay, visas, work rights, identity or the law: those, and anything the profile does not show, are handed back to you. A handed-back job lists the exact questions under **Questions waiting for your answer** on the Applications page; answer each once and it is used from then on.
+
+**A status box** at the top right of the LinkedIn or Naukri page says which job it is working on and has a **Stop** button. If it cannot find the jobs or a button, it says what the page showed, and **Diagnose this page** in the popup prints those facts so they can be copied.
 
 **Limits Career Agent enforces (the extension cannot override them):** Auto-Apply on, not paused, the daily total; for LinkedIn also "Allow automated LinkedIn Easy Apply" in Settings, the LinkedIn daily limit (default 10) and weekly limit (default 40); one application per company in the cool-down period; never a job already sent. A pause of a few seconds between jobs lets each page settle.
 

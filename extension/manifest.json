@@ -1,10 +1,37 @@
 {
   "manifest_version": 3,
-  "name": "Career Agent: fill this form",
-  "version": "1.4.0",
+  "name": "Career Agent by Rupash Pratap",
+  "version": "1.6.0",
   "description": "Fills application forms from your own Career Agent data and attaches the resume made for the application. In automatic mode, when you switch it on and Career Agent allows it, it works through the applications the assistant could not finish and sends them. In Filter Auto Apply mode it applies to the LinkedIn or Naukri jobs you filtered, one by one, within the limits set in Career Agent. It never types a password, a payment or an identity number.",
-  "permissions": ["activeTab", "scripting", "storage", "alarms"],
-  "optional_host_permissions": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
-  "background": { "service_worker": "background.js" },
-  "action": { "default_popup": "popup.html", "default_title": "Fill this form" }
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "alarms"
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Career Agent \u00b7 By Rupash Pratap",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "author": "Rupash Pratap"
 }
